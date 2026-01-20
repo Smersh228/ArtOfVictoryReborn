@@ -1,0 +1,16 @@
+export enum unitName {
+infantrySov = "Советкая Пехота",
+infantryWer = "Немецкая пехота",
+saperWer = "Немецкие штурмпионёры",
+saperSov = "Советские сапёры",
+t34 = "Т-34",
+t26 = "Т-26",
+pz2c = "PZ-2C",
+pz3g = "PZ-3G",
+opelBlitz = "Грузовик Opel Blitz",
+zis5 = "Грузовик ЗиС-5",
+maxim = 'Пулемёт "Максим" ',
+mg34 = "Пулемёт MG34",
+cannon45mm = "45-мм пт пушка",
+bt7 = "БТ-7",
+}

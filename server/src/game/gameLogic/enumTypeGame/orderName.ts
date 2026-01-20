@@ -1,0 +1,23 @@
+export enum OrderName {
+    "move",
+    "moveWar",
+    "fire",
+    "defend",
+    "attack",
+    "crossing",
+    "fireHard",
+    "cutAntiTankBuild",
+    "cutWire",
+    "buildTrench",
+    "mining",
+    "demining",
+    "tow",
+    "giveSup",
+    "deploy",
+    "clotting",
+    "unloading",
+    "loading",
+    "ambush",
+    "changeSector",
+    "giveSupStorage"
+}
