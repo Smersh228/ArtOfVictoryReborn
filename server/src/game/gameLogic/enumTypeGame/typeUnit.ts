@@ -1,11 +1,12 @@
 export enum typeUnits {
-    "infantry",
-    "cannon",
-    "techinc",
-    "armorTechinc",
-    "lightTank",
-    "middleTank",
-    "heavyTank",
-    "smallAir",
-    "bigAir",
+    infantry = "Пехота",
+    cannon = "Артиллерия",
+    techinc = "Техника",
+    armorTechinc = "Бронетехника",
+    lightTank = "Лёгкий танк",
+    middleTank = "Средний танк",
+    heavyTank = "Тяжёлый танк",
+    smallAir = "Малая авиация",
+    bigAir = "Большая авиация",
+    build = "Постройки"
 }

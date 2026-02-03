@@ -1,15 +1,15 @@
 export enum typeTerrain {
-    "plain",
-    "bushs",
-    "swamp",
-    "road",
-    "field",
-    "openForest",
-    "forest",
-    "city",
-    "village",
-    "river",
-    "bridge"
+    plain = "Пашня",
+    bushs = "Кустарники",
+    swamp = "Болото",
+    road = "Дорога",
+    field = "Равнина",
+    openForest = "Редколесье",
+    forest = "Лес",
+    city = "Город",
+    village = "Деревня",
+    river = "Река",
+    bridge = "Мость"
 
 
 }
