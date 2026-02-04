@@ -1,0 +1,9 @@
+.main {
+    width: 400px;
+    height: 500px;
+    background-color: rgba(212, 196, 196, 0.356);
+    justify-self: center;
+    margin-left: 10px;
+    border-radius: 10px;
+
+}

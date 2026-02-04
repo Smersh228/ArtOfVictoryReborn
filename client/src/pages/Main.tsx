@@ -1,10 +1,11 @@
 import React from 'react';
-
+import MainBlock from '../components/MainBlock';
+import styles from './styleModules/main.module.css'
 const Main: React.FC = () => {
   
   return (
-    <div>
-    <h1></h1>
+    <div className={styles.main} >
+    <MainBlock></MainBlock>
     </div>
   );
 };

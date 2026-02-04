@@ -15,7 +15,11 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
-
+     "baseUrl":".",
+    "paths": {
+    "*": ["*","*.ts","*tsx","*.css"]
+    },
+    "typeRoots": ["./node_modules/@types","./src/types"],
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
