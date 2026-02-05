@@ -1,12 +1,11 @@
 import React from 'react';
 import MainBlock from '../components/MainBlock';
 import styles from './styleModules/main.module.css'
-import EditoMap from './editorMap';
 const Main: React.FC = () => {
   
   return (
-    <div  >
-    <EditoMap></EditoMap>
+    <div className={styles.main} >
+    <MainBlock></MainBlock>
     </div>
   );
 };

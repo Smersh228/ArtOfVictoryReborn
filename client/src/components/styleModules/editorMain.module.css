@@ -1,0 +1,27 @@
+.main {
+    width: 95%;
+    height: 95%;
+    background-color: rgba(212, 196, 196, 0.356);
+    margin-left: 10px;
+    border-radius: 10px;
+}
+
+.mainHead {
+width: 100%;
+height: 10%;
+display: flex;
+justify-content: space-around;
+
+
+}
+.mainCenter {
+display: flex;
+flex-direction: row;
+
+
+}
+.mainCenter1 {
+    margin-left: 15px;
+
+
+}
