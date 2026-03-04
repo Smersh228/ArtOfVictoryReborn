@@ -1,26 +1,43 @@
-.main {
-    width: 95%;
-    height: 95%;
+.editorMain {
+    width: 98%;
     background-color: rgba(212, 196, 196, 0.356);
     margin-left: 10px;
     border-radius: 10px;
 }
 
-.mainHead {
-width: 100%;
+.editorMainHead {
+width: 83%;
 height: 10%;
 display: flex;
 justify-content: space-around;
 
 
 }
-.mainCenter {
+.editorMainHeadUnit {
+
+display: flex;
+justify-content: space-evenly;
+
+
+}
+
+.editorMainHeadManual {
+width: 30%;
+height: 10%;
+display: flex;
+justify-content: center;
+
+
+
+}
+
+.editorMainCenter {
 display: flex;
 flex-direction: row;
 
 
 }
-.mainCenter1 {
+.editorMainCenter1 {
     margin-left: 15px;
 
 

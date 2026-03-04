@@ -1,10 +1,17 @@
 import React from 'react';
 import styles from './styleModules/button.module.css'
-const Button: React.FC = () => {
+interface Button {
+name:string
+
+
+}
+
+
+const Button: React.FC<Button> = ({name}) => {
   
   return (
     <div className={styles.button}>
-     Сетевая игра
+      {name}
     </div>
   );
 };
