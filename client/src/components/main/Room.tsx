@@ -5,7 +5,7 @@ const Room: React.FC = () => {
   
   return (
     <div  >
-    
+        Комната
     </div>
   );
 };

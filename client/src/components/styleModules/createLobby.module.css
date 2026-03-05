@@ -1,13 +1,14 @@
-.list {
+.createLobby {
 width: 1000px;
 height: 800px;
 border: solid black 2px;
 margin-left: 10%;
 margin-top: 5%;
 border-radius: 10px;
+display: none;
 }
 
-.listName {
+.createLobbyName {
 background-color: rgba(128, 128, 128, 0.438);
 color:white;
 border-radius: 10px 10px 0px 0px;

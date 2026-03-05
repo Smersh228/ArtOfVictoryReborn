@@ -1,8 +1,10 @@
 .main {
+    display: flex;
+    flex-direction: column;
     width: 400px;
     height: 500px;
     background-color: rgba(212, 196, 196, 0.356);
-    
+    justify-content: center;
     transform: translateY(50%);
     margin-left: 10px;
     border-radius: 10px;

@@ -1,0 +1,65 @@
+.lobby {
+width: 95%;
+height: 96vh;
+border: solid black 2px;
+margin-left: 50px;
+margin-bottom: 10px;
+margin-top: 20px;
+border-radius: 10px;
+}
+
+.lobbyName {
+background-color: rgba(128, 128, 128, 0.438);
+color:white;
+border-radius: 10px 10px 0px 0px;
+height: 40px;
+text-align: center;
+}
+.lobbyListPlayer {
+width: 600px;
+height: 500px;
+border: 2px solid black;
+border-radius: 10px;
+}
+.lobbyInfo {
+display: grid;
+border: 2px solid black;
+width: 64%;
+margin-top: 25px;
+height: 86vh;
+border-radius: 10px;
+grid-template-columns: 1fr 1fr ;
+grid-template-rows: 1fr 1fr ;
+min-width: 0;
+}
+
+.lobbyButtons {
+display: flex;
+justify-content: space-between;
+
+}
+
+.lobbyBlockInfo {
+border: 2px solid black;
+font-size: 18px;
+text-align: justify;
+padding: 10px;
+
+}
+.lobbyBlockTaskInfo {
+    border: 2px solid black;
+grid-column: 1;
+grid-row: 1;
+
+}
+.lobbyMap{
+    border: 2px solid black;
+grid-column: 1;
+grid-row: 2;
+
+}
+.lobbyHistorical {
+grid-column: 2;
+grid-row: 1 / span 2;
+border: 2px solid black;
+}

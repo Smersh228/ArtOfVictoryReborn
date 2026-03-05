@@ -1,0 +1,30 @@
+.editorUnit {
+border-radius: 10px;
+margin-left: 20px;
+margin-top: 15px;
+width: 98%;
+height: 97vh;
+background-color: rgba(196, 194, 194, 0.26);
+}
+.editorUnitList {
+margin-left: 10px;
+width: 500px;
+height: 800px;
+background-color: rgba(255, 255, 255, 0.26);
+}
+.editorUnitParametrs {
+margin-left: 80px;
+ margin-right: 10px;
+width: 1300px;
+height: 400px;
+background-color: rgba(252, 252, 252, 0.26);
+}
+.editorUnitOrders {
+margin-right: 10px;
+margin-left: 80px;
+margin-top: 10px;
+width: 1300px;
+height: 400px;
+background-color: rgba(252, 252, 252, 0.26);
+}
+

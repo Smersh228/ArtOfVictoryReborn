@@ -6,55 +6,5 @@ justify-content: center;
 align-items: center;
 }
 
-.editorMap {
-margin-left: 5px;
-
-width: 99%;
-height: 95%;
-background-color: rgba(196, 194, 194, 0.26);
-}
-
-
-.editorMainMap {
-width: 1400px;
-height: 800px;
-background-color: rgba(255, 255, 255, 0.26);
-
-}
-
-.editorMapTool {
-    margin-left: 80px;
-width: 400px;
-height: 800px;
-background-color: rgba(252, 252, 252, 0.26);
-}
-.editorUnit {
-margin-left: 5px;
-
-width: 99%;
-height: 95%;
-background-color: rgba(196, 194, 194, 0.26);
-}
-
-
-.editorUnitList {
-width: 1400px;
-height: 800px;
-background-color: rgba(255, 255, 255, 0.26);
-
-}
-
-.editorUnitParametrs {
-    margin-left: 80px;
-width: 400px;
-height: 800px;
-background-color: rgba(252, 252, 252, 0.26);
-}
-.editorUnitOrders {
-    margin-left: 80px;
-width: 400px;
-height: 800px;
-background-color: rgba(252, 252, 252, 0.26);
-}
 
 

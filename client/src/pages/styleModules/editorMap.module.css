@@ -1,0 +1,24 @@
+.editorMap {
+margin-left: 5px;
+margin-top: 25px;
+width: 99%;
+height: 96vh;
+background-color: rgba(196, 194, 194, 0.26);
+border-radius: 10px;
+}
+.editorMainMap {
+    margin-left: 10px;
+width: 1400px;
+height: 840px;
+background-color: rgba(255, 255, 255, 0.26);
+margin-top: 10px;
+border-radius: 10px;
+}
+.editorMapTool {
+margin-top: 10px;
+margin-left: 80px;
+width: 400px;
+height: 840px;
+background-color: rgba(252, 252, 252, 0.26);
+border-radius: 10px;
+}

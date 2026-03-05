@@ -1,11 +1,11 @@
 import React from 'react';
-import styles from '../styleModules/mainBlock.module.css'
+import styles from '../styleModules/createLobby.module.css'
 import Button from '../Button';
 const CreateLobby: React.FC = () => {
   
   return (
-    <div  >
-    sdfsdf111
+  <div className={styles.createLobby}  >
+      <div className={styles.createLobbyName}>Создание игровой комнаты</div>
     </div>
   );
 };

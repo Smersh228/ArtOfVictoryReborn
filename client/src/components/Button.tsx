@@ -2,15 +2,15 @@ import React from 'react';
 import styles from './styleModules/button.module.css'
 interface Button {
 name:string
-
+size?:number
 
 }
 
 
-const Button: React.FC<Button> = ({name}) => {
+const Button: React.FC<Button> = ({name,size}) => {
   
   return (
-    <div className={styles.button}>
+    <div style={{width:size === undefined ? "" : `${size}px`}} className={styles.button}>
       {name}
     </div>
   );
