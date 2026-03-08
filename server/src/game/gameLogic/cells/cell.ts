@@ -12,14 +12,14 @@ technics:number;
 
 }
 interface IBuildCell {
-trench:1;
-wire:1;
-antiTankBuild:1;
-storage:1;
-mine:1;
-trenchTank:1;
-dot:1;
-pontonBridge:1;
+trench:number;
+wire:number;
+antiTankBuild:number;
+storage:number;
+mine:number;
+trenchTank:number;
+dot:number;
+pontonBridge:number;
 }
 
 

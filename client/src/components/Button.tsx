@@ -1,16 +1,19 @@
 import React from 'react';
 import styles from './styleModules/button.module.css'
-interface Button {
-name:string
-size?:number
 
+interface ButtonProps {
+  name: string
+  size?: number
+  onClick?: () => void
 }
 
-
-const Button: React.FC<Button> = ({name,size}) => {
-  
+const Button: React.FC<ButtonProps> = ({ name, size, onClick }) => {
   return (
-    <div style={{width:size === undefined ? "" : `${size}px`}} className={styles.button}>
+    <div 
+      onClick={onClick}
+      style={{ width: size ? `${size}px` : 'auto' }}
+      className={styles.button}
+    >
       {name}
     </div>
   );
