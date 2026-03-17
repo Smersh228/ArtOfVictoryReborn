@@ -8,12 +8,9 @@ import Modal from '../components/Modal'
 
 const EditorMap: React.FC = () => {
   const [cells, setCells] = useState<Cell[]>([])
-  
- 
   const [showGridModal, setShowGridModal] = useState<boolean>(false)
   const [showGuideModal, setShowGuideModal] = useState<boolean>(false)
   const [showExportModal, setShowExportModal] = useState<boolean>(false)
-  
   const [widthSize, setWidthSize] = useState<number>(10)
   const [heightSize, setHeightSize] = useState<number>(10)
   const [activeTab, setActiveTab] = useState<string>("units")
@@ -21,19 +18,13 @@ const EditorMap: React.FC = () => {
   const [selectedUnitType, setSelectedUnitType] = useState<string>("all")
   const [selectedItem, setSelectedItem] = useState<any>(null)
   const [nextInstanceId, setNextInstanceId] = useState<number>(1)
-
   const [axisCapture, setAxisCapture] = useState({ enabled: false, hexes: "", turns: "", requiredUnits: "1"})
   const [axisElimination, setAxisElimination] = useState({enabled: false, type: "all", specificUnits: ""})
-
   const [allyTasks, setAllyTasks] = useState("")
   const [axisTasks, setAxisTasks] = useState("")
- 
   const [maxTurns, setMaxTurns] = useState("20")
-
-  /*const [weather, setWeather] = useState({fog: false, wind: false})
-
-  const [resources, setResources] = useState({fuel: false, food: false}) */
-
+  const [weather, setWeather] = useState({fog: false, wind: false})
+  const [resources, setResources] = useState({fuel: false, food: false})
   const [missionBrief, setMissionBrief] = useState("")
   const [historyText, setHistoryText] = useState("")
   const [photos, setPhotos] = useState<string[]>([])
@@ -64,12 +55,13 @@ const EditorMap: React.FC = () => {
     { id: 'heavyAir', label: 'Большая авиация' }
   ]
 
- const units = [
-  /*   {  ВРЕМЕННО
+  const units = [
+  /*  { 
       id: 1, 
       name: 'Немецкая пехота', 
       type: 'infantry', 
       faction: 'germany', 
+      icon: '🪖',
       imagePath: '/src/img/units/Germany/humans/humans/infanrtyGerman.png'
     },
     { 
@@ -77,6 +69,7 @@ const EditorMap: React.FC = () => {
       name: 'Советская пехота', 
       type: 'infantry', 
       faction: 'ussr', 
+      icon: '🔫',
       imagePath: '/src/img/units/USSR/humans/infantry/infantryUSSR.png' 
     },
     { 
@@ -84,13 +77,15 @@ const EditorMap: React.FC = () => {
       name: 'T-34', 
       type: 'mediumTank', 
       faction: 'ussr', 
+      icon: '🚂',
       imagePath: '/src/img/units/USSR/tanks/mediumTanks/t34.png' 
     },
     { 
       id: 4, 
       name: 'Pz-3G', 
       type: 'mediumTank', 
-      faction: 'germany',   
+      faction: 'germany', 
+      icon: '🚀',
       imagePath: '/src/img/units/Germany/tanks/mediumTanks/pz3.png' 
     },
     { 
@@ -98,13 +93,14 @@ const EditorMap: React.FC = () => {
       name: 'Пулемёт максим', 
       type: 'infantry', 
       faction: 'ussr', 
+      icon: '🎯',
       imagePath: '/src/img/units/USSR/humans/infantry/maxim.png' 
-    },*/
+    }, */
   ]
 
   const hexTypes = [
   //  { id: 'forest', type: "forest", name: "Лес", imagePath: '/src/img/hex/nature/forest.png' }
-  ] 
+  ]
 
   const generateEmptyGrid = (width: number, height: number) => {
     const newCells: Cell[] = []
@@ -119,7 +115,6 @@ const EditorMap: React.FC = () => {
       const q_offset = Math.floor(q / 2)
       for (let r = top - q_offset; r <= bottom - q_offset; r++) {
         const s = -q - r
-//
         const newCell = new Cell(
           id++,
           'plain', 
@@ -131,30 +126,23 @@ const EditorMap: React.FC = () => {
           { infantry: 0, technics: 0 },
           { trench: 0, wire: 0, antiTankBuild: 0, storage: 0, mine: 0, trenchTank: 0, dot: 0, pontonBridge: 0 }
         )
-        
         newCells.push(newCell)
       }
     }
-    
     setCells(newCells)
     setShowGridModal(false)
   }
 
   const handleCellClick = (cell: Cell) => {
     if (!selectedItem) return
-    
     setCells(prevCells => 
       prevCells.map(c => {
         if (c.id === cell.id) {
           if (activeTab === 'hexes') {
-            return {
-              ...c,
-              type: selectedItem.type
-            }
+            return { ...c, type: selectedItem.type }
           }
           if (activeTab === 'units') {
             const currentUnits = c.units || []
-            
             if (currentUnits.length >= 3) {
               alert('Нельзя поставить больше 3 юнитов на один гекс!')
               return c
@@ -162,12 +150,11 @@ const EditorMap: React.FC = () => {
             const newUnit = {
               ...selectedItem,
               instanceId: nextInstanceId,
+              health: 100,
+              ammo: 100
             }         
             setNextInstanceId(nextInstanceId + 1)
-            return {
-              ...c,
-              units: [...currentUnits, newUnit]
-            }
+            return { ...c, units: [...currentUnits, newUnit] }
           }
         }
         return c
@@ -179,10 +166,7 @@ const EditorMap: React.FC = () => {
     setCells(prevCells => 
       prevCells.map(c => {
         if (c.id === cell.id && c.units) {
-          return {
-            ...c,
-            units: c.units.filter(u => u.instanceId !== unitInstanceId) // переделать
-          }
+          return { ...c, units: c.units.filter(u => u.instanceId !== unitInstanceId) }
         }
         return c
       })
@@ -207,14 +191,17 @@ const EditorMap: React.FC = () => {
     setPhotos(newPhotos)
   }
 
-
+  const exportMap = () => {
+    console.log('Выгружаем карту:', cells)
+    alert('Карта выгружена!')
+    setShowExportModal(false)
+  }
 
   return (
     <div className={styles.editorMap}>
-     
       <div style={{display: 'flex'}}>
         <div style={{display: 'flex', width: '1400px', justifyContent: 'space-between'}}>
-          <Button size={280} name='Назад в меню' /> {/*  в будущем*/}
+          <Button size={280} name='Назад в меню' />
           <Button size={280} name='Сохранить карту' />
           <Button size={280} name='Сгенерировать сетку' onClick={() => setShowGridModal(true)} />
           <Button size={280} name='Выгрузить карту' onClick={() => setShowExportModal(true)} />
@@ -322,10 +309,7 @@ const EditorMap: React.FC = () => {
                         type="checkbox" 
                         checked={axisCapture.enabled}
                         onChange={(e) => {
-                          setAxisCapture({
-                            ...axisCapture,
-                            enabled: e.target.checked
-                          })
+                          setAxisCapture({ ...axisCapture, enabled: e.target.checked })
                           if (e.target.checked) {
                             setAxisElimination({...axisElimination, enabled: false})
                           }
@@ -353,10 +337,7 @@ const EditorMap: React.FC = () => {
                     <label style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <input type="checkbox" checked={axisElimination.enabled}
                         onChange={(e) => {
-                          setAxisElimination({
-                            ...axisElimination,
-                            enabled: e.target.checked
-                          })
+                          setAxisElimination({ ...axisElimination, enabled: e.target.checked })
                           if (e.target.checked) {
                             setAxisCapture({...axisCapture, enabled: false})
                           }
@@ -518,11 +499,10 @@ const EditorMap: React.FC = () => {
                 </div>
               ))}
             </div>
-            </div>
+          </div>
         </div>
       </div>
 
-  
       <Modal isOpen={showGridModal} onClose={() => setShowGridModal(false)} title="Генерация сетки">
         <div>
           <div>Ширина (5-20):</div>
@@ -550,65 +530,54 @@ const EditorMap: React.FC = () => {
         </div>
       </Modal>
 
-    
       <Modal isOpen={showGuideModal} onClose={() => setShowGuideModal(false)} title="Руководство по редактору">
         1
-           <Button name="Закрыть" onClick={() => setShowGridModal(false)} />
+        <Button name="Закрыть" onClick={() => setShowGridModal(false)} />
       </Modal>
 
-  
-<Modal isOpen={showExportModal} onClose={() => setShowExportModal(false)} title="Выгрузить карту">
-  <div style={{ padding: '10px' }}>
-    
-   
-    
+      <Modal isOpen={showExportModal} onClose={() => setShowExportModal(false)} title="Выгрузить карту">
+        <div style={{ padding: '10px' }}>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '10px'
+          }}>
+            <h4 style={{ margin: 0 }}>Сохраненные карты:</h4>
+          </div>
 
- 
-    <div style={{ 
-      display: 'flex', 
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: '10px'
-    }}>
-      <h4 style={{ margin: 0 }}>Сохраненные карты:</h4>
-      
-    </div>
+          <div style={{ 
+            maxHeight: '300px',
+            overflowY: 'auto',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            padding: '5px'
+          }}>
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '30px 20px',
+              color: '#999'
+            }}>
+            </div>
+          </div>
 
-   
-    <div style={{ 
-      maxHeight: '300px',
-      overflowY: 'auto',
-      border: '1px solid #ddd',
-      borderRadius: '6px',
-      padding: '5px'
-    }}>
-      <div style={{ 
-        textAlign: 'center', 
-        padding: '30px 20px',
-        color: '#999'
-      }}>
-    
-      </div>
-    </div>
-
-   
-    <div style={{ 
-      display: 'flex', 
-      gap: '10px', 
-      marginTop: '20px',
-      justifyContent: 'center'
-    }}>
-      <Button 
-        name='Выгрузить' 
-        onClick={() => {
-          console.log('Выгружаем карту')
-          setShowExportModal(false)
-        }}
-      />
-      <Button name="Закрыть" onClick={() => setShowExportModal(false)} />
-    </div>
-  </div>
-</Modal>
+          <div style={{ 
+            display: 'flex', 
+            gap: '10px', 
+            marginTop: '20px',
+            justifyContent: 'center'
+          }}>
+            <Button 
+              name='Выгрузить' 
+              onClick={() => {
+                console.log('Выгружаем карту')
+                setShowExportModal(false)
+              }}
+            />
+            <Button name="Закрыть" onClick={() => setShowExportModal(false)} />
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

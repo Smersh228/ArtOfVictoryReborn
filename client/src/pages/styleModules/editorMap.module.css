@@ -16,9 +16,184 @@ border-radius: 10px;
 }
 .editorMapTool {
 margin-top: 10px;
-margin-left: 80px;
-width: 400px;
+margin-left: 20px;
+width: 450px;
 height: 840px;
 background-color: rgba(252, 252, 252, 0.26);
 border-radius: 10px;
+display: flex;
+flex-direction: column;
+overflow: hidden;
+}
+
+.editorUnitFilter {
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border-bottom: 2px solid #111111;
+  background: rgba(255,255,255,0.1);
+  flex-shrink: 0;
+}
+
+.mainTabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(0,0,0,0.1);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.mainTab {
+  flex: 1;
+  padding: 8px;
+  text-align: center;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.mainTab:hover {
+  background: rgba(255,255,255,0.5);
+}
+
+.mainTab.active {
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.filterGroup {
+  background: rgba(0,0,0,0.1);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.filterGroupTitle {
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 10px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.filterRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filterItem {
+  padding-bottom: 9px;
+  padding-top: 9px;
+  padding-left: 7px;
+  padding-right: 7px;
+  background: #e0e0e0;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  text-align: center;
+  border: 1px solid transparent;
+}
+
+.filterItem:hover {
+   background: rgba(53, 49, 49, 0.5);
+ color: white;
+}
+
+.filterItem.active {
+ background: rgba(53, 49, 49, 0.5);
+ color: white;
+ 
+}
+
+.objectsBlock {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 15px;
+}
+
+.objectsTitle {
+  font-size: 16px;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 15px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #4a90e2;
+}
+
+.objectsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  overflow-y: auto;
+  padding-right: 5px;
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f0f0f0;
+}
+
+.objectsGrid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.objectsGrid::-webkit-scrollbar-track {
+  background: #f0f0f0;
+  border-radius: 10px;
+}
+
+.objectsGrid::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 10px;
+}
+
+.objectItem {
+  background: rgba(255, 255, 255, 0.247);
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.objectItem:hover {
+
+  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.2);
+}
+
+.objectItem.selected {
+ 
+  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
+}
+
+.objectIcon {
+  font-size: 24px;
+  margin-bottom: 5px;
+}
+
+.objectName {
+  font-size: 12px;
+  color: #333;
+  word-break: break-word;
+}
+
+.editorUnitItems {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 100px);
+  gap: 20px 15px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  justify-content: center;
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f0f0f0;
 }
