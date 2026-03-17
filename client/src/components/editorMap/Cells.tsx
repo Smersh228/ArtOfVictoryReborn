@@ -3,7 +3,7 @@ import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
 
 interface CellsProps {
   cells: Cell[]
-  width: number
+  width: number 
   height: number
   cellSize: number
   onCellClick?: (cell: Cell) => void

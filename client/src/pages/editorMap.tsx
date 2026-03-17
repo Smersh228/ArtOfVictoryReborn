@@ -119,7 +119,7 @@ const EditorMap: React.FC = () => {
       const q_offset = Math.floor(q / 2)
       for (let r = top - q_offset; r <= bottom - q_offset; r++) {
         const s = -q - r
-
+//
         const newCell = new Cell(
           id++,
           'plain', 

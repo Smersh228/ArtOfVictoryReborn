@@ -1,11 +1,24 @@
 .button {
-font-family: 'Courier New', Courier, monospace;
-text-align: center;
-padding: 10px;
-height: 40px;
-border: 2px solid black;
-border-radius: 50px;
-margin: 10px;
-background-color: gray;
- line-height: 2;
+  padding-bottom: 9px;
+  padding-top: 9px;
+  padding-left: 7px;
+  padding-right: 7px;
+  background: #e0e0e0;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  text-align: center;
+  border: 1px solid transparent;
+  margin: 10px;
+}
+.button:hover {
+   background: rgba(53, 49, 49, 0.5);
+ color: white;
+}
+
+.button.active {
+ background: rgba(53, 49, 49, 0.5);
+ color: white;
+ 
 }
