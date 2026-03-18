@@ -22,7 +22,7 @@ const App: React.FC = () => {
 
   return (
     <div>
-     <EditorMap></EditorMap>
+    <EditorUnit></EditorUnit>
     </div>
   );
 };

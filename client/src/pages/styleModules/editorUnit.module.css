@@ -3,28 +3,178 @@ border-radius: 10px;
 margin-left: 20px;
 margin-top: 15px;
 width: 98%;
-height: 97vh;
+height: 95.1vh;
 background-color: rgba(196, 194, 194, 0.26);
 }
 .editorUnitList {
 margin-left: 10px;
-width: 500px;
-height: 800px;
+width: 360px;
+height: 870px;
 background-color: rgba(255, 255, 255, 0.26);
+display: flex;
+flex-direction: column;
 }
 .editorUnitParametrs {
-margin-left: 80px;
- margin-right: 10px;
-width: 1300px;
-height: 400px;
+margin-left: 20px;
+
+ 
+width: 1450px;
+height: 370px;
 background-color: rgba(252, 252, 252, 0.26);
 }
 .editorUnitOrders {
-margin-right: 10px;
-margin-left: 80px;
-margin-top: 10px;
-width: 1300px;
-height: 400px;
+margin-left: 20px;
+
+
+width: 1450px;
+height: 429px;
 background-color: rgba(252, 252, 252, 0.26);
 }
 
+.editorUnitFilter {
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border-bottom: 1px solid #ccc;
+  background: rgba(255,255,255,0.1);
+}
+
+.filterGroup {
+  background: rgba(0,0,0,0.05);
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.filterGroupTitle {
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 10px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.filterRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filterItem {
+  padding-bottom: 9px;
+  padding-top: 9px;
+  padding-left: 7px;
+  padding-right: 7px;
+  background: #e0e0e0;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  text-align: center;
+  border: 1px solid transparent;
+}
+
+.filterItem:hover {
+   background: rgba(53, 49, 49, 0.5);
+ color: white;
+}
+
+.filterItem.active {
+ background: rgba(53, 49, 49, 0.5);
+ color: white;
+ 
+}
+
+.mainTabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(0,0,0,0.1);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.mainTab {
+  flex: 1;
+  padding: 8px;
+  text-align: center;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.mainTab:hover {
+  background: rgba(255,255,255,0.5);
+}
+
+.mainTab.active {
+  background: white;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.editorUnitItems {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(3, 100px);
+  gap: 20px 15px;
+  overflow-y: auto;
+  overflow-x: hidden;
+   
+ 
+  justify-content: center;
+  scrollbar-width: thin;
+  scrollbar-color: #888 #f0f0f0;
+}
+
+
+
+.unitItem {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 10px;
+  text-align: center;
+  cursor: pointer;
+  width: 100px;
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.unitImage {
+  width: 40px;
+  height: 40px;
+  background: #f0f0f0;
+  margin: 0 auto 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.addItem {
+  background: #f0f0f0;
+  border: 2px dashed #aaa;
+  border-radius: 4px;
+  padding: 10px;
+  text-align: center;
+  cursor: pointer;
+  width: 100px;
+  height: 100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.addIcon {
+  font-size: 30px;
+  color: #666;
+  margin-bottom: 5px;
+}

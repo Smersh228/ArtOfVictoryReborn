@@ -56,12 +56,11 @@ const EditorMap: React.FC = () => {
   ]
 
   const units = [
-  /*  { 
+   { 
       id: 1, 
       name: 'Немецкая пехота', 
       type: 'infantry', 
       faction: 'germany', 
-      icon: '🪖',
       imagePath: '/src/img/units/Germany/humans/humans/infanrtyGerman.png'
     },
     { 
@@ -69,7 +68,6 @@ const EditorMap: React.FC = () => {
       name: 'Советская пехота', 
       type: 'infantry', 
       faction: 'ussr', 
-      icon: '🔫',
       imagePath: '/src/img/units/USSR/humans/infantry/infantryUSSR.png' 
     },
     { 
@@ -77,7 +75,6 @@ const EditorMap: React.FC = () => {
       name: 'T-34', 
       type: 'mediumTank', 
       faction: 'ussr', 
-      icon: '🚂',
       imagePath: '/src/img/units/USSR/tanks/mediumTanks/t34.png' 
     },
     { 
@@ -85,7 +82,6 @@ const EditorMap: React.FC = () => {
       name: 'Pz-3G', 
       type: 'mediumTank', 
       faction: 'germany', 
-      icon: '🚀',
       imagePath: '/src/img/units/Germany/tanks/mediumTanks/pz3.png' 
     },
     { 
@@ -93,13 +89,12 @@ const EditorMap: React.FC = () => {
       name: 'Пулемёт максим', 
       type: 'infantry', 
       faction: 'ussr', 
-      icon: '🎯',
       imagePath: '/src/img/units/USSR/humans/infantry/maxim.png' 
-    }, */
+    }, 
   ]
 
   const hexTypes = [
-  //  { id: 'forest', type: "forest", name: "Лес", imagePath: '/src/img/hex/nature/forest.png' }
+    { id: 'forest', type: "forest", name: "Лес", imagePath: '/src/img/hex/nature/forest.png' }
   ]
 
   const generateEmptyGrid = (width: number, height: number) => {
