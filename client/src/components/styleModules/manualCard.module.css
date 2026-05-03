@@ -1,0 +1,29 @@
+.unitCard {
+  display: flex;
+  background: white;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #ddd;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+}
+
+
+
+.unitImage {
+  width: 60px;
+  height: 60px;
+  background: #f5f5f500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  margin: 10px;
+    border: 2px solid black;
+}
+
+.unitImage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}

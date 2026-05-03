@@ -1,12 +1,128 @@
-.main {
-    display: flex;
-    flex-direction: column;
-    width: 400px;
-    height: 500px;
-    background-color: rgba(212, 196, 196, 0.356);
-    justify-content: center;
-    transform: translateY(50%);
-    margin-left: 10px;
-    border-radius: 10px;
 
+.layout {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 24px;
+  flex-wrap: nowrap;
+}
+
+.serverZone {
+  flex: 1;
+  min-width: 0;
+  min-height: min(88vh, 900px);
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  align-self: stretch;
+}
+
+.serverAside {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  max-width: min(1080px, 100%);
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+}
+
+
+.serverAsideCreate {
+  align-items: center;
+}
+
+
+.panel {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 480px;
+  box-sizing: border-box;
+  padding: 28px 28px 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(200, 206, 214, 0.18) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+.title {
+  margin: 0 0 6px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(25, 25, 30, 0.92);
+  letter-spacing: 0.02em;
+}
+
+.subtitle {
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: #000;
+  line-height: 1.35;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.actions > div {
+  width: 100%;
+  max-width: 400px;
+}
+
+@media (max-width: 1280px) {
+  .layout {
+    gap: 16px;
+  }
+
+  .panel {
+    max-width: min(440px, 38vw);
+    padding: 22px 22px 24px;
+  }
+}
+
+@media (max-width: 720px) {
+  .layout {
+    flex-wrap: wrap;
+  }
+
+  .panel {
+    max-width: 100%;
+  }
+
+  .serverZone {
+    flex-basis: 100%;
+    justify-content: flex-start;
+  }
+
+  .serverAside {
+    justify-content: flex-start;
+  }
+
+  .serverAsideCreate {
+    align-items: flex-start;
+  }
 }

@@ -5,20 +5,33 @@
   padding-right: 7px;
   background: #e0e0e0;
   border-radius: 20px;
-  cursor: pointer;
-  font-size: 14px;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
+  font-size: 16px;
   transition: all 0.2s;
   text-align: center;
   border: 1px solid transparent;
   margin: 10px;
+  box-sizing: border-box;
 }
 .button:hover {
-   background: rgba(53, 49, 49, 0.5);
- color: white;
+  background: rgba(53, 49, 49, 0.5);
+  color: white;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
 }
 
 .button.active {
  background: rgba(53, 49, 49, 0.5);
  color: white;
  
+}
+
+.buttonDisabled {
+  opacity: 0.42;
+  cursor: not-allowed !important;
+  filter: grayscale(0.25);
+}
+
+.buttonDisabled:hover {
+  background: #e0e0e0;
+  color: inherit;
 }

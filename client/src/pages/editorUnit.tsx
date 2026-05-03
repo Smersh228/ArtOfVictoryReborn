@@ -1,21 +1,172 @@
-import React, { useState } from 'react'
-import Button from '../components/Button'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import styles from './styleModules/editorUnit.module.css'
+import EditorUnitSidebar from '../components/editorUnit/EditorUnitSidebar'
+import EditorUnitToolbar from '../components/editorUnit/EditorUnitToolbar'
+import EditorUnitWorkspace from '../components/editorUnit/EditorUnitWorkspace'
+import {
+  deleteEditorHex,
+  deleteEditorRule,
+  deleteEditorUnit,
+  fetchEditorCatalog,
+  fetchEditorOrders,
+  fetchEditorProperties,
+  resolveEditorImageUrl,
+  saveEditorHex,
+  saveEditorRule,
+  saveEditorUnit,
+  uploadEditorImage,
+  type EditorCatalogResponse,
+  type EditorOrderRow,
+  type EditorPropertyRow,
+} from '../api/editorCatalog'
+import { EDITOR_BATTLE_ORDER_DEFS } from '../game/battleOrderIcons'
+
+
+const EDITOR_UNIT_PROPERTY_DEFS: { prop_key: string; name: string }[] = [
+  { prop_key: 'tankPhobia', name: 'Танкобоязнь' },
+  { prop_key: 'fireSector', name: 'Сектор стрельбы' },
+  { prop_key: 'concealedTargetFire', name: 'Стрельба по закрытым целям' },
+  { prop_key: 'areaFire', name: 'Стрельба по площади' },
+]
+
+
+const RULE_HEAD_REF_RE = /^(units|hexes):(\d+)$/
+
+function parseRuleHeadForEditor(
+  head: string | undefined | null,
+  validChapterIds: string[],
+): { chapter: string; refId: string } {
+  const h = String(head ?? '').trim()
+  const m = h.match(RULE_HEAD_REF_RE)
+  if (m) return { chapter: m[1], refId: m[2] }
+  if (h === 'home') return { chapter: 'units', refId: '' }
+  if (validChapterIds.includes(h)) return { chapter: h, refId: '' }
+  if (h) return { chapter: h, refId: '' }
+  return { chapter: 'units', refId: '' }
+}
+
+function isLegacyRuleHead(head: string, validChapterIds: string[]): boolean {
+  const h = head.trim()
+  if (!h || h === 'home') return false
+  if (RULE_HEAD_REF_RE.test(h)) return false
+  return !validChapterIds.includes(h)
+}
+
+const RULE_CHAPTER_DEFS = [
+  { id: 'units', name: 'Юниты' },
+  { id: 'hexes', name: 'Гексы' },
+  { id: 'game_turn', name: 'Ход игры' },
+  { id: 'general_mechanics', name: 'Общие игровые механики' },
+  { id: 'orders', name: 'Приказы' },
+  { id: 'properties', name: 'Свойства' },
+] as const
+
+const ruleEditorChapterIds: string[] = RULE_CHAPTER_DEFS.map((c) => c.id)
+
+type EditorImageFieldProps = {
+  label: string
+  value: string
+  thumbClass: string
+  labelClass: string
+  onUpload: (file: File | null) => void
+  onClear: () => void
+ 
+  variant?: 'row' | 'rulesColumn'
+}
+
+function EditorImageField({
+  label,
+  value,
+  thumbClass,
+  labelClass,
+  onUpload,
+  onClear,
+  variant = 'row',
+}: EditorImageFieldProps) {
+  const resolved = resolveEditorImageUrl(value)
+  const thumb = (
+    <div className={`${thumbClass} ${styles.editorImageRowThumb}`}>
+      {resolved ? <img src={resolved} alt="" className={styles.editorThumbImg} /> : null}
+    </div>
+  )
+  const actions = (
+    <div className={`${styles.imageActions} ${styles.editorImageRowActions}`}>
+      {value ? (
+        <button type="button" className={styles.imageRemoveBtn} onClick={onClear}>
+          Удалить
+        </button>
+      ) : (
+        <label className={styles.fileUploadLabel}>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+            className={styles.fileUploadInput}
+            onChange={(e) => {
+              onUpload(e.target.files?.[0] ?? null)
+              e.target.value = ''
+            }}
+          />
+          Загрузить
+        </label>
+      )}
+    </div>
+  )
+
+  if (variant === 'rulesColumn') {
+    return (
+      <div className={styles.editorImageColumn}>
+        <span className={`${labelClass} ${styles.editorImageColLabel}`}>{label}</span>
+        <div className={styles.editorImageColRow}>
+          {thumb}
+          {actions}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={styles.editorImageRow}>
+      <span className={`${labelClass} ${styles.editorImageRowLabel}`}>{label}</span>
+      {thumb}
+      {actions}
+    </div>
+  )
+}
+
+function listThumb(src: string | undefined, emoji: string) {
+  const u = resolveEditorImageUrl(src)
+  if (u) return <img src={u} alt="" className={`${styles.unitImage} ${styles.unitImagePhoto}`} />
+  return <div className={styles.unitImage}>{emoji}</div>
+}
+
+
+function defaultVisAsNumber(vis: unknown): number {
+  if (vis == null || vis === '') return 3
+  if (typeof vis === 'number' && Number.isFinite(vis)) return vis
+  const s = String(vis).trim()
+  if (!s) return 3
+  const first = s.split(/[,\s;]+/)[0]
+  const n = Number(first)
+  return Number.isFinite(n) ? n : 3
+}
 
 const EditorUnit = () => {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<string>("units")
   const [selectedFaction, setSelectedFaction] = useState<string>("all")
   const [selectedUnitType, setSelectedUnitType] = useState<string>("all")
   const [showEditor, setShowEditor] = useState<boolean>(false)
   const [selectedUnit, setSelectedUnit] = useState<any>(null)
-  const [selectedOrders, setSelectedOrders] = useState<any>([])
-  const [selectedProperties, setSelectedProperties] = useState<any>([])
+  const [selectedOrders, setSelectedOrders] = useState<number[]>([])
+  const [selectedProperties, setSelectedProperties] = useState<number[]>([])
+  const [orderIdByKey, setOrderIdByKey] = useState<Map<string, number>>(() => new Map())
+  const [propertyIdByKey, setPropertyIdByKey] = useState<Map<string, number>>(() => new Map())
 
   const tabs = [
     { id: 'units', label: 'Юниты' },
     { id: 'hexes', label: 'Гексы' },
-    { id: 'buildings', label: 'Сооружения' },
-    { id: 'rules', label: 'Правила' }
+    { id: 'rules', label: 'Руководство' },
   ]
 
   const factions = [
@@ -37,554 +188,414 @@ const EditorUnit = () => {
     { id: 'heavyAir', label: 'Большая авиация' }
   ]
 
-  const ordersList = [
-   
+  const battleOrdersForEditor = useMemo(() => {
+    return EDITOR_BATTLE_ORDER_DEFS.map((def) => {
+      const key = def.order_key.trim().toLowerCase()
+      const id = orderIdByKey.get(key) ?? orderIdByKey.get(def.order_key)
+      return {
+        ...def,
+        id,
+      }
+    })
+  }, [orderIdByKey])
 
-  ]
+  const editorUnitPropertiesForEditor = useMemo(() => {
+    return EDITOR_UNIT_PROPERTY_DEFS.map((def) => {
+      const key = def.prop_key.trim().toLowerCase()
+      const id = propertyIdByKey.get(key) ?? propertyIdByKey.get(def.prop_key)
+      return {
+        ...def,
+        id,
+      }
+    })
+  }, [propertyIdByKey])
 
-  const propertiesList = [
-    
-  ]
+  const ruleChapters = RULE_CHAPTER_DEFS
 
-  const chapters = [
-    
-  ]
+  const [units, setUnits] = useState<any[]>([])
+  const [hexes, setHexes] = useState<any[]>([])
+  const [rules, setRules] = useState<any[]>([])
+  const editorFormRef = useRef<HTMLDivElement>(null)
+  /** Пути картинок только через загрузку / удалить (без текстового поля) */
+  const [imagePaths, setImagePaths] = useState<Record<string, string>>({})
+  const [ruleChapterState, setRuleChapterState] = useState('units')
+  const [ruleRefUnitState, setRuleRefUnitState] = useState('')
+  const [ruleRefHexState, setRuleRefHexState] = useState('')
 
-  const units = [
-   
-  ]
+  const handleImageUpload = async (key: string, file: File | null) => {
+    if (!file) return
+    try {
+      const { path } = await uploadEditorImage(file)
+      setImagePaths((prev) => ({ ...prev, [key]: path }))
+    } catch (e: unknown) {
+      window.alert(e instanceof Error ? e.message : 'Ошибка загрузки')
+    }
+  }
 
-  const hexes = [
-   
-  ]
+  const handleImageClear = (key: string) => {
+    setImagePaths((prev) => ({ ...prev, [key]: '' }))
+  }
 
-  const buildings = [
-   
-  ]
+  useEffect(() => {
+    if (!showEditor) return
+    const p: Record<string, string> = {}
+    if (activeTab === 'units') {
+      p.unit_image = selectedUnit?.imagePath || ''
+    } else if (activeTab === 'hexes') {
+      p.hex_image = selectedUnit?.imagePath || ''
+    } else if (activeTab === 'rules') {
+      p.rule_image = selectedUnit?.imagePath || ''
+      p.rule_image_2 = selectedUnit?.imagePath2 || ''
+      p.rule_image_3 = selectedUnit?.imagePath3 || ''
+    }
+    setImagePaths(p)
+  }, [showEditor, activeTab, selectedUnit])
 
-  const rules = [
-    
-  ]
+  useEffect(() => {
+    if (!showEditor || activeTab !== 'rules') return
+    const raw = String(selectedUnit?.chapter ?? selectedUnit?.head ?? '').trim()
+    const { chapter, refId } = parseRuleHeadForEditor(raw, ruleEditorChapterIds)
+    setRuleChapterState(chapter)
+    if (chapter === 'units') {
+      setRuleRefUnitState(refId)
+      setRuleRefHexState('')
+    } else if (chapter === 'hexes') {
+      setRuleRefHexState(refId)
+      setRuleRefUnitState('')
+    } else {
+      setRuleRefUnitState('')
+      setRuleRefHexState('')
+    }
+  }, [showEditor, activeTab, selectedUnit?.id, selectedUnit?.chapter, selectedUnit?.head])
+
+  const reloadCatalog = (): Promise<EditorCatalogResponse> => {
+    return fetchEditorCatalog()
+      .then(async (data) => {
+        setUnits(data.unitsEditor || [])
+        setHexes(data.hexesEditor || [])
+        setRules(data.rulesEditor || [])
+        
+        let orderRows: EditorOrderRow[] = []
+        let propertyRows: EditorPropertyRow[] = []
+        try {
+          orderRows = await fetchEditorOrders()
+        } catch (e) {
+          console.error('editor orders', e)
+        }
+        try {
+          propertyRows = await fetchEditorProperties()
+        } catch (e) {
+          console.error('editor properties', e)
+        }
+        const m = new Map<string, number>()
+        for (const r of orderRows) {
+          const k = String(r.order_key ?? r.code ?? '')
+            .trim()
+            .toLowerCase()
+          const id = Number(r.id_orders ?? (r as { id?: unknown }).id)
+          if (k && Number.isFinite(id)) m.set(k, id)
+        }
+        setOrderIdByKey(m)
+        const pm = new Map<string, number>()
+        for (const r of propertyRows) {
+          const k = String(r.prop_key ?? '')
+            .trim()
+            .toLowerCase()
+          const id = Number(r.id_property ?? (r as { id?: unknown }).id)
+          if (k && Number.isFinite(id)) pm.set(k, id)
+        }
+        setPropertyIdByKey(pm)
+        return data
+      })
+      .catch((e) => {
+        console.error('editor catalog', e)
+        return {
+          units: [],
+          hexes: [],
+          buildings: [],
+          rules: [],
+          unitsEditor: [],
+          hexesEditor: [],
+          buildingsEditor: [],
+          rulesEditor: [],
+        }
+      })
+  }
+
+  useEffect(() => {
+    reloadCatalog()
+  }, [])
 
   const handleAddClick = () => {
-   
+    setSelectedUnit(null)
+    setSelectedOrders([])
+    setSelectedProperties([])
+    setShowEditor(true)
   }
 
-  const handleUnitClick = (unit) => {
-    
+  const handleUnitClick = (unit: any) => {
+    setSelectedUnit(unit)
+    setShowEditor(true)
   }
+
+  useEffect(() => {
+    if (!showEditor || activeTab !== 'units') return
+    const su = selectedUnit
+    if (!su?.id) {
+      setSelectedOrders([])
+      setSelectedProperties([])
+      return
+    }
+    const ord = su.orders
+    if (Array.isArray(ord) && ord.length) {
+      setSelectedOrders(
+        ord.map((o: { id?: unknown }) => Number(o.id)).filter((n: number) => Number.isFinite(n)),
+      )
+    } else {
+      setSelectedOrders([])
+    }
+    const props = su.properties
+    if (Array.isArray(props) && props.length) {
+      setSelectedProperties(
+        props.map((p: { id?: unknown }) => Number(p.id)).filter((n: number) => Number.isFinite(n)),
+      )
+    } else {
+      setSelectedProperties([])
+    }
+  }, [selectedUnit, showEditor, activeTab])
 
   const handleClose = () => {
-    
+    setShowEditor(false)
   }
 
-  const toggleOrder = (orderId) => {
-    
+  const getNamed = (name: string) => {
+    const el = editorFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`)
+    return el?.value ?? ''
   }
 
-  const toggleProperty = (propId) => {
-   
+  const handleSave = async () => {
+    const root = editorFormRef.current
+    if (!root) return
+
+    try {
+      if (activeTab === 'units') {
+        const prevFire = (selectedUnit?.fire || {}) as Record<string, string | undefined>
+        const fire = {
+          range: getNamed('fire_range'),
+          inf: getNamed('fire_inf'),
+          art: getNamed('fire_art'),
+          tech: getNamed('fire_tech'),
+          armor: getNamed('fire_armor'),
+          lt: getNamed('fire_lt'),
+          mt: getNamed('fire_mt'),
+          ht: getNamed('fire_ht'),
+          sa: prevFire.sa ?? '0,1,0,0',
+          ba: prevFire.ba ?? '0,0,0,0',
+          build: prevFire.build ?? '1,3,0,2',
+        }
+        const body = {
+          id: selectedUnit?.id,
+          name: getNamed('unit_name'),
+          type: getNamed('unit_type'),
+          fraction: getNamed('unit_faction'),
+          str: Number(getNamed('unit_str')) || 0,
+          def: Number(getNamed('unit_def')) || 0,
+          mov: Number(getNamed('unit_mov')) || 0,
+          mor: Number(getNamed('unit_mor')) || 0,
+          ammo: getNamed('unit_ammo'),
+          mines: Number(getNamed('unit_mines')) || 0,
+          vis: getNamed('unit_vis'),
+          standard_image: imagePaths.unit_image ?? '',
+          hover_image: selectedUnit?.hover_image?.trim() || null,
+          id_cobj: selectedUnit?.id_cobj ?? null,
+          fire,
+          orderIds: selectedOrders,
+          propertyIds: selectedProperties,
+        }
+        const res: any = await saveEditorUnit(body)
+        const data = await reloadCatalog()
+        const uid = res?.id
+        if (uid != null) {
+          const row = (data.unitsEditor || []).find((u: { id?: unknown }) => Number(u.id) === Number(uid))
+          if (row) setSelectedUnit(row)
+          else
+            setSelectedUnit({
+              ...(selectedUnit || {}),
+              ...body,
+              id: uid,
+              imagePath: body.standard_image,
+              hover_image: body.hover_image,
+            })
+        }
+        window.alert('Юнит сохранён')
+        return
+      }
+
+      if (activeTab === 'hexes') {
+        const visSel = getNamed('hex_vision_block')
+        const costMoveInf = Number(getNamed('hex_move_cost_inf')) || 1
+        const costMoveTech = Number(getNamed('hex_move_cost_tech')) || 1
+        const body = {
+          id: selectedUnit?.id,
+          name: getNamed('hex_name'),
+          defendHuman: Number(getNamed('hex_def_inf')) || 0,
+          defendTech: Number(getNamed('hex_def_tech')) || 0,
+          costMove: costMoveInf,
+          costMoveInf,
+          costMoveTech,
+          isVisible: visSel === 'yes',
+          image_path: imagePaths.hex_image ?? '',
+          id_cobj: selectedUnit?.id_cobj ?? null,
+          allowedBuildings: [],
+        }
+        const res: any = await saveEditorHex(body)
+        const newId = res?.id ?? res?.id_hex
+        if (newId) {
+          setSelectedUnit({
+            ...(selectedUnit || {}),
+            ...body,
+            id: newId,
+            imagePath: body.image_path,
+            allowedBuildings: [],
+          })
+        }
+        reloadCatalog()
+        window.alert('Гекс сохранён')
+        return
+      }
+
+      if (activeTab === 'rules') {
+        let head = ruleChapterState
+        if (ruleChapterState === 'units') {
+          head = ruleRefUnitState ? `units:${ruleRefUnitState}` : 'units'
+        } else if (ruleChapterState === 'hexes') {
+          head = ruleRefHexState ? `hexes:${ruleRefHexState}` : 'hexes'
+        }
+        const body = {
+          id: selectedUnit?.id,
+          name: getNamed('rule_title'),
+          head,
+          description: getNamed('rule_desc'),
+          image_path: imagePaths.rule_image ?? '',
+          image_path_2: imagePaths.rule_image_2 ?? '',
+          image_path_3: imagePaths.rule_image_3 ?? '',
+          id_cobj: selectedUnit?.id_cobj ?? null,
+        }
+        const res: any = await saveEditorRule(body)
+        const rid = res?.id ?? res?.id_rule ?? selectedUnit?.id
+        if (rid != null) {
+          setSelectedUnit({
+            ...(selectedUnit || {}),
+            ...body,
+            id: rid,
+            title: body.name,
+            chapter: head,
+            desc: body.description,
+            imagePath: body.image_path,
+            imagePath2: body.image_path_2,
+            imagePath3: body.image_path_3,
+          })
+        }
+        reloadCatalog()
+        window.alert('Правило сохранено')
+      }
+    } catch (e: any) {
+      window.alert(e?.message || 'Ошибка сохранения')
+    }
+  }
+
+  const handleDelete = async () => {
+    const id = Number(selectedUnit?.id)
+    if (!Number.isFinite(id)) return
+    const label =
+      activeTab === 'units' ? 'юнит' : activeTab === 'hexes' ? 'гекс' : activeTab === 'rules' ? 'правило' : 'объект'
+    const title = String(selectedUnit?.name || selectedUnit?.title || `${label} #${id}`)
+    if (!window.confirm(`Удалить ${label} «${title}»?`)) return
+    try {
+      if (activeTab === 'units') await deleteEditorUnit(id)
+      else if (activeTab === 'hexes') await deleteEditorHex(id)
+      else if (activeTab === 'rules') await deleteEditorRule(id)
+      await reloadCatalog()
+      setSelectedUnit(null)
+      setShowEditor(false)
+      window.alert('Удалено')
+    } catch (e: any) {
+      window.alert(e?.message || 'Ошибка удаления')
+    }
+  }
+
+  const toggleOrder = (orderId: number | undefined) => {
+    if (orderId == null || !Number.isFinite(orderId)) return
+    setSelectedOrders((prev) =>
+      prev.includes(orderId) ? prev.filter((x) => x !== orderId) : [...prev, orderId],
+    )
+  }
+
+  const toggleProperty = (propId: number | undefined) => {
+    if (propId == null || !Number.isFinite(propId)) return
+    setSelectedProperties((prev) =>
+      prev.includes(propId) ? prev.filter((x) => x !== propId) : [...prev, propId],
+    )
   }
 
   return (
     <div className={styles.editorUnit}>
-      <div style={{ display: 'flex' }}>
-        <Button size={350} name='Назад в меню' />
-      </div>
+      <EditorUnitToolbar onGoMain={() => navigate('/main')} />
 
-      <div style={{ display: 'flex', height: 'calc(100% - 50px)' }}>
-        <div className={styles.editorUnitList}>
-          <div className={styles.editorUnitFilter}>
-            <div className={styles.mainTabs}>
-              {tabs.map(tab => (
-                <div
-                  key={tab.id}
-                  className={`${styles.mainTab} ${activeTab === tab.id ? styles.active : ''}`}
-                  onClick={() => setActiveTab(tab.id)}
-                >
-                  {tab.label}
-                </div>
-              ))}
-            </div>
+      <div className={styles.contentRow}>
+        <EditorUnitSidebar
+          tabs={tabs}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          factions={factions}
+          unitTypes={unitTypes}
+          selectedFaction={selectedFaction}
+          selectedUnitType={selectedUnitType}
+          setSelectedFaction={setSelectedFaction}
+          setSelectedUnitType={setSelectedUnitType}
+          onAddClick={handleAddClick}
+          units={units}
+          hexes={hexes}
+          rules={rules}
+          selectedUnit={selectedUnit}
+          onSelectItem={handleUnitClick}
+          renderThumb={listThumb}
+        />
 
-            {activeTab === 'units' && (
-              <>
-                <div className={styles.filterGroup}>
-                  <div className={styles.filterGroupTitle}>Фракция</div>
-                  <div className={styles.filterRow}>
-                    {factions.map(f => (
-                      <div
-                        key={f.id}
-                        className={`${styles.filterItem} ${selectedFaction === f.id ? styles.active : ''}`}
-                        onClick={() => setSelectedFaction(f.id)}
-                      >
-                        {f.label}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className={styles.filterGroup}>
-                  <div className={styles.filterGroupTitle}>Тип</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                    {unitTypes.map(type => (
-                      <div
-                        key={type.id}
-                        className={`${styles.filterItem} ${selectedUnitType === type.id ? styles.active : ''}`}
-                        onClick={() => setSelectedUnitType(type.id)}
-                      >
-                        {type.label}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className={styles.editorUnitItems}>
-            <div className={styles.addItem} onClick={handleAddClick}>
-              <div className={styles.addIcon}>+</div>
-              <div>Добавить</div>
-            </div>
-            
-            {activeTab === 'units' && units
-              .filter(u => selectedFaction === 'all' || u.faction === selectedFaction)
-              .filter(u => selectedUnitType === 'all' || u.type === selectedUnitType)
-              .map(unit => (
-                <div 
-                  key={unit.id} 
-                  className={`${styles.unitItem} ${selectedUnit?.id === unit.id ? styles.selected : ''}`}
-                  onClick={() => handleUnitClick(unit)}
-                >
-                  <div className={styles.unitImage}>🪖</div>
-                  <div>{unit.name}</div>
-                </div>
-              ))}
-
-            {activeTab === 'hexes' && hexes.map(item => (
-              <div 
-                key={item.id} 
-                className={`${styles.unitItem} ${selectedUnit?.id === item.id ? styles.selected : ''}`}
-                onClick={() => handleUnitClick(item)}
-              >
-                <div className={styles.unitImage}>🪖</div>
-                <div>{item.name}</div>
-              </div>
-            ))}
-
-            {activeTab === 'buildings' && buildings.map(item => (
-              <div 
-                key={item.id} 
-                className={`${styles.unitItem} ${selectedUnit?.id === item.id ? styles.selected : ''}`}
-                onClick={() => handleUnitClick(item)}
-              >
-                <div className={styles.unitImage}>🪖</div>
-                <div>{item.name}</div>
-              </div>
-            ))}
-
-            {activeTab === 'rules' && rules.map(item => (
-              <div 
-                key={item.id} 
-                className={`${styles.unitItem} ${selectedUnit?.id === item.id ? styles.selected : ''}`}
-                onClick={() => handleUnitClick(item)}
-              >
-                <div className={styles.unitImage}></div>
-                <div>{item.title}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div style={{ width: '1450px' }}>
-          {showEditor && (
-            <div>
-              <div className={styles.editorUnitParametrs} style={ activeTab === "rules" ? {height:"700px", padding: '15px' } : {  padding: '15px' } }>
-                
-                {activeTab === 'units' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr  1fr 2fr  ', gap: '25px' }}>
-                    <div style={{ background: '#3b3b3b52', padding: '15px', borderRadius: '8px' }}>
-                      <h4 style={{ height:"30px", fontSize: '16px', color: '#eeeeee',  textAlign:"center" }}>
-                        Основное
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Название</label>
-                          <input defaultValue={selectedUnit?.name || ''} style={{ width: '200px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Тип</label>
-                          <select style={{ width: '215px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} defaultValue={selectedUnit?.type || 'infantry'}>
-                            {unitTypes.slice(1).map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                          </select>
-                        </div>
-                        <div>
-                         <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Фракция</label>
-                          <select style={{ width: '215px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} defaultValue={selectedUnit?.faction || 'germany'}>
-                            <option value="germany">Вермахт</option>
-                            <option value="ussr">СССР</option>
-                          </select>
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Фото юнита</label>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                            <div style={{ width: '40px', height: '40px', background: '#e9ecef', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}></div>
-                            <input placeholder="путь к файлу" style={{  width: '100px',  padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                          </div>
-                        </div>
-
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#3233335d', padding: '15px', borderRadius: '8px' }}>
-                      <h4 style={{height:"30px", fontSize: '14px', color: '#ffffff',  textAlign:"center" }}>
-                        Характеристики
-                      </h4>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Численность</label>
-                          <input type="number" defaultValue={selectedUnit?.str || 10} style={{ width: '100px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Защита</label>
-                          <input type="number" defaultValue={selectedUnit?.def || 0} style={{ width: '100px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Очки перемещение</label>
-                          <input type="number" defaultValue={selectedUnit?.mov || 0} style={{ width: '100px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Мораль</label>
-                          <input type="number" defaultValue={selectedUnit?.mor || 50} style={{ width: '100px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Боезапас</label>
-                          <input defaultValue={selectedUnit?.ammo || '100'} style={{ width: '100px', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Видимость</label>
-                          <input defaultValue={selectedUnit?.vis || '3,2,1'} style={{ width: '100px', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Дальность стрельбы(Месткость)</label>
-                          <input defaultValue={selectedUnit?.fire?.range || '1,2,3'} style={{ width: '100px', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#19191a4f', padding: '15px', borderRadius: '8px',display:"grid", gridAutoRows: "30px",gridTemplateColumns:"repeat(2,1fr)"}}>
-                      <h4 style={{  fontSize: '14px', color: '#fdfeff',  gridColumnStart:"1",gridRowStart:"1",gridRowEnd:"1",gridColumnEnd:"4",textAlign:'center' }}>
-                        Урон/Меткость
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px',margin:"15px",textAlign:"center" }}>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Пехота</label>
-                          <input defaultValue={selectedUnit?.fire?.inf || '3,5,1,4'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px', fontSize: '12px' }} />
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Артиллерия</label>
-                          <input defaultValue={selectedUnit?.fire?.art || '2,4,1,3'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Техника</label>
-                          <input defaultValue={selectedUnit?.fire?.tech || '1,3,0,2'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                       
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Бронетехника</label>
-                          <input defaultValue={selectedUnit?.fire?.armor || '1,2,0,1'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Легкие танки</label>
-                          <input defaultValue={selectedUnit?.fire?.lt || '1,2,0,1'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                      </div>
-                      <div style={{textAlign:"center", display: 'flex', flexDirection: 'column', gap: '8px',margin:"15px",gridColumnStart:"1",gridRowStart:"2",gridRowEnd:"2",gridColumnEnd:"2" }}>
-                        <div >
-                           <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Средние танки</label>
-                          <input defaultValue={selectedUnit?.fire?.mt || '0,1,0,0'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Тяжелые танки</label>
-                          <input defaultValue={selectedUnit?.fire?.ht || '0,0,0,0'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Малая авиация</label>
-                          <input defaultValue={selectedUnit?.fire?.sa || '0,1,0,0'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Большая авиация</label>
-                          <input defaultValue={selectedUnit?.fire?.ba || '0,0,0,0'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '14px', color: '#f7f6f6', display: 'block', marginBottom: '3px' }}>Строения</label>
-                          <input defaultValue={selectedUnit?.fire?.build || '1,3,0,2'} style={{ width: '100%', padding: '5px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-               
-                {activeTab === 'hexes' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    <div style={{ background: '#1e1e1f2f', padding: '15px', borderRadius: '8px' }}>
-                      <h4 style={{ fontSize: '16px', color: '#f1f1f1', textAlign: 'center', marginBottom: '15px' }}>
-                        Основное
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Название</label>
-                          <input defaultValue={selectedUnit?.name || ''} style={{ width: '70%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Изображение гекса</label>
-                          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <div style={{ width: '60px', height: '60px', background: '#e9ecef', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}></div>
-                            <input placeholder="путь к файлу" style={{  padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                          <div>
-                            <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Бонус защиты (пехота)</label>
-                            <input type="number" defaultValue={selectedUnit?.defBonusInf || 0} style={{ width: '70%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Бонус защиты (техника)</label>
-                            <input type="number" defaultValue={selectedUnit?.defBonusTech || 0} style={{ width: '70%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                          </div>
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                          <div>
-                            <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Стоимость перемещения</label>
-                            <input type="number" defaultValue={selectedUnit?.moveCost || 1} style={{ width: '70%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                          </div>
-                          <div>
-                            <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Преграда для видимости</label>
-                            <select style={{ width: '75%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} defaultValue={selectedUnit?.visionBlock ? 'yes' : 'no'}>
-                              <option value="yes">Да</option>
-                              <option value="no">Нет</option>
-                            </select>
-                          </div>
-                          
-                        </div>
-                        
-                      </div>
-                      
-                    </div>
-
-                    <div style={{ background: '#1e1e1f2d', padding: '15px', borderRadius: '8px' }}>
-                      <h4 style={{ fontSize: '16px', color: '#f1f1f1', textAlign: 'center', marginBottom: '15px' }}>
-                        Разрешенные строения
-                      </h4>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
-                        {propertiesList.map(prop => (
-                          <div
-                            key={prop.id}
-                            onClick={() => toggleProperty(prop.id)}
-                            style={{
-                              padding: '12px',
-                              background:"white",
-                              border: selectedProperties.includes(prop.id) ? 'solid 2px black' : '',
-                              color: selectedProperties.includes(prop.id) ? 'black' : '#333',
-                              borderRadius: '6px',
-                              cursor: 'pointer',
-                              textAlign: 'center',
-
-                            }}
-                          >
-                            <div style={{ fontSize: '20px', marginBottom: '4px' }}>{prop.icon}</div>
-                            <div style={{ fontSize: '11px' }}>{prop.name}</div>
-                          </div>
-                        ))}
-                        
-                      </div>
-                      
-                    </div>
-                    
-                  </div>
-                  
-                )}
-
-                {activeTab === 'buildings' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                    <div style={{ background: '#22222225', padding: '15px', borderRadius: '8px' }}>
-                      <h4 style={{ fontSize: '16px', color: '#ffffff', textAlign: 'center', marginBottom: '15px' }}>
-                        Основное
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Название</label>
-                          <input defaultValue={selectedUnit?.name || ''} style={{ width: '70%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Изображение</label>
-                          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <div style={{ width: '60px', height: '60px', background: '#e9ecef', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}></div>
-                            <input placeholder="путь к файлу" style={{  padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ background: '#2c2c2c3d', padding: '15px', borderRadius: '8px' }}>
-                      <h4 style={{ fontSize: '16px', color: '#ffffff', textAlign: 'center', marginBottom: '15px' }}>
-                        Свойства сооружения
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '10px' }}>Бонус к юнитам</label>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                            <div>
-                              <label style={{ fontSize: '11px', color: '#070707' }}>Пехота</label>
-                              <input type="number" defaultValue={selectedUnit?.bonusInf || 0} style={{ width: '70%', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                            </div>
-                            <div>
-                              <label style={{ fontSize: '11px', color: '#070707' }}>Техника</label>
-                              <input type="number" defaultValue={selectedUnit?.bonusTech || 0} style={{ width: '70%', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                            </div>
-                          </div>
-                        </div>
-
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '10px' }}>Преграда для юнитов</label>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                            <div>
-                              <label style={{ fontSize: '11px', color: '#070707' }}>Пехота</label>
-                              <select style={{ width: '70%', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} defaultValue={selectedUnit?.blockInf ? 'yes' : 'no'}>
-                                <option value="yes">Да</option>
-                                <option value="no">Нет</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label style={{ fontSize: '11px', color: '#080808' }}>Техника</label>
-                              <select style={{ width: '70%', padding: '6px', border: '1px solid #ddd', borderRadius: '4px' }} defaultValue={selectedUnit?.blockTech ? 'yes' : 'no'}>
-                                <option value="yes">Да</option>
-                                <option value="no">Нет</option>
-                              </select>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'rules' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr ', gap: '20px' }}>
-                    <div style={{ background: '#2d2e2e36', padding: '15px', borderRadius: '8px' }}>
-                      <h4 style={{ fontSize: '16px', color: '#fafafa', textAlign: 'center', marginBottom: '20px' }}>
-                        Основное
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Название</label>
-                          <input defaultValue={selectedUnit?.title || ''} style={{ width: '300px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                        </div>
-                        
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Глава</label>
-                          <select style={{ width: '300px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} defaultValue={selectedUnit?.chapter || 'movement'}>
-                            {chapters.map(ch => <option key={ch.id} value={ch.id}>{ch.name}</option>)}
-                          </select>
-                        </div>
-
-                        <div>
-                          <label style={{ fontSize: '12px', display: 'block', marginBottom: '5px' }}>Изображение</label>
-                          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                            <div style={{ width: '60px', height: '60px', background: '#e9ecef', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}></div>
-                            <input placeholder="путь к файлу" style={{ width: '200px', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }} />
-                          </div>
-                        </div>
-                        <h4 style={{ fontSize: '16px', color: '#f8f8f8', textAlign: 'center', marginBottom: '15px' }}>
-                          Описание
-                        </h4>
-                        <div>
-                          <textarea 
-                            defaultValue={selectedUnit?.desc || ''} 
-                            style={{ width: '98%', height: '200px', padding: '10px', border: '1px solid #ddd', borderRadius: '4px', resize: 'vertical' }}
-                            placeholder="Введите описание правила..."
-                          />
-                        </div>
-                        
-                      </div>
-                      
-                    </div>
-                    
-                  </div>
-                  
-                )}
-              </div>
-             { activeTab !== "units" ?   <div    style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', padding: '15px' }}>
-                    <Button size={100} name='Сохранить' onClick={handleClose} />
-                    <Button size={100} name='Отмена' onClick={handleClose} />
-                  </div> : "" }
-              {activeTab === 'units' && (
-                <div className={styles.editorUnitOrders} style={{    padding: '15px', marginTop: '10px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>Приказы</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(13, 100px)', marginBottom: '50px', gap:"10px" , height:"120px" }}>
-                    {ordersList.map(order => (
-                      <div
-                        key={order.id}
-                        onClick={() => toggleOrder(order.id)}
-                        style={{
-                          padding: '5px',
-                          background:  '#f4f5f7' ,
-                          border: selectedOrders.includes(order.id) ? "" : "solid 2px black" ,
-                          color: selectedOrders.includes(order.id) ? 'black' : '#333',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          textAlign: 'center',
-                          width:"90px",
-                          height:"60px"
-                        }}
-                      >
-                        <div style={{ fontSize: '20px', marginBottom: '4px' }}><img src='../img/orderUnits/ordinaryOrders/moveOrders/move.png'></img></div>
-                        <div style={{ fontSize: '12px' }}>{order.name}</div>
-                      </div>
-                    ))}
-                  </div>
-               
-                  <div style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '10px' }}>Свойства</div>
-                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(13, 100px)', marginBottom: '50px', gap:"10px" , height:"120px" }}>
-                    {propertiesList.map(prop => (
-                      <div
-                        key={prop.id}
-                        onClick={() => toggleProperty(prop.id)}
-                        style={{
-                         padding: '5px',
-                          background:  '#f4f5f7' ,
-                          border: selectedProperties.includes(prop.id) ? "" : "solid 2px black" ,
-                          color: selectedProperties.includes(prop.id) ? 'black' : '#333',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          textAlign: 'center',
-                          width:"90px",
-                          height:"60px"
-                        }}
-                      >
-                        <div style={{ fontSize: '20px', marginBottom: '4px' }}>{prop.icon}</div>
-                        <div style={{ fontSize: '12px' }}>{prop.name}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {activeTab !== 'units' && (
-                <div className={styles.editorUnitOrders} style={{  display:"none",marginTop: '10px', overflowY: 'auto', height: '400px' }}>
-                  
-                  
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <EditorUnitWorkspace
+          showEditor={showEditor}
+          activeTab={activeTab}
+          selectedUnit={selectedUnit}
+          editorFormRef={editorFormRef}
+          unitTypes={unitTypes}
+          imagePaths={imagePaths}
+          handleImageUpload={handleImageUpload}
+          handleImageClear={handleImageClear}
+          defaultVisAsNumber={defaultVisAsNumber}
+          isLegacyRuleHead={isLegacyRuleHead}
+          ruleChapterState={ruleChapterState}
+          setRuleChapterState={setRuleChapterState}
+          setRuleRefUnitState={setRuleRefUnitState}
+          setRuleRefHexState={setRuleRefHexState}
+          ruleChapters={ruleChapters}
+          ruleEditorChapterIds={ruleEditorChapterIds}
+          units={units}
+          hexes={hexes}
+          ruleRefUnitState={ruleRefUnitState}
+          ruleRefHexState={ruleRefHexState}
+          battleOrdersForEditor={battleOrdersForEditor}
+          selectedOrders={selectedOrders}
+          toggleOrder={toggleOrder}
+          orderIdByKey={Object.fromEntries(orderIdByKey)}
+          editorUnitPropertiesForEditor={editorUnitPropertiesForEditor}
+          selectedProperties={selectedProperties}
+          toggleProperty={toggleProperty}
+          propertyIdByKey={propertyIdByKey}
+          handleSave={handleSave}
+          handleDelete={handleDelete}
+          handleClose={handleClose}
+          EditorImageField={EditorImageField}
+        />
       </div>
     </div>
   )

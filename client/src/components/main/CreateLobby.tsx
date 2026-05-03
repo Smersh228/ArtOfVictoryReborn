@@ -1,6 +1,5 @@
 import React from 'react';
 import styles from '../styleModules/createLobby.module.css'
-import Button from '../Button';
 const CreateLobby: React.FC = () => {
   
   return (

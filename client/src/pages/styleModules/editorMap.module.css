@@ -1,82 +1,176 @@
 .editorMap {
-margin-left: 5px;
-margin-top: 25px;
-width: 99%;
-height: 96vh;
-background-color: rgba(196, 194, 194, 0.26);
-border-radius: 10px;
-}
-.editorMainMap {
-    margin-left: 10px;
-width: 1400px;
-height: 840px;
-background-color: rgba(255, 255, 255, 0.26);
-margin-top: 10px;
-border-radius: 10px;
-}
-.editorMapTool {
-margin-top: 10px;
-margin-left: 20px;
-width: 450px;
-height: 840px;
-background-color: rgba(252, 252, 252, 0.26);
-border-radius: 10px;
-display: flex;
-flex-direction: column;
-overflow: hidden;
-}
-
-.editorUnitFilter {
-  padding: 15px;
+  margin-left: 5px;
+  margin-top: 8px;
+  width: 99%;
+  max-width: calc(100vw - 10px);
+  min-height: calc(100vh - 12px);
+  max-height: calc(100dvh - 12px);
+  box-sizing: border-box;
+  padding: 10px 12px 10px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  border-bottom: 2px solid #111111;
-  background: rgba(255,255,255,0.1);
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(200, 206, 214, 0.18) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+
+.editorMainMap {
+  margin-left: 8px;
+  margin-top: 8px;
+  flex: 1 1 0;
+  min-width: 260px;
+  width: 100%;
+  max-width: 1400px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  line-height: 0;
+}
+
+.editorMainMap canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.editorMapTool {
+  margin-top: 8px;
+  margin-left: 12px;
+  margin-right: 4px;
+  width: min(480px, 100%);
+  max-width: min(480px, 36vw);
+  min-width: min(260px, 100%);
+  min-height: min(560px, calc(100dvh - 140px));
+  max-height: calc(100dvh - 96px);
+  height: auto;
+  flex: 0 1 clamp(260px, 32vw, 480px);
+  border-radius: 12px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  background: rgba(252, 252, 252, 0.32);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+
+.editorMapToolFormOnly .editorUnitFilter {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  border-bottom: none;
+}
+
+.editorMapToolFormOnly .editorUnitFilter::-webkit-scrollbar {
+  width: 6px;
+}
+
+
+.editorUnitFilter {
+  padding: 14px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   flex-shrink: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.editorUnitFilter > .mainTabs {
+  margin: 0;
+  width: 100%;
 }
 
 .mainTabs {
   display: flex;
-  gap: 2px;
-  background: rgba(0,0,0,0.1);
-  padding: 4px;
-  border-radius: 8px;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 7px 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-sizing: border-box;
 }
 
 .mainTab {
   flex: 1;
-  padding: 8px;
+  padding: 8px 6px;
   text-align: center;
-  border-radius: 6px;
-  cursor: pointer;
+  border-radius: 8px;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.2s;
+  color: #000;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
 }
 
 .mainTab:hover {
-  background: rgba(255,255,255,0.5);
+  background: rgba(255, 255, 255, 0.45);
 }
 
 .mainTab.active {
-  background: white;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+  color: #222;
 }
 
 .filterGroup {
-  background: rgba(0,0,0,0.1);
-  border-radius: 6px;
+  border-radius: 10px;
   padding: 12px;
+  background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .filterGroupTitle {
-  font-weight: bold;
-  color: #333;
+  font-weight: 700;
+  color: #000;
   margin-bottom: 10px;
-  font-size: 14px;
+  font-size: 13px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.06em;
+}
+
+/* Заголовок блока условий — без капса, как в макете «Методы победы» */
+.conditionsVictoryTitle {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* Поля «Задачи СССР / Германии» — без ручного растягивания по вертикали */
+.panelTextarea.conditionsTasksTextarea {
+  resize: none;
+  min-height: 80px;
+  max-height: 120px;
+  height: 100px;
+  overflow-y: auto;
 }
 
 .filterRow {
@@ -86,114 +180,849 @@ overflow: hidden;
 }
 
 .filterItem {
-  padding-bottom: 9px;
-  padding-top: 9px;
-  padding-left: 7px;
-  padding-right: 7px;
-  background: #e0e0e0;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.42);
   border-radius: 20px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
+  font-size: 13px;
+  color: #333;
+  border: 1px solid rgba(255, 255, 255, 0.5);
   text-align: center;
-  border: 1px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .filterItem:hover {
-   background: rgba(53, 49, 49, 0.5);
- color: white;
+  background: rgba(53, 49, 49, 0.35);
+  border-color: rgba(53, 49, 49, 0.25);
+  color: #fff;
 }
 
 .filterItem.active {
- background: rgba(53, 49, 49, 0.5);
- color: white;
- 
+  background: rgba(53, 49, 49, 0.55);
+  border-color: rgba(40, 40, 40, 0.2);
+  color: #fff;
 }
 
-.objectsBlock {
+/* Нижняя часть: сетка как .editorUnitItems в редакторе юнитов */
+.rightPalette {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 15px;
-}
-
-.objectsTitle {
-  font-size: 16px;
-  font-weight: bold;
-  color: #333;
-  margin-bottom: 15px;
-  padding-bottom: 8px;
-  border-bottom: 2px solid #4a90e2;
+  min-width: 0;
+  padding: 16px 14px;
+  background: rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .objectsGrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 16px 14px;
+  justify-content: stretch;
+  align-content: start;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
-  padding-right: 5px;
+  overflow-x: hidden;
+  padding-right: 2px;
   scrollbar-width: thin;
-  scrollbar-color: #888 #f0f0f0;
 }
 
 .objectsGrid::-webkit-scrollbar {
   width: 6px;
 }
 
-.objectsGrid::-webkit-scrollbar-track {
-  background: #f0f0f0;
-  border-radius: 10px;
-}
-
-.objectsGrid::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 10px;
-}
-
 .objectItem {
-  background: rgba(255, 255, 255, 0.247);
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 10px 5px;
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 12px;
+  padding: 12px 10px;
+  min-height: 152px;
+  height: auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  cursor: pointer;
-  transition: all 0.2s;
+  justify-content: center;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
   text-align: center;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .objectItem:hover {
-
-  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.2);
+  background: rgba(255, 255, 255, 0.5);
+  border-color: rgba(45, 45, 50, 0.45);
 }
 
 .objectItem.selected {
- 
-  box-shadow: 0 2px 8px rgba(74, 144, 226, 0.3);
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(35, 35, 40, 0.85);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.18);
 }
 
 .objectIcon {
-  font-size: 24px;
-  margin-bottom: 5px;
+  margin: 0 auto 6px;
+  flex-shrink: 0;
+  width: 84px;
+  height: 84px;
+  box-sizing: border-box;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.objectName {
+.objectIcon img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 6px;
+  display: block;
+}
+
+.objectItem > .objectName {
   font-size: 12px;
-  color: #333;
+  line-height: 1.25;
+  font-weight: 500;
+  color: #000;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   word-break: break-word;
 }
 
-.editorUnitItems {
-  padding: 20px;
+/* Верхние кнопки: один класс (без отдельной обёртки в разметке) */
+.toolbarRow {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.toolbarPrimary {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  justify-content: stretch;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.toolbarPrimary > div {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.toolbarSecondary {
+  display: flex;
+  flex: 0 0 auto;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.layoutRow {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  gap: 0;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.selectionToast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  padding: 11px 18px;
+  border-radius: 16px;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(30, 30, 35, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.2);
+}
+
+.unitTypeGrid {
   display: grid;
-  grid-template-columns: repeat(3, 100px);
-  gap: 20px 15px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkboxRowBlock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conditionsBlock {
+  margin-bottom: 15px;
+}
+
+.conditionsNested {
+  margin-left: 22px;
+  margin-top: 10px;
+}
+
+.radioLabel {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.fullWidth {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fullWidthSpaced {
+  width: 100%;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(40, 40, 40, 0.65);
+  margin-bottom: 4px;
+}
+
+.marginTopSm {
+  margin-top: 6px;
+}
+
+.panelInput,
+.panelTextarea {
+  font-size: 14px;
+  color: #2a2a2a;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: inherit;
+}
+
+.panelInput:focus,
+.panelTextarea:focus {
+  outline: none;
+  border-color: rgba(55, 55, 60, 0.55);
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12);
+}
+
+.panelTextarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.panelTextarea.panelTextareaFixed {
+  resize: none;
+  min-height: 120px;
+  max-height: 120px;
+  height: 120px;
   overflow-y: auto;
-  overflow-x: hidden;
+}
+
+.scenarioPhotoRows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 8px;
+  min-width: 0;
+}
+
+.scenarioPhotosGroup {
+  min-width: 0;
+}
+
+.fileInput {
+  margin-top: 8px;
+  font-size: 13px;
+  color: rgba(40, 40, 40, 0.75);
+}
+
+.tasksBlock {
+  padding-left: 6px;
+  margin-bottom: 14px;
+}
+
+.tasksBlockLast {
+  margin-bottom: 0;
+}
+
+.tasksHeadingUssr {
+  font-weight: bold;
+  color: #000;
+  font-size: 13px;
+}
+
+.tasksHeadingAxis {
+  font-weight: bold;
+  color: #000;
+  font-size: 13px;
+}
+
+.photoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 10px;
+  min-height: 100px;
+  border-radius: 10px;
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.photoCell {
+  position: relative;
+}
+
+.photoThumb {
+  width: 100%;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.photoRemove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  background: rgba(200, 40, 40, 0.88);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 11px;
+}
+
+.photoEmpty {
+  grid-column: 1 / -1;
+  text-align: center;
+  color: rgba(80, 80, 80, 0.55);
+  padding: 22px;
+  font-size: 14px;
+}
+
+/* Manual — руководство в модальном окне (та же стеклянная стилистика) */
+
+.manual {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.manualIntro {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(35, 35, 40, 0.88);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-left: 3px solid rgba(45, 45, 50, 0.55);
+}
+
+.manualSection {
+  padding: 0;
+}
+
+.manualSectionTitle {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(30, 30, 35, 0.85);
+  padding-bottom: 0;
+}
+
+.manualList {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(45, 45, 50, 0.88);
+}
+
+.manualList li {
+  margin-bottom: 8px;
+}
+
+.manualList li:last-child {
+  margin-bottom: 0;
+}
+
+.manualSteps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.manualStep {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.32);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+.manualStepBadge {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  scrollbar-width: thin;
-  scrollbar-color: #888 #f0f0f0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(53, 49, 49, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.manualStepTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(25, 25, 30, 0.92);
+  margin-bottom: 4px;
+}
+
+.manualStepText {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(50, 50, 55, 0.88);
+}
+
+.manualTip {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(45, 45, 50, 0.9);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 200, 120, 0.45);
+  background: rgba(255, 248, 230, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.manualTipLabel {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(120, 70, 0, 0.95);
+  background: rgba(255, 200, 100, 0.4);
+  border: 1px solid rgba(200, 140, 40, 0.25);
+}
+
+.manualFooterNote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: rgba(80, 80, 85, 0.75);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.modalFormGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.modalField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.modalLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(40, 40, 40, 0.85);
+}
+
+.modalHint {
+  font-size: 12px;
+  color: rgba(80, 80, 80, 0.65);
+}
+
+.modalNumberInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #222;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.modalNumberInput:focus {
+  outline: none;
+  border-color: rgba(55, 55, 60, 0.55);
+  background: rgba(255, 255, 255, 0.75);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.12);
+}
+
+.modalFooterActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  justify-content: stretch;
+  width: 100%;
+}
+
+.modalFooterActions > div {
+  width: 100%;
+  margin: 0 !important;
+}
+
+.modalFooterActionsCenter {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  justify-content: stretch;
+  width: 100%;
+}
+
+.modalFooterActionsCenter > div {
+  width: 100%;
+  margin: 0 !important;
+}
+
+.exportPanelInner {
+  padding: 0;
+}
+
+.exportSectionHint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(60, 60, 65, 0.75);
+}
+
+.exportList {
+  max-height: 280px;
+  overflow-y: auto;
+  border-radius: 10px;
+  border: 1px dashed rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.28);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exportListEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 32px 16px;
+  color: rgba(100, 100, 100, 0.65);
+  font-size: 14px;
+}
+
+.exportListError {
+  padding: 16px 12px;
+  text-align: center;
+  font-size: 14px;
+  color: #b71c1c;
+  line-height: 1.4;
+}
+
+.exportListRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.exportListName {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  color: rgba(28, 32, 40, 0.92);
+}
+
+.exportListNameWrap {
+  display: flex;
+  flex: 1 1 220px;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.exportStatusPending,
+.exportStatusRejected {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.exportStatusPending {
+  background: rgba(255, 193, 7, 0.22);
+  color: #7a5a00;
+}
+
+.exportStatusRejected {
+  background: rgba(220, 53, 69, 0.14);
+  color: #991b1b;
+}
+
+.exportRowActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+/* Кнопка как на главном меню (Button), без лишних отступов в строке */
+.exportOpenButton {
+  margin: 0 !important;
+  width: 100% !important;
+  min-width: 0;
+  text-align: center;
+}
+
+@media (max-width: 980px) {
+  .exportRowActions {
+    grid-template-columns: 1fr;
+    justify-content: stretch;
+  }
+}
+
+@media (max-width: 1480px) {
+  .objectsGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px 10px;
+  }
+
+  .unitTypeGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 1180px) {
+  .layoutRow {
+    flex-direction: column;
+    align-items: stretch;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+  }
+
+  .editorMainMap {
+    max-width: none;
+    margin-left: 4px;
+    margin-right: 4px;
+  }
+
+  .editorMapTool {
+    flex: 0 1 auto;
+    max-width: none;
+    width: 100%;
+    min-width: 0;
+    margin-left: 4px;
+    max-height: min(520px, 48vh);
+  }
+}
+
+@media (max-height: 820px) {
+  .editorMap {
+    padding: 8px 10px;
+  }
+
+  .editorMapTool {
+    min-height: min(480px, calc(100dvh - 120px));
+    max-height: calc(100dvh - 88px);
+  }
+}
+
+@media (max-width: 700px) {
+  .editorMap {
+    width: 100%;
+    max-width: 100%;
+    min-height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    padding: 8px;
+    border-radius: 0;
+  }
+
+  .toolbarRow {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .toolbarPrimary {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .toolbarSecondary {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+
+  .layoutRow {
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
+  }
+
+  .editorMainMap {
+    margin: 0;
+    min-width: 0;
+  }
+
+  .editorMapTool {
+    margin: 0;
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    min-height: 320px;
+    max-height: min(62dvh, 560px);
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  .editorUnitFilter {
+    padding: 10px;
+    gap: 10px;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .rightPalette {
+    padding: 10px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .objectsGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 480px) {
+  .editorMap {
+    padding: 6px;
+  }
+
+  .editorUnitFilter,
+  .rightPalette {
+    padding: 8px;
+  }
+
+  .mainTabs {
+    padding: 6px 5px;
+    gap: 5px;
+  }
+
+  .mainTab {
+    font-size: 13px;
+    padding: 7px 5px;
+  }
+
+  .toolbarPrimary > div,
+  .toolbarSecondary > div {
+    width: 100%;
+    margin: 0 !important;
+  }
+
+  .objectsGrid {
+    grid-template-columns: 1fr;
+  }
 }

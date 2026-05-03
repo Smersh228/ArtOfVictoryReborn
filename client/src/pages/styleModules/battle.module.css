@@ -1,25 +1,1106 @@
-.battleMain {
-background-color: white;
-border-radius: 10px;
-width: 1320px;
-height: 94vh;
-margin-top: 30px;
-margin-left: 31%;
-display: flex;
-flex-direction: column;
-}
-.battleButtons {
-display: flex;
-justify-content: space-between;
 
+
+.battle {
+  width: min(1280px, 82vw);
+  max-width: 88%;
+  margin-left: auto;
+  margin-right: 8px;
+  margin-top: 12px;
+  margin-bottom: 0;
+  padding: 10px 12px 12px;
+  box-sizing: border-box;
+  height: calc(100vh - 20px);
+  max-height: calc(100dvh - 20px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(200, 206, 214, 0.18) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+
+.toolbar {
+  position: relative;
+  z-index: 6;
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.toolbarRow {
+  display: flex;
+  flex-wrap: nowrap;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+
+.toolbarRow > div:not(.toolbarTurnGroup) {
+  margin: 0 !important;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 380px;
+  width: auto !important;
+  box-sizing: border-box !important;
+}
+
+
+.toolbarTurnGroup {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: min(480px, 100%);
+  margin: 0 !important;
+  box-sizing: border-box;
+}
+
+.toolbarTurnGroup > div {
+  margin: 0 !important;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 380px;
+  width: auto !important;
+  box-sizing: border-box !important;
+}
+
+.battleTurnCounter {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 800;
+  color: rgba(28, 32, 40, 0.92);
+  letter-spacing: 0.03em;
+  padding-right: 4px;
+}
+
+.battleBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.leftMenuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: transparent;
+}
+
+.leftMenuBackdropDim {
+  background: rgba(14, 18, 26, 0.48);
+}
+
+.leftMenuPanel {
+  position: fixed;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: min(520px, calc(100dvh - 40px));
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 8px 28px rgba(0, 0, 0, 0.08);
+}
+
+.leftMenuPanelSurrenderModal {
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(360px, calc(100vw - 48px));
+  max-height: min(420px, calc(100dvh - 48px));
+}
+
+.leftMenuPanelStandard {
+  width: min(312px, calc(100vw - 40px));
+}
+
+.leftMenuPanelStandard .leftMenuTitle {
+  color: rgba(255, 255, 255, 0.96);
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.leftMenuPanelStandard .leftMenuSubtitle {
+  color: rgba(255, 255, 255, 0.78);
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.leftMenuPanelStandard .leftMenuText {
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.leftMenuPanelStandard .leftMenuHeader {
+  border-bottom-color: rgba(255, 255, 255, 0.22);
+}
+
+.leftMenuPanelStandard .leftMenuFooter {
+  border-top-color: rgba(255, 255, 255, 0.22);
+}
+
+.leftMenuPanelSurrenderModal .leftMenuHeader {
+  padding: 10px 10px 8px;
+}
+
+.leftMenuPanelSurrenderModal .leftMenuTitle {
+  font-size: 16px;
+}
+
+.leftMenuPanelSurrenderModal .leftMenuSubtitle {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.leftMenuPanelSurrenderModal .leftMenuBody {
+  padding: 10px 12px;
+}
+
+.leftMenuPanelSurrenderModal .leftMenuText {
+  font-size: 13px;
+}
+
+.leftMenuPanelSurrenderModal .leftMenuFooter {
+  padding: 8px 10px 10px;
+}
+
+.leftMenuHeader {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.leftMenuTitles {
+  min-width: 0;
+}
+
+.leftMenuTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: rgba(22, 24, 32, 0.95);
+  letter-spacing: 0.02em;
+}
+
+.leftMenuSubtitle {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(55, 60, 72, 0.72);
+  line-height: 1.35;
+}
+
+.leftMenuBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  scrollbar-width: thin;
+}
+
+.leftMenuText {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: rgba(35, 38, 48, 0.9);
+}
+
+.leftMenuPanelStandard .battleReportWrap {
+  margin: 0;
+}
+
+.leftMenuPanelStandard .battleReportList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.leftMenuPanelStandard .battleReportLine {
+  margin: 0;
+  padding: 5px 0 5px 2px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  font-variant-numeric: tabular-nums;
+}
+
+.leftMenuPanelStandard .battleReportLineText {
+  flex: 1;
+  min-width: 0;
+}
+
+.leftMenuPanelStandard .battleReportLineCol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.leftMenuPanelStandard .battleReportOrderLabel {
+  font-weight: 600;
+  font-size: 12px;
+  color: rgba(255, 245, 200, 0.96);
+  line-height: 1.3;
+}
+
+.leftMenuPanelStandard .battleReportUnitNames {
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.leftMenuPanelStandard .battleReportStats {
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(220, 230, 255, 0.88);
+  font-variant-numeric: tabular-nums;
+}
+
+.leftMenuPanelStandard .battleReportLineInteractive {
+  cursor: default;
+}
+
+.leftMenuPanelStandard .battleReportLineInteractive:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.leftMenuPanelStandard .battleReportLine:last-child {
+  border-bottom: none;
+}
+
+.leftMenuPanelStandard .battleReportLineMeta {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 600;
+}
+
+.leftMenuPanelStandard .battleReportLineTurn {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: none;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+}
+
+.leftMenuPanelStandard .battleReportLineTurn:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.leftMenuFooter {
+  flex-shrink: 0;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.leftMenuActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  justify-content: stretch;
+}
+
+.leftMenuActions > div {
+  margin: 0 !important;
+  width: 100%;
+}
+
+.leftMenuActions > div:only-child {
+  grid-column: 1 / -1;
+}
+
+.battleMapArea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .battleMap {
-    width: 1280px;
-    height: 90vh;
-    margin-left: 20px;
+  flex: 1;
+  min-height: 0;
+  margin: 0 2px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.mapCanvasWrap {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.battleMapResolvingOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: rgba(22, 26, 36, 0.48);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.battleMapResolvingModal {
+  max-width: min(360px, 100%);
+  padding: 22px 26px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(236, 240, 248, 0.94) 100%
+  );
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  text-align: center;
+}
+
+.battleMapResolvingTitle {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: rgba(22, 26, 34, 0.95);
+}
+
+.battleMapResolvingHint {
+  margin: 10px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(55, 62, 76, 0.78);
+}
+
+/* Закреплённый счётчик id клетки (бой) */
+.battleCellIdCorner {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(28, 32, 40, 0.92);
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(236, 240, 248, 0.9) 100%
+  );
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.battleCellIdCorner strong {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.battleHudLine {
+  margin: 0;
+}
+
+.battleHudOrderLine {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(48, 56, 72, 0.92);
+  line-height: 1.35;
+}
+
+.battleHudOrderLine strong {
+  font-weight: 800;
+}
+
+.battleHudOrderMeta {
+  font-weight: 600;
+  color: rgba(28, 32, 40, 0.78);
+}
+
+.battleCellsRoot {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.battleCellsRoot canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
+  cursor: url("../../img/cursors/cursorPointer.cur"), default;
+}
+
+.mapPlaceholder {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(60, 60, 65, 0.55);
+}
+
+/* Подсказка характеристик юнита при наведении — сильная прозрачность, поле видно сквозь */
+.battleUnitTip {
+  position: fixed;
+  z-index: 900;
+  min-width: 200px;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 10px;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.2) 0%,
+    rgba(236, 240, 248, 0.16) 100%
+  );
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  color: #000;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.battleUnitTipTitle {
+  font-weight: 900;
+  font-size: 14px;
+  margin: 0 0 6px;
+  letter-spacing: 0.02em;
+  color: #000;
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.95),
+    0 0 1px rgba(255, 255, 255, 1);
+}
+
+.battleUnitTipRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 2px 0;
+}
+
+.battleUnitTipKey {
+  color: #000;
+  flex: 0 0 auto;
+  font-weight: 800;
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.95),
+    0 0 1px rgba(255, 255, 255, 1);
+}
+
+.battleUnitTipVal {
+  font-weight: 800;
+  text-align: right;
+  color: #000;
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.95),
+    0 0 1px rgba(255, 255, 255, 1);
+}
+
+.leftMenuPanelStandard .battleTasksFactionTitle {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.96);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.leftMenuPanelStandard .battleTasksFactionTitleSecond {
+  margin-top: 16px;
+}
+
+.leftMenuPanelStandard .battleTasksBody {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: rgba(255, 255, 255, 0.9);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.leftMenuPanelStandard .battleTasksEmpty {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Меню приказов по ЛКМ */
+.battleUnitOrders {
+  position: fixed;
+  z-index: 950;
+  min-width: 168px;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(230, 236, 246, 0.36) 100%
+  );
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  color: rgba(22, 26, 34, 0.95);
+}
+
+.battleUnitOrdersHeader {
+  padding: 6px 8px 5px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.battleUnitOrdersTitle {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.7);
+}
+
+.battleUnitOrdersSubtitle {
+  margin: 2px 0 0;
+  font-size: 10px;
+  color: rgba(40, 44, 52, 0.75);
+  line-height: 1.2;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.65);
+}
+
+.battleUnitOrdersMeta {
+  padding: 6px 8px 7px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.battleUnitOrdersMeta .battleUnitTipRow {
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.battleUnitOrdersMeta .battleUnitTipKey {
+  min-width: 4.2em;
+}
+
+.battleUnitOrdersBody {
+  padding: 5px 6px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: min(42vh, 240px);
+  overflow-y: auto;
+}
+
+.battleUnitOrdersCancelWrap {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.battleUnitOrderBtn {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 4px 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.38);
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(22, 26, 34, 0.94);
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
+  text-align: left;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.65);
+}
+
+.battleUnitOrderBtnInner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+}
+
+.battleUnitOrderBtnIcon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+
+.battleUnitOrderBtnLabel {
+  flex: 1 1 auto;
+  text-align: left;
+  line-height: 1.25;
+}
+
+.battleUnitOrderBtn:hover {
+  background: rgba(76, 120, 200, 0.22);
+  border-color: rgba(76, 120, 200, 0.4);
+}
+
+.battleUnitOrderBtn:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.battleUnitOrderBtn:disabled:hover {
+  background: rgba(255, 255, 255, 0.32);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+
+.battleModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 13000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+  background: rgba(14, 18, 26, 0.38);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.battleModalPanel {
+  min-width: min(300px, 100%);
+  max-width: min(520px, 100%);
+  padding: 22px 24px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.52) 0%,
+    rgba(248, 250, 255, 0.44) 45%,
+    rgba(255, 255, 255, 0.38) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 32px rgba(0, 0, 0, 0.08);
+  color: #0d0d0d;
+  font-weight: 600;
+}
+
+.battleModalPanelScroll {
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+}
+
+.battleModalTitle {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #000;
+}
+
+.battleModalTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #000;
+}
+
+.battleModalTitleIcon {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.battleModalMeta {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #111;
+  font-weight: 700;
+}
+
+.battleModalMeta strong {
+  font-weight: 800;
+  color: #000;
+}
+
+.battleModalMetaMuted {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #141414;
+  font-weight: 700;
+}
+
+.battleModalLabel {
+  display: block;
+  margin-bottom: 16px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #000;
+}
+
+.battleModalLabel strong {
+  font-weight: 900;
+}
+
+.battleModalRange {
+  display: block;
+  margin-top: 12px;
+  width: 100%;
+  height: 18px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+.battleModalRange:focus {
+  outline: none;
+}
+
+.battleModalRange:focus-visible {
+  outline: 2px solid rgba(100, 140, 200, 0.45);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+.battleModalRange::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 1),
+    0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.battleModalRange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -7px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
+  cursor: pointer;
+}
+
+.battleModalRange::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.battleModalRange::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+}
+
+.battleModalActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 18px;
+}
+
+.battleModalBtn {
+  margin: 0 !important;
+}
+
+.battleModalCargoList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.battleModalCargoItem {
+  margin-bottom: 8px;
+}
+
+.battleModalCargoBtn {
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.38);
+  color: #0d0d0d;
+  cursor: url('../../img/cursors/cursorPointer.cur'), pointer;
+  font-size: 15px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.battleModalCargoBtn:hover {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.72);
+}
+
+.battleModalCargoIcon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.battleModalCancelWrap {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 900px) {
+  .battle {
+    width: calc(100% - 16px);
+    max-width: none;
+    margin-left: 8px;
+    margin-right: 8px;
+  }
+}
+
+@media (max-width: 700px) {
+  .battle {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    padding: 8px;
+    border-radius: 0;
+  }
+
+  .toolbar {
+    padding: 8px;
+    margin-bottom: 8px;
     border-radius: 10px;
-    background-color: rgb(61, 68, 68);
+  }
 
+  .toolbarRow {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px;
+  }
 
+  .toolbarRow > div:not(.toolbarTurnGroup),
+  .toolbarTurnGroup > div {
+    flex: 1 1 calc(50% - 6px);
+    max-width: none;
+    min-width: 0;
+  }
+
+  .toolbarTurnGroup {
+    width: 100%;
+    flex: 1 1 100%;
+    gap: 8px;
+  }
+
+  .battleTurnCounter {
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  .battleMap {
+    margin: 0;
+    border-radius: 10px;
+  }
+
+  .battleCellIdCorner {
+    right: 8px;
+    bottom: 8px;
+    padding: 6px 9px;
+    font-size: 12px;
+    border-radius: 8px;
+  }
+
+  .battleHudOrderLine {
+    font-size: 11px;
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  .leftMenuPanel {
+    left: 8px;
+    right: 8px;
+    top: auto;
+    bottom: 8px;
+    transform: none;
+    width: auto;
+    max-height: min(70dvh, 520px);
+  }
+
+  .leftMenuPanelStandard {
+    width: auto;
+  }
+
+  .leftMenuPanelSurrenderModal {
+    left: 8px;
+    right: 8px;
+    top: 50%;
+    bottom: auto;
+    width: auto;
+    transform: translateY(-50%);
+    max-height: min(82dvh, 480px);
+  }
+}
+
+@media (max-width: 480px) {
+  .battle {
+    padding: 6px;
+  }
+
+  .toolbar {
+    padding: 6px;
+    margin-bottom: 6px;
+  }
+
+  .toolbarRow {
+    padding: 5px;
+    gap: 5px;
+  }
+
+  .toolbarRow > div:not(.toolbarTurnGroup),
+  .toolbarTurnGroup > div {
+    flex-basis: 100%;
+  }
+
+  .battleTurnCounter {
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .leftMenuHeader {
+    padding: 10px 10px 8px;
+  }
+
+  .leftMenuBody {
+    padding: 10px 10px 12px;
+  }
+
+  .leftMenuFooter {
+    padding: 8px 10px 10px;
+  }
+
+  .battleModalBackdrop {
+    padding: 10px;
+  }
+
+  .battleModalPanel {
+    padding: 16px 14px;
+  }
+
+  .battleModalTitle,
+  .battleModalTitleRow {
+    font-size: 15px;
+  }
 }

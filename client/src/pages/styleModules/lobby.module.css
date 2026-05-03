@@ -1,65 +1,666 @@
+
+
 .lobby {
-width: 95%;
-height: 96vh;
-border: solid black 2px;
-margin-left: 50px;
-margin-bottom: 10px;
-margin-top: 20px;
-border-radius: 10px;
+  position: relative;
+  width: 99%;
+  margin-left: 5px;
+  margin-top: 12px;
+  margin-bottom: 0;
+  padding: 10px 12px 10px;
+  box-sizing: border-box;
+  height: calc(100vh - 20px);
+  max-height: calc(100dvh - 20px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(200, 206, 214, 0.18) 50%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
 }
 
-.lobbyName {
-background-color: rgba(128, 128, 128, 0.438);
-color:white;
-border-radius: 10px 10px 0px 0px;
-height: 40px;
-text-align: center;
-}
-.lobbyListPlayer {
-width: 600px;
-height: 500px;
-border: 2px solid black;
-border-radius: 10px;
-}
-.lobbyInfo {
-display: grid;
-border: 2px solid black;
-width: 64%;
-margin-top: 25px;
-height: 86vh;
-border-radius: 10px;
-grid-template-columns: 1fr 1fr ;
-grid-template-rows: 1fr 1fr ;
-min-width: 0;
+.lobbyLoadingOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-.lobbyButtons {
-display: flex;
-justify-content: space-between;
-
+.lobbyLoadingOverlayTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: rgba(25, 28, 36, 0.92);
+  letter-spacing: 0.02em;
 }
 
-.lobbyBlockInfo {
-border: 2px solid black;
-font-size: 18px;
-text-align: justify;
-padding: 10px;
-
+.lobbyLoadingOverlayHint {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(55, 60, 72, 0.72);
 }
+
+.lobbyHeader {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 14px 18px 16px;
+  margin-bottom: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.lobbyTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  color: rgba(25, 25, 30, 0.92);
+  letter-spacing: 0.02em;
+}
+
+.lobbyNav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.lobbyNav > div {
+  margin: 0 !important;
+}
+
+.lobbyBody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.lobbyLeft {
+  flex: 0 0 min(380px, 34vw);
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 12px 14px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  background: rgba(252, 252, 252, 0.32);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.lobbyButtonRow {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.lobbyButtonRow > div {
+  flex: 1 1 calc(50% - 6px);
+  min-width: 140px;
+  max-width: 100%;
+}
+
+.lobbyPlayers {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.sectionTitle {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(25, 25, 30, 0.9);
+  border-bottom: 1px solid rgba(74, 144, 226, 0.35);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.playerList {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 100, 100, 0.35) rgba(255, 255, 255, 0.25);
+}
+
+.playerList::-webkit-scrollbar {
+  width: 6px;
+}
+
+.playerList::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 120, 0.35);
+  border-radius: 8px;
+}
+
+.playerPlaceholder {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(60, 60, 65, 0.65);
+  font-style: italic;
+}
+
+.playerListError {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(130, 38, 38, 0.95);
+}
+
+.playerRows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.playerRow {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(28, 30, 38, 0.9);
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.playerRowName,
+.playerRowFaction,
+.playerRowReady {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.playerRowName {
+  font-weight: 700;
+  font-size: 14px;
+  color: rgba(22, 24, 32, 0.95);
+  text-align: left;
+}
+
+.playerRowFaction {
+  text-align: center;
+}
+
+.playerRowReady {
+  text-align: right;
+}
+
+.lobbyRight {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.glassCell {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.cellLabel {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(40, 40, 45, 0.78);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+
+.cellLabelPlain {
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+.cellBody {
+  flex: 1;
+  min-height: 0;
+  padding: 10px 12px;
+  overflow-y: auto;
+  font-size: 15px;
+  line-height: 1.45;
+  color: #000;
+}
+
+.lobbyMap {
+  grid-column: 1;
+  grid-row: 2;
+}
+
 .lobbyBlockTaskInfo {
-    border: 2px solid black;
-grid-column: 1;
-grid-row: 1;
-
+  grid-column: 1;
+  grid-row: 1;
 }
-.lobbyMap{
-    border: 2px solid black;
-grid-column: 1;
-grid-row: 2;
 
+.lobbyMissionTurns {
+  margin: 0 12px 8px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: rgba(28, 32, 40, 0.9);
+  background: transparent;
+  border: none;
 }
+
+.lobbyMissionTurns strong {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.lobbyMissionTurnsMuted {
+  margin: 0 12px 8px;
+  font-size: 12px;
+  color: rgba(60, 64, 72, 0.65);
+}
+
+.lobbyTaskSplit {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  padding: 10px 12px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.lobbyTaskColumn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.lobbyTaskSubLabel {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(40, 40, 45, 0.85);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.lobbyTaskBody {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(35, 35, 40, 0.88);
+}
+
 .lobbyHistorical {
-grid-column: 2;
-grid-row: 1 / span 2;
-border: 2px solid black;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.lobbyHistoricalPhotos {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  padding: 10px 12px 0;
+  box-sizing: border-box;
+}
+
+.lobbyHistoryPhotoSlot {
+  flex: 1;
+  min-width: 0;
+  min-height: 120px;
+  max-height: 160px;
+  border-radius: 10px;
+  border: 1px dashed rgba(120, 120, 130, 0.45);
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.lobbyHistoryPhotoSlot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lobbyHistoryPhotoPlaceholder {
+  font-size: 12px;
+  color: rgba(80, 80, 85, 0.55);
+  font-style: italic;
+}
+
+.lobbyHistorical .cellBody {
+  text-align: justify;
+  hyphens: auto;
+}
+
+.mapPlaceholder {
+  flex: 1;
+  min-height: 80px;
+  margin: 8px;
+  border-radius: 10px;
+  border: 1px dashed rgba(120, 120, 130, 0.4);
+  background: rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: rgba(60, 60, 65, 0.55);
+}
+
+.mapPreviewWrap {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  margin: 8px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  border: 1px solid rgba(120, 120, 130, 0.28);
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  overflow: hidden;
+}
+
+.mapPreviewCellsWrap {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mapPreviewCellsWrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+}
+
+.lobbyTaskBodyText {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 960px) {
+  .lobbyBody {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .lobbyLeft {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+
+  .lobbyRight {
+    min-height: 420px;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr;
+  }
+
+  .lobbyMap {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .lobbyBlockTaskInfo {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .lobbyHistorical {
+    grid-column: 1;
+    grid-row: 3;
+    min-height: 200px;
+  }
+
+  .lobbyTaskSplit {
+    flex-direction: column;
+    min-height: 220px;
+  }
+
+  .lobbyHistoricalPhotos {
+    flex-direction: column;
+  }
+
+  .lobbyHistoryPhotoSlot {
+    max-height: 140px;
+  }
+}
+
+@media (max-width: 700px) {
+  .lobby {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    padding: 8px;
+    border-radius: 0;
+  }
+
+  .lobbyLoadingOverlay {
+    border-radius: 0;
+  }
+
+  .lobbyHeader {
+    padding: 10px 12px 12px;
+    margin-bottom: 8px;
+    border-radius: 10px;
+  }
+
+  .lobbyTitle {
+    font-size: 18px;
+  }
+
+  .lobbyNav {
+    margin-top: 8px;
+    gap: 6px;
+  }
+
+  .lobbyBody {
+    gap: 8px;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .lobbyLeft {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .lobbyButtonRow {
+    gap: 8px;
+  }
+
+  .lobbyButtonRow > div {
+    min-width: min(120px, 100%);
+  }
+
+  .lobbyRight {
+    min-height: 420px;
+    gap: 8px;
+    overflow-y: auto;
+  }
+
+  .lobbyMap {
+    min-height: 240px;
+  }
+
+  .lobbyBlockTaskInfo,
+  .lobbyHistorical {
+    min-height: 220px;
+    max-height: min(42dvh, 360px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .lobbyTaskSplit {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .cellBody,
+  .lobbyTaskBody,
+  .playerList {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .lobbyHistorical .cellBody {
+    flex: 1;
+    min-height: 88px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mapPreviewWrap {
+    min-height: 190px;
+    margin: 6px;
+  }
+
+  .lobbyHistoricalPhotos {
+    flex-direction: row;
+    gap: 8px;
+    padding: 8px 8px 0;
+  }
+
+  .lobbyHistoryPhotoSlot {
+    min-height: 72px;
+    max-height: 96px;
+  }
+}
+
+@media (max-width: 480px) {
+  .lobby {
+    padding: 6px;
+  }
+
+  .lobbyHeader {
+    padding: 8px 10px 10px;
+    margin-bottom: 6px;
+  }
+
+  .lobbyTitle {
+    font-size: 16px;
+  }
+
+  .lobbyBody {
+    gap: 6px;
+  }
+
+  .lobbyLeft {
+    padding: 8px;
+  }
+
+  .lobbyButtonRow > div {
+    flex-basis: 100%;
+  }
+
+  .lobbyMap {
+    min-height: 200px;
+  }
+
+  .mapPreviewWrap {
+    min-height: 160px;
+    margin: 5px;
+  }
+
+  .lobbyHistorical {
+    min-height: 210px;
+    max-height: min(46dvh, 340px);
+  }
+
+  .lobbyHistorical .cellBody {
+    min-height: 80px;
+  }
+
+  .lobbyHistoryPhotoSlot {
+    min-height: 64px;
+    max-height: 84px;
+  }
 }

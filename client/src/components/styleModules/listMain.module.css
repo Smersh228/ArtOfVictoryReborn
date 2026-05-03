@@ -1,16 +1,203 @@
-.list {
-width: 1000px;
-height: 800px;
-border: solid black 2px;
-margin-left: 10%;
-margin-top: 5%;
-border-radius: 10px;
+
+.listWrap {
+  box-sizing: border-box;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  min-width: min(720px, 96vw);
+  max-width: min(1040px, calc(100vw - 40px));
+  min-height: min(52vh, 560px);
+  padding: 22px 28px 26px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.24) 0%,
+    rgba(200, 206, 214, 0.2) 50%,
+    rgba(255, 255, 255, 0.14) 100%
+  );
+   backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
 }
 
-.listName {
-background-color: rgba(128, 128, 128, 0.438);
-color:white;
-border-radius: 10px 10px 0px 0px;
-height: 40px;
-text-align: center;
+
+.listWrapCreate {
+  flex: 0 1 auto;
+  align-self: center;
+  width: 100%;
+  min-width: min(360px, 90vw);
+  max-width: min(460px, calc(100vw - 32px));
+  min-height: unset;
+  max-height: min(70vh, 520px);
+  height: auto;
+  padding: 16px 20px 20px;
+}
+
+@media (max-width: 720px) {
+  .listWrapCreate {
+    align-self: flex-start;
+    margin-left: 0;
+    margin-right: auto;
+  }
+}
+
+.listHeading {
+  margin: 0 0 14px;
+  font-size: 18px;
+  font-weight: 700;
+  color: rgba(25, 25, 30, 0.92);
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.listLoadingLobby {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(35, 40, 52, 0.88);
+  text-align: center;
+}
+
+.listHintMuted {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(55, 60, 72, 0.62);
+  text-align: center;
+}
+
+.listHint {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgba(40, 44, 55, 0.78);
+  text-align: center;
+}
+
+.listError {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: rgba(160, 35, 35, 0.95);
+  text-align: center;
+}
+
+.listBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: min(44vh, 480px);
+  max-height: min(76vh, 820px);
+  overflow-y: auto;
+}
+
+.roomMain {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.roomMainDimmed {
+  opacity: 0.62;
+  background: rgba(200, 204, 212, 0.28);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.roomMainDimmed .roomName {
+  color: rgba(42, 46, 56, 0.72);
+}
+
+.roomMainDimmed .roomMeta {
+  color: rgba(70, 74, 84, 0.65);
+}
+
+.roomMain > div:last-child {
+  margin: 0 !important;
+}
+
+.roomInfo {
+  min-width: 0;
+  flex: 1;
+}
+
+.roomName {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(22, 24, 32, 0.92);
+  margin-bottom: 4px;
+}
+
+.roomMeta {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(55, 60, 72, 0.78);
+  line-height: 1.35;
+}
+
+.createForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fieldLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(45, 52, 64, 0.85);
+}
+
+.fieldInput,
+.fieldSelect {
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 14px;
+  color: rgba(22, 24, 32, 0.95);
+}
+
+.createActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 12px;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.createActions > div {
+  margin: 0 !important;
+  width: 100%;
+}
+
+.submitLike {
+  width: 100%;
+  padding: 9px 16px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  background: #e0e0e0;
+  font-size: 16px;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
+  transition: background 0.2s;
+}
+
+.submitLike:hover {
+  background: rgba(53, 49, 49, 0.5);
+  color: white;
 }
