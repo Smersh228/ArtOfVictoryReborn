@@ -31,6 +31,7 @@ function canSpotAmbushTarget(attackerUnit, attackerCell, targetUnit, targetCell,
     isArtilleryUnit,
     unitHasPropKey,
     rangeArrayFor,
+    rangeArrayForAtCell,
     fireRangeTableMode,
     computeRevealedCellIdsForFaction,
   } = deps
@@ -41,7 +42,9 @@ function canSpotAmbushTarget(attackerUnit, attackerCell, targetUnit, targetCell,
   const d = hexDistCells(attackerCell, targetCell)
   if (d <= 1) return true
   if (isArtilleryUnit(attackerUnit) && unitHasPropKey(attackerUnit, 'areaFire')) {
-    const ra = rangeArrayFor(attackerUnit)
+    const ra = rangeArrayForAtCell
+      ? rangeArrayForAtCell(attackerUnit, attackerCell)
+      : rangeArrayFor(attackerUnit)
     const mode = fireRangeTableMode(ra)
     const maxD = mode === 'ranged' ? ra.length - 1 : ra.length
     if (d >= 1 && d <= maxD) return true

@@ -121,6 +121,18 @@
   border: 1px solid rgba(200, 80, 90, 0.35);
 }
 
+.maintenanceBanner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(90, 55, 0, 0.95);
+  background: rgba(255, 236, 179, 0.55);
+  border: 1px solid rgba(230, 170, 40, 0.45);
+  line-height: 1.4;
+}
+
 .actions {
   display: flex;
   flex-direction: column;

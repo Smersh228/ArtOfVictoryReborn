@@ -14,14 +14,52 @@ const DEFAULT_BATTLE_ORDERS = [
   ['Развёртывание', 'deploy'],
   ['Смена сектора', 'changeSector'],
   ['Выгрузка', 'unloading'],
-  ['Получение припасов', 'getSup'],
+  ['Загрузка припасов', 'getSup'],
+  ['Сопровождение дружественной авиации', 'accompaniment'],
+  ['Сброс припасов', 'airSupply'],
+  ['Штурмовка', 'attackAir'],
+  ['Бомбардировка', 'bombardment'],
+  ['Десант', 'desant'],
+  ['Авиационная разведка', 'intelligenceAir'],
+  ['Перехват', 'interception'],
+  ['Патрулирование', 'patrol'],
+  ['Мощная атака', 'hardMove'],
+  ['Подрыв сооружения', 'explomost'],
+  ['Стрельба в движение', 'fireMove'],
+  ['Разведка', 'razvedka'],
+  ['Радиоперехват', 'svzy'],
+  ['Строительство понтонного моста', 'buildPonton'],
+  ['Снятие танкового ежа', 'cutEj'],
+  ['Снятие колючей проволоки', 'cutWire'],
+  ['Разминирование', 'demining'],
+  ['Минирование', 'mining'],
+  ['Окопаться', 'trenches'],
 ]
 
 const DEFAULT_UNIT_PROPERTIES = [
   ['Танкобоязнь', 'tankPhobia'],
   ['Сектор стрельбы', 'fireSector'],
+  ['Огонь по воздушным целям', 'fireAirGun'],
   ['Стрельба по закрытым целям', 'concealedTargetFire'],
   ['Стрельба по площади', 'areaFire'],
+  ['Атака огнемётного танка', 'attackMoral'],
+  ['Вызов авиации', 'aviationChallenge'],
+  ['Прорыв колючей проволоки', 'breakingThroughBarbedWire'],
+  ['Преодоление водной преграды', 'crossingAWaterObstacle'],
+  ['Десант', 'desant'],
+  ['Снаряжение', 'equipment'],
+  ['Подрыв колючего заграждения', 'destructionOfBarbedWire'],
+  ['Корректировка огня', 'fireAdjustment'],
+  ['Скрытый отряд', 'hiddenState'],
+  ['Лечение', 'medical'],
+  ['Обнаружение мин', 'mineDetection'],
+  ['Преодоление болота', 'movementThroughTheSwamp'],
+  ['Поднятие боевого духа', 'raisingMorale'],
+  ['Горные части', 'mountainTroops'],
+  ['Стрельба в движении', 'shootingInMotion'],
+  ['Снайпер', 'sniper'],
+  ['Зона действия штаба — 2', 'hqZoneOfAction2'],
+  ['Зона действия штаба — 3', 'hqZoneOfAction3'],
 ]
 
 async function ensureDefaultUnitProperties() {
@@ -42,6 +80,32 @@ async function ensureDefaultUnitProperties() {
   }
 }
 
+let mapEditorPublicColumnsReady = false
+
+async function ensureUnitCatalogColumns() {
+  if (mapEditorPublicColumnsReady) return
+  await pool.query(
+    'ALTER TABLE unit ADD COLUMN IF NOT EXISTS map_editor_public BOOLEAN NOT NULL DEFAULT true',
+  )
+  await pool.query(
+    'ALTER TABLE hex ADD COLUMN IF NOT EXISTS map_editor_public BOOLEAN NOT NULL DEFAULT true',
+  )
+  await pool.query(
+    'ALTER TABLE rule ADD COLUMN IF NOT EXISTS map_editor_public BOOLEAN NOT NULL DEFAULT true',
+  )
+  mapEditorPublicColumnsReady = true
+}
+
+function isMapEditorPublicRow(row) {
+  return row?.map_editor_public !== false
+}
+
+function normalizeMapEditorPublic(raw) {
+  if (raw === false || raw === 0 || raw === '0' || raw === 'false') return false
+  if (raw === true || raw === 1 || raw === '1' || raw === 'true') return true
+  return true
+}
+
 async function ensureDefaultBattleOrders() {
   for (const [name, orderKey] of DEFAULT_BATTLE_ORDERS) {
     try {
@@ -57,6 +121,17 @@ async function ensureDefaultBattleOrders() {
     } catch (e) {
       console.error('ensureDefaultBattleOrders', orderKey, e.message)
     }
+  }
+  try {
+    await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'getSup'`, ['Загрузка припасов'])
+    await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'accompaniment'`, [
+      'Сопровождение дружественной авиации',
+    ])
+    await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'intelligenceAir'`, [
+      'Авиационная разведка',
+    ])
+  } catch (e) {
+    console.error('ensureDefaultBattleOrders rename orders', e.message)
   }
 }
 
@@ -105,6 +180,12 @@ const UNIT_SELECT = `
            'ba', ud.big_air,
            'build', ud.build
          ) AS fire,
+         ud.fire_row_options AS fire_row_options,
+         ud.fire_reactive AS fire_reactive,
+         ud.fire_row_options_reactive AS fire_row_options_reactive,
+         ud.intelligence_air_range AS intelligence_air_range,
+         ud.razvedka_range AS razvedka_range,
+         ud.svzy_range AS svzy_range,
          (
            SELECT COALESCE(
              jsonb_agg(
@@ -229,6 +310,11 @@ function normalizeUnitPropertiesFromDb(raw) {
     .filter(Boolean)
 }
 
+function normalizeEditorFireIntensityTab(raw) {
+  const s = String(raw ?? '').trim().toLowerCase()
+  return s === 'reactive' ? 'reactive' : 'all'
+}
+
 function mapUnitClientRow(u) {
   const fireJson = u.fire && typeof u.fire === 'object' ? u.fire : {}
   const fc = (k) => joinCsv(fireJson[k])
@@ -244,6 +330,8 @@ function mapUnitClientRow(u) {
     mor: u.morale,
     ammo: u.ammo != null ? String(u.ammo) : '',
     mines: u.mines != null ? Number(u.mines) : 0,
+    explosives: u.explosives != null ? Number(u.explosives) : 0,
+    smokeShells: u.smoke_shells != null ? Number(u.smoke_shells) : 0,
     vis: joinCsv(u.visible),
     imagePath: u.standard_image || '',
     hover_image: u.hover_image || '',
@@ -263,6 +351,42 @@ function mapUnitClientRow(u) {
       ba: fc('ba') || '0',
       build: fc('build') || '0',
     },
+    fireRowOptions: normalizeFireRowOptions(u.fire_row_options),
+    fireReactive: (() => {
+      const fr =
+        u.fire_reactive != null && typeof u.fire_reactive === 'object'
+          ? u.fire_reactive
+          : {}
+      const g = (k) => joinCsv(fr[k])
+      return {
+        range: g('range') || '1,2,3',
+        inf: g('inf') || '0',
+        art: g('art') || '0',
+        tech: g('tech') || '0',
+        armor: g('armor') || '0',
+        lt: g('lt') || '0',
+        mt: g('mt') || '0',
+        ht: g('ht') || '0',
+        sa: g('sa') || '0',
+        ba: g('ba') || '0',
+        build: g('build') || '0',
+      }
+    })(),
+    fireRowOptionsReactive: normalizeFireRowOptions(u.fire_row_options_reactive),
+    editorFireIntensityTab: normalizeEditorFireIntensityTab(u.editor_fire_intensity_tab),
+    intelligenceAirRange:
+      u.intelligence_air_range != null && String(u.intelligence_air_range).trim() !== ''
+        ? joinCsv(u.intelligence_air_range)
+        : '1,2,3',
+    razvedkaRange:
+      u.razvedka_range != null && String(u.razvedka_range).trim() !== ''
+        ? joinCsv(u.razvedka_range)
+        : '1,2,3',
+    svzyRange:
+      u.svzy_range != null && String(u.svzy_range).trim() !== ''
+        ? joinCsv(u.svzy_range)
+        : '1,2,3',
+    mapEditorPublic: u.map_editor_public !== false,
   }
 }
 
@@ -274,7 +398,37 @@ function mapUnitCatalog(u) {
     type: m.type,
     faction: m.faction,
     imagePath: m.imagePath,
+    properties: m.properties,
   }
+}
+
+function parseHexExtra(row) {
+  const raw = row.hex_extra ?? row.hexExtra
+  if (raw == null || raw === '') return {}
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw)
+      return p && typeof p === 'object' ? p : {}
+    } catch {
+      return {}
+    }
+  }
+  if (typeof raw === 'object') return { ...raw }
+  return {}
+}
+
+function normalizeFireRowOptions(raw) {
+  if (raw == null || raw === '') return {}
+  let o = raw
+  if (typeof raw === 'string') {
+    try {
+      o = JSON.parse(raw)
+    } catch {
+      return {}
+    }
+  }
+  if (typeof o !== 'object' || o === null) return {}
+  return o
 }
 
 function hexTerrainType(row) {
@@ -306,6 +460,7 @@ function mapHexClient(row) {
   const vis = row.isvisible ?? row.isVisible ?? row.is_visible
   const moveCostInf = cmi != null ? cmi : cm != null ? cm : 1
   const moveCostTech = cmt != null ? cmt : cm != null ? cm : 1
+  const hexExtra = parseHexExtra(row)
   return {
     id: row.id_hex,
     name: row.name,
@@ -319,12 +474,15 @@ function mapHexClient(row) {
     id_cobj: row.id_cobj,
     terrainType: hexTerrainType(row),
     allowedBuildings: parseHexAllowedBuildings(row),
+    hexExtra,
+    mapEditorPublic: isMapEditorPublicRow(row),
   }
 }
 
 function mapHexCatalog(row) {
   const m = mapHexClient(row)
-  return {
+  const hexExtra = m.hexExtra && typeof m.hexExtra === 'object' ? m.hexExtra : {}
+  const out = {
     id: `hex_${m.id}`,
     type: m.terrainType,
     name: m.name,
@@ -335,7 +493,19 @@ function mapHexCatalog(row) {
     visionBlock: m.visionBlock,
     defBonusInf: m.defBonusInf,
     defBonusTech: m.defBonusTech,
+    hexExtra,
   }
+  const bn = row._hex_linked_build_name
+  const bip = row._hex_linked_build_image_path
+  const nameOk = bn != null && String(bn).trim() !== ''
+  const imgOk = bip != null && String(bip).trim() !== ''
+  if (nameOk || imgOk) {
+    out.mapBuilding = {
+      name: bn != null ? String(bn) : '',
+      imagePath: bip != null ? String(bip).trim() : '',
+    }
+  }
+  return out
 }
 
 function mapBuildingClient(row) {
@@ -371,6 +541,7 @@ function mapRuleClient(row) {
     imagePath2: row.image_path_2 || '',
     imagePath3: row.image_path_3 || '',
     id_cobj: row.id_cobj,
+    mapEditorPublic: isMapEditorPublicRow(row),
   }
 }
 
@@ -394,11 +565,16 @@ function normalizeAllowedBuildingsBody(body) {
 module.exports = {
   ensureDefaultUnitProperties,
   ensureDefaultBattleOrders,
+  ensureUnitCatalogColumns,
+  normalizeMapEditorPublic,
+  isMapEditorPublicRow,
   replaceUnitOrders,
   replaceUnitProperties,
   UNIT_SELECT,
   splitNums,
   normalizeFire,
+  normalizeFireRowOptions,
+  normalizeEditorFireIntensityTab,
   mapUnitClientRow,
   mapUnitCatalog,
   mapHexClient,

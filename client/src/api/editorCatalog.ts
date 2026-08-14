@@ -1,11 +1,16 @@
-export const API_ORIGIN = import.meta.env.VITE_API_ORIGIN || 'http://localhost:5000'
-
-
-function editorApiBase(): string {
+/** Базовый URL API: пустая строка = тот же origin (/api/…). В dev Vite проксирует /api. */
+export function apiBaseUrl(): string {
   const v = import.meta.env.VITE_API_ORIGIN as string | undefined
   if (v != null && String(v).trim() !== '') return String(v).replace(/\/$/, '')
   if (import.meta.env.DEV) return ''
-  return String(API_ORIGIN).replace(/\/$/, '')
+  return ''
+}
+
+/** @deprecated используйте apiBaseUrl() */
+export const API_ORIGIN = import.meta.env.VITE_API_ORIGIN || 'http://localhost:5000'
+
+function editorApiBase(): string {
+  return apiBaseUrl()
 }
 
 

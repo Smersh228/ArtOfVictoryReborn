@@ -1,5 +1,11 @@
 import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
+import { battleUnitsVisibleOnMap, readFlightPathCellIdsFromUnit } from '../../game/battleAirSupport'
+import type { AirInterceptionTarget, AirUnitInFlight } from '../../game/battleAirSupport'
+import { battleInstanceIdInList, normalizeBattleInstanceId } from '../../game/battleMovePreview'
 import {
+  airFlightIconPixelOffset,
+  airInterceptionTargetDrawSize,
+  airUnitInFlightDrawSize,
   battleFireTargetDropShadowFilter,
   battleHoverDropShadowFilter,
   battleLogisticsGoldDropShadowFilter,
@@ -54,7 +60,8 @@ function getBattleFilter(params: {
 }
 
 function getReportShootKey(brDecal: any, unitId: any) {
-  if (!brDecal || unitId == null || !brDecal.targetInstanceIds.includes(unitId)) return null
+  if (!brDecal || normalizeBattleInstanceId(unitId) == null) return null
+  if (!battleInstanceIdInList(brDecal.targetInstanceIds, unitId)) return null
   if (brDecal.orderKey === 'fire') return 'fire'
   if (brDecal.orderKey === 'fireHard') return 'fireHard'
   if (brDecal.orderKey === 'attack') return 'attack'
@@ -62,7 +69,8 @@ function getReportShootKey(brDecal: any, unitId: any) {
 }
 
 function getReportLogisticsKey(brDecal: any, unitId: any) {
-  if (!brDecal || unitId == null || !brDecal.targetInstanceIds.includes(unitId)) return null
+  if (!brDecal || normalizeBattleInstanceId(unitId) == null) return null
+  if (!battleInstanceIdInList(brDecal.targetInstanceIds, unitId)) return null
   if (brDecal.orderKey === 'tow') return 'tow'
   if (brDecal.orderKey === 'loading') return 'loading'
   if (brDecal.orderKey === 'getSup') return 'getSup'
@@ -135,9 +143,10 @@ export function drawUnitsOnCell(
     isEnemyUnitHiddenByFog,
   } = params
 
-  if (!cell.units?.length) return
+  const rowUnits = battleUnitsVisibleOnMap(cell, mode)
+  if (!rowUnits.length) return
 
-  const size = unitDrawSize(cell.units.length, lobbyPreview, mode, cellSize)
+  const size = unitDrawSize(rowUnits.length, lobbyPreview, mode, cellSize)
   const positions = unitPositionsForDraw(lobbyPreview, mode, cellSize)
   const hiPad = lobbyPreview ? 3 : mode === 'battle' ? Math.max(4, Math.round(cellSize * 0.12)) : 5
 
@@ -153,8 +162,11 @@ export function drawUnitsOnCell(
     return k
   }
 
-  cell.units.slice(0, 3).forEach((unit: any, index: number) => {
-    if (isEnemyUnitHiddenByFog(unit, cell)) return
+  rowUnits.slice(0, 3).forEach((unit: any, index: number) => {
+    const unitId = unit.instanceId
+    const isFirePickTarget =
+      mode === 'battle' && battleInstanceIdInList(battleFireTargetInstanceIds, unitId)
+    if (isEnemyUnitHiddenByFog(unit, cell) && !isFirePickTarget) return
 
     const pos = positions[index]
     const unitX = center.x + pos.x
@@ -162,16 +174,14 @@ export function drawUnitsOnCell(
 
     const isHovered = hoveredUnit != null && hoveredUnit.cell.id === cell.id && hoveredUnit.index === index
     const isHighlighted = unit.highlighted === true
-    const unitId = unit.instanceId
-    const isFirePickTarget =
-      mode === 'battle' && unitId != null && battleFireTargetInstanceIds?.includes(unitId)
     const isLogisticsPickTarget =
-      mode === 'battle' && unitId != null && battleLogisticsPickInstanceIds?.includes(unitId)
+      mode === 'battle' && battleInstanceIdInList(battleLogisticsPickInstanceIds, unitId)
     const plp = battlePendingLogisticsPreview
     const pendingLogisticsKey = getPendingLogisticsKey(plp, unitId)
     const isPendingLogisticsTarget = mode === 'battle' && pendingLogisticsKey != null
     const reportGlowIds = battleReportReplayHighlight?.glowInstanceIds ?? []
-    const isReportShooterGlow = mode === 'battle' && unitId != null && reportGlowIds.includes(unitId)
+    const isReportShooterGlow =
+      mode === 'battle' && battleInstanceIdInList(reportGlowIds, unitId)
 
     if (isHighlighted) {
       ctx.shadowColor = 'red'
@@ -301,7 +311,7 @@ export function drawUnitsOnCell(
     ctx.shadowBlur = 0
   })
 
-  const extraUnits = cell.units.length - 3
+  const extraUnits = rowUnits.length - 3
   if (extraUnits > 0) {
     const bx = center.x + (lobbyPreview ? 13 : 20)
     const by = center.y + (lobbyPreview ? -10 : -15)
@@ -327,5 +337,141 @@ export function drawUnitsOnCell(
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText(`+${extraUnits}`, bx, by)
+  }
+}
+
+export function drawAirInterceptionTargetsOnCell(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    cell: Cell
+    center: { x: number; y: number }
+    cellSize: number
+    lobbyPreview: boolean
+    mode: 'editor' | 'battle'
+    targets: AirInterceptionTarget[]
+    hoveredInstanceId: number | null
+    cells: Cell[]
+    getCellCenter: (q: number, r: number) => { x: number; y: number }
+    resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+  },
+) {
+  const {
+    cell,
+    center,
+    cellSize,
+    mode,
+    targets,
+    hoveredInstanceId,
+    cells,
+    getCellCenter,
+    resolveEditorCachedImage,
+  } = params
+  if (mode !== 'battle' || !targets.length) return
+
+  const onCell = targets.filter((t) => t.engagementCell.id === cell.id)
+  if (!onCell.length) return
+
+  const size = airInterceptionTargetDrawSize(cellSize)
+
+  for (let i = 0; i < onCell.length; i++) {
+    const target = onCell[i]
+    const unit = target.unit
+    const instanceId = Number(unit.instanceId)
+    const isHovered = hoveredInstanceId != null && hoveredInstanceId === instanceId
+    const unitX = center.x
+    const unitY = center.y
+
+    if (isHovered) {
+      ctx.shadowColor = 'rgba(255, 235, 120, 0.85)'
+      ctx.shadowBlur = 14
+    }
+
+    const imagePath = typeof unit.imagePath === 'string' ? unit.imagePath : null
+    const cached = resolveEditorCachedImage(imagePath)
+    if (cached.ready?.naturalWidth) {
+      ctx.save()
+      drawImageCoverInSquare(ctx, cached.ready, unitX, unitY, size)
+      ctx.restore()
+    } else {
+      ctx.fillStyle = 'rgba(40, 40, 40, 0.85)'
+      ctx.beginPath()
+      ctx.arc(unitX, unitY, size / 2, 0, 2 * Math.PI)
+      ctx.fill()
+      ctx.fillStyle = '#fff'
+      ctx.font = `bold ${Math.max(9, Math.round(size * 0.55))}px Arial`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('✈', unitX, unitY)
+    }
+
+    ctx.shadowColor = 'transparent'
+    ctx.shadowBlur = 0
+  }
+}
+
+export function drawAirUnitsInFlightOnCell(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    cell: Cell
+    center: { x: number; y: number }
+    cellSize: number
+    lobbyPreview: boolean
+    mode: 'editor' | 'battle'
+    viewerBattleFaction: 'none' | 'rkka' | 'wehrmacht'
+    unitsInFlight: AirUnitInFlight[]
+    cells: Cell[]
+    getCellCenter: (q: number, r: number) => { x: number; y: number }
+    resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+  },
+) {
+  const {
+    cell,
+    center,
+    cellSize,
+    mode,
+    unitsInFlight,
+    cells,
+    getCellCenter,
+    resolveEditorCachedImage,
+  } = params
+  if (mode !== 'battle' || !unitsInFlight.length) return
+
+  const onCell = unitsInFlight.filter((row) => row.flightCell.id === cell.id)
+  if (!onCell.length) return
+
+  const size = airUnitInFlightDrawSize(cellSize)
+
+  for (let i = 0; i < onCell.length && i < 3; i++) {
+    const row = onCell[i]
+    const unit = row.unit
+    const path = readFlightPathCellIdsFromUnit(unit)
+    const offset = airFlightIconPixelOffset({
+      flightCell: cell,
+      pathCellIds: path,
+      pathIndex: row.pathIndex,
+      cells,
+      cellSize,
+      getCellCenter,
+    })
+    const unitX = center.x + offset.x
+    const unitY = center.y + offset.y
+
+    const imagePath = typeof unit.imagePath === 'string' ? unit.imagePath : null
+    const cached = resolveEditorCachedImage(imagePath)
+    if (cached.ready?.naturalWidth) {
+      ctx.save()
+      drawImageCoverInSquare(ctx, cached.ready, unitX, unitY, size)
+      ctx.restore()
+    } else {
+      ctx.fillStyle = 'rgba(40, 40, 40, 0.85)'
+      ctx.beginPath()
+      ctx.arc(unitX, unitY, size / 2, 0, 2 * Math.PI)
+      ctx.fill()
+      ctx.fillStyle = '#fff'
+      ctx.font = `bold ${Math.max(10, Math.round(cellSize * 0.16))}px Arial`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText('✈', unitX, unitY)
+    }
   }
 }

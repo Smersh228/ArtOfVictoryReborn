@@ -19,8 +19,11 @@ technics:number;
 }
 export interface IBuildCell {
 trench:number;
+trenchEdges:number;
 wire:number;
+wireEdges:number;
 antiTankBuild:number;
+antiTankEdges:number;
 storage:number;
 mine:number;
 trenchTank:number;

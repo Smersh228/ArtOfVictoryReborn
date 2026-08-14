@@ -21,14 +21,14 @@ import {
   type EditorPropertyRow,
 } from '../api/editorCatalog'
 import { EDITOR_BATTLE_ORDER_DEFS } from '../game/battleOrderIcons'
-
-
-const EDITOR_UNIT_PROPERTY_DEFS: { prop_key: string; name: string }[] = [
-  { prop_key: 'tankPhobia', name: 'Танкобоязнь' },
-  { prop_key: 'fireSector', name: 'Сектор стрельбы' },
-  { prop_key: 'concealedTargetFire', name: 'Стрельба по закрытым целям' },
-  { prop_key: 'areaFire', name: 'Стрельба по площади' },
-]
+import { EDITOR_UNIT_PROPERTY_DEFS } from '../game/editorUnitPropertyIcons'
+import {
+  HEX_MOVE_DEF_TYPE_IDS,
+  HEX_PLACEMENT_OPTS,
+  HEX_SAVE_UNIT_TYPE_IDS,
+  HEX_SIDEBAR_CATEGORIES,
+} from '../components/editorUnit/editorHexTypes'
+import { parseHexAccuracyRulesJson } from '../components/editorUnit/HexAccuracyBonusEditor'
 
 
 const RULE_HEAD_REF_RE = /^(units|hexes):(\d+)$/
@@ -63,6 +63,94 @@ const RULE_CHAPTER_DEFS = [
 ] as const
 
 const ruleEditorChapterIds: string[] = RULE_CHAPTER_DEFS.map((c) => c.id)
+
+function readCheckbox(root: HTMLElement | null, name: string): boolean {
+  if (!root) return false
+  const el = root.querySelector<HTMLInputElement>(`input[type="checkbox"][name="${name}"]`)
+  return Boolean(el?.checked)
+}
+
+function readNumInput(root: HTMLElement | null, name: string, fallback = 0): number {
+  if (!root) return fallback
+  const el = root.querySelector<HTMLInputElement>(`[name="${name}"]`)
+  const n = Number(el?.value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function collectFireRowOptions(
+  root: HTMLElement | null,
+  variant: 'standard' | 'reactive' = 'standard',
+): Record<string, { melee?: boolean }> {
+  const keys = ['inf', 'art', 'tech', 'armor', 'lt', 'mt', 'ht', 'sa', 'ba', 'build'] as const
+  const out: Record<string, { melee?: boolean }> = {}
+  const prefix = variant === 'reactive' ? 'fire_r_melee_' : 'fire_melee_'
+  for (const k of keys) {
+    if (readCheckbox(root, `${prefix}${k}`)) out[k] = { melee: true }
+  }
+  return out
+}
+
+function collectHexEditorPayload(
+  root: HTMLElement | null,
+  opts?: { existingHexExtra?: Record<string, unknown> | null },
+) {
+  const ambushAllowed: Record<string, boolean> = {}
+  for (const id of HEX_SAVE_UNIT_TYPE_IDS) {
+    if (!readCheckbox(root, `hex_ambush_${id}`)) ambushAllowed[id] = false
+  }
+  const placementAllowed: Record<string, boolean> = {}
+  for (const p of HEX_PLACEMENT_OPTS) {
+    placementAllowed[p.key] = readCheckbox(root, p.name)
+  }
+  const moveCostByType: Record<string, number> = {}
+  for (const id of HEX_MOVE_DEF_TYPE_IDS) {
+    moveCostByType[id] = readNumInput(root, `hex_mc_${id}`, 1)
+  }
+  const defBonusByType: Record<string, number> = {}
+  for (const id of HEX_MOVE_DEF_TYPE_IDS) {
+    defBonusByType[id] = readNumInput(root, `hex_def_${id}`, 0)
+  }
+  const { accuracyBonusRules, accuracyBonusByType, accuracyBonusMeleeByType } = parseHexAccuracyRulesJson(
+    root?.querySelector<HTMLInputElement>('[name="hex_accuracy_rules_json"]')?.value ?? '',
+  )
+  const rawHl = opts?.existingHexExtra?.heightLevel
+  const heightLevelPreserved =
+    rawHl != null && Number.isFinite(Number(rawHl))
+      ? Math.min(3, Math.max(-1, Number(rawHl)))
+      : 0
+  const hexExtra: Record<string, unknown> = {
+    category: root?.querySelector<HTMLSelectElement>('[name="hex_category"]')?.value ?? 'nature',
+    heightLevel: heightLevelPreserved,
+    ambushAllowed,
+    placementAllowed,
+    moveWithSwampProp: readCheckbox(root, 'hex_move_swamp_prop'),
+    moveWithRiverProp: readCheckbox(root, 'hex_move_river_prop'),
+    moveWithWaterUnitProp: readCheckbox(root, 'hex_move_water_unit_prop'),
+    moveCostByType,
+    defBonusByType,
+    accuracyBonusRules,
+    accuracyBonusByType,
+    accuracyBonusMeleeByType,
+    isSettlement: readCheckbox(root, 'hex_flag_settlement'),
+    isRailStation: readCheckbox(root, 'hex_flag_rail'),
+    isBridge: readCheckbox(root, 'hex_flag_bridge'),
+  }
+  const defendHuman = defBonusByType.infantry ?? 0
+  const defendTech =
+    defBonusByType.tech ??
+    defBonusByType.mediumTank ??
+    defBonusByType.heavyTank ??
+    defBonusByType.artillery ??
+    0
+  const costMoveInf = moveCostByType.infantry || 1
+  const costMoveTech =
+    moveCostByType.tech ||
+    moveCostByType.mediumTank ||
+    moveCostByType.artillery ||
+    moveCostByType.armor ||
+    1
+  return { hexExtra, defendHuman, defendTech, costMoveInf, costMoveTech }
+}
 
 type EditorImageFieldProps = {
   label: string
@@ -142,13 +230,13 @@ function listThumb(src: string | undefined, emoji: string) {
 
 
 function defaultVisAsNumber(vis: unknown): number {
-  if (vis == null || vis === '') return 3
+  if (vis == null || vis === '') return 6
   if (typeof vis === 'number' && Number.isFinite(vis)) return vis
   const s = String(vis).trim()
-  if (!s) return 3
+  if (!s) return 6
   const first = s.split(/[,\s;]+/)[0]
   const n = Number(first)
-  return Number.isFinite(n) ? n : 3
+  return Number.isFinite(n) ? n : 6
 }
 
 const EditorUnit = () => {
@@ -156,10 +244,13 @@ const EditorUnit = () => {
   const [activeTab, setActiveTab] = useState<string>("units")
   const [selectedFaction, setSelectedFaction] = useState<string>("all")
   const [selectedUnitType, setSelectedUnitType] = useState<string>("all")
+  const [selectedHexCategory, setSelectedHexCategory] = useState<string>('all')
+  const [selectedRuleChapterFilter, setSelectedRuleChapterFilter] = useState<string>('all')
   const [showEditor, setShowEditor] = useState<boolean>(false)
   const [selectedUnit, setSelectedUnit] = useState<any>(null)
   const [selectedOrders, setSelectedOrders] = useState<number[]>([])
   const [selectedProperties, setSelectedProperties] = useState<number[]>([])
+  const [mapEditorPublic, setMapEditorPublic] = useState(true)
   const [orderIdByKey, setOrderIdByKey] = useState<Map<string, number>>(() => new Map())
   const [propertyIdByKey, setPropertyIdByKey] = useState<Map<string, number>>(() => new Map())
 
@@ -211,6 +302,11 @@ const EditorUnit = () => {
   }, [propertyIdByKey])
 
   const ruleChapters = RULE_CHAPTER_DEFS
+
+  const ruleChapterFilters = useMemo(
+    () => [{ id: 'all', label: 'Все' }, ...RULE_CHAPTER_DEFS.map((c) => ({ id: c.id, label: c.name }))],
+    [],
+  )
 
   const [units, setUnits] = useState<any[]>([])
   const [hexes, setHexes] = useState<any[]>([])
@@ -364,13 +460,28 @@ const EditorUnit = () => {
     }
   }, [selectedUnit, showEditor, activeTab])
 
+  useEffect(() => {
+    if (!showEditor) return
+    if (!selectedUnit?.id) {
+      setMapEditorPublic(false)
+      return
+    }
+    setMapEditorPublic((selectedUnit as { mapEditorPublic?: unknown }).mapEditorPublic !== false)
+  }, [selectedUnit, showEditor, activeTab])
+
   const handleClose = () => {
     setShowEditor(false)
   }
 
   const getNamed = (name: string) => {
-    const el = editorFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`)
+    const scope = editorFormRef.current?.parentElement ?? editorFormRef.current
+    const el = scope?.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(`[name="${name}"]`)
     return el?.value ?? ''
+  }
+
+  const hasNamedField = (name: string) => {
+    const scope = editorFormRef.current?.parentElement ?? editorFormRef.current
+    return Boolean(scope?.querySelector<HTMLInputElement>(`[name="${name}"]`))
   }
 
   const handleSave = async () => {
@@ -380,6 +491,7 @@ const EditorUnit = () => {
     try {
       if (activeTab === 'units') {
         const prevFire = (selectedUnit?.fire || {}) as Record<string, string | undefined>
+        const prevReactive = (selectedUnit?.fireReactive || {}) as Record<string, string | undefined>
         const fire = {
           range: getNamed('fire_range'),
           inf: getNamed('fire_inf'),
@@ -389,10 +501,54 @@ const EditorUnit = () => {
           lt: getNamed('fire_lt'),
           mt: getNamed('fire_mt'),
           ht: getNamed('fire_ht'),
-          sa: prevFire.sa ?? '0,1,0,0',
-          ba: prevFire.ba ?? '0,0,0,0',
-          build: prevFire.build ?? '1,3,0,2',
+          sa: getNamed('fire_sa'),
+          ba: getNamed('fire_ba'),
+          build: getNamed('fire_build') || prevFire.build || '1,3,0,2',
         }
+        const reactiveIntensityInDom = Boolean(root.querySelector<HTMLInputElement>('[name="fire_r_inf"]'))
+        const fireReactive = reactiveIntensityInDom
+          ? {
+              range: getNamed('fire_range_r'),
+              inf: getNamed('fire_r_inf'),
+              art: getNamed('fire_r_art'),
+              tech: getNamed('fire_r_tech'),
+              armor: getNamed('fire_r_armor'),
+              lt: getNamed('fire_r_lt'),
+              mt: getNamed('fire_r_mt'),
+              ht: getNamed('fire_r_ht'),
+              sa: getNamed('fire_r_sa'),
+              ba: getNamed('fire_r_ba'),
+              build: getNamed('fire_r_build') || prevReactive.build || '1,3,0,2',
+            }
+          : {
+              range: getNamed('fire_range_r'),
+              inf: prevReactive.inf ?? '0',
+              art: prevReactive.art ?? '0',
+              tech: prevReactive.tech ?? '0',
+              armor: prevReactive.armor ?? '0',
+              lt: prevReactive.lt ?? '0',
+              mt: prevReactive.mt ?? '0',
+              ht: prevReactive.ht ?? '0',
+              sa: prevReactive.sa ?? '0',
+              ba: prevReactive.ba ?? '0',
+              build: prevReactive.build ?? '1,3,0,2',
+            }
+        const preservedReactiveRowOpts =
+          selectedUnit?.fireRowOptionsReactive != null && typeof selectedUnit.fireRowOptionsReactive === 'object'
+            ? selectedUnit.fireRowOptionsReactive
+            : {}
+        const intelligenceAirRangeInDom = hasNamedField('intelligence_air_range')
+        const intelligenceAirRange = intelligenceAirRangeInDom
+          ? getNamed('intelligence_air_range')
+          : String((selectedUnit as { intelligenceAirRange?: unknown })?.intelligenceAirRange ?? '1,2,3')
+        const razvedkaRangeInDom = hasNamedField('razvedka_range')
+        const razvedkaRange = razvedkaRangeInDom
+          ? getNamed('razvedka_range')
+          : String((selectedUnit as { razvedkaRange?: unknown })?.razvedkaRange ?? '1,2,3')
+        const svzyRangeInDom = hasNamedField('svzy_range')
+        const svzyRange = svzyRangeInDom
+          ? getNamed('svzy_range')
+          : String((selectedUnit as { svzyRange?: unknown })?.svzyRange ?? '1,2,3')
         const body = {
           id: selectedUnit?.id,
           name: getNamed('unit_name'),
@@ -404,21 +560,42 @@ const EditorUnit = () => {
           mor: Number(getNamed('unit_mor')) || 0,
           ammo: getNamed('unit_ammo'),
           mines: Number(getNamed('unit_mines')) || 0,
+          explosives: Number(getNamed('unit_explosives')) || 0,
+          smokeShells: Number(getNamed('unit_smoke_shells')) || 0,
           vis: getNamed('unit_vis'),
           standard_image: imagePaths.unit_image ?? '',
           hover_image: selectedUnit?.hover_image?.trim() || null,
           id_cobj: selectedUnit?.id_cobj ?? null,
           fire,
+          fireReactive,
+          fireRowOptions: collectFireRowOptions(root, 'standard'),
+          fireRowOptionsReactive: reactiveIntensityInDom
+            ? collectFireRowOptions(root, 'reactive')
+            : preservedReactiveRowOpts,
           orderIds: selectedOrders,
           propertyIds: selectedProperties,
+          editorFireIntensityTab:
+            getNamed('editor_fire_intensity_tab').trim().toLowerCase() === 'reactive'
+              ? 'reactive'
+              : 'all',
+          intelligenceAirRange,
+          razvedkaRange,
+          svzyRange,
+          mapEditorPublic,
         }
         const res: any = await saveEditorUnit(body)
         const data = await reloadCatalog()
         const uid = res?.id
         if (uid != null) {
           const row = (data.unitsEditor || []).find((u: { id?: unknown }) => Number(u.id) === Number(uid))
-          if (row) setSelectedUnit(row)
-          else
+          if (row) {
+            setSelectedUnit({
+              ...row,
+              intelligenceAirRange: body.intelligenceAirRange,
+              razvedkaRange: body.razvedkaRange,
+              svzyRange: body.svzyRange,
+            })
+          } else
             setSelectedUnit({
               ...(selectedUnit || {}),
               ...body,
@@ -433,30 +610,44 @@ const EditorUnit = () => {
 
       if (activeTab === 'hexes') {
         const visSel = getNamed('hex_vision_block')
-        const costMoveInf = Number(getNamed('hex_move_cost_inf')) || 1
-        const costMoveTech = Number(getNamed('hex_move_cost_tech')) || 1
+        const payload = collectHexEditorPayload(root, {
+          existingHexExtra:
+            selectedUnit && typeof selectedUnit.hexExtra === 'object' && selectedUnit.hexExtra !== null
+              ? (selectedUnit.hexExtra as Record<string, unknown>)
+              : null,
+        })
         const body = {
           id: selectedUnit?.id,
           name: getNamed('hex_name'),
-          defendHuman: Number(getNamed('hex_def_inf')) || 0,
-          defendTech: Number(getNamed('hex_def_tech')) || 0,
-          costMove: costMoveInf,
-          costMoveInf,
-          costMoveTech,
+          defendHuman: payload.defendHuman,
+          defendTech: payload.defendTech,
+          costMove: payload.costMoveInf,
+          costMoveInf: payload.costMoveInf,
+          costMoveTech: payload.costMoveTech,
           isVisible: visSel === 'yes',
           image_path: imagePaths.hex_image ?? '',
           id_cobj: selectedUnit?.id_cobj ?? null,
           allowedBuildings: [],
+          hexExtra: payload.hexExtra,
+          mapEditorPublic,
         }
         const res: any = await saveEditorHex(body)
         const newId = res?.id ?? res?.id_hex
         if (newId) {
+          const hexEx = res?.hexExtra ?? payload.hexExtra
           setSelectedUnit({
             ...(selectedUnit || {}),
             ...body,
             id: newId,
             imagePath: body.image_path,
             allowedBuildings: [],
+            hexExtra: hexEx,
+            defBonusInf: payload.defendHuman,
+            defBonusTech: payload.defendTech,
+            moveCostInf: payload.costMoveInf,
+            moveCostTech: payload.costMoveTech,
+            visionBlock: body.isVisible,
+            mapEditorPublic,
           })
         }
         reloadCatalog()
@@ -480,6 +671,7 @@ const EditorUnit = () => {
           image_path_2: imagePaths.rule_image_2 ?? '',
           image_path_3: imagePaths.rule_image_3 ?? '',
           id_cobj: selectedUnit?.id_cobj ?? null,
+          mapEditorPublic,
         }
         const res: any = await saveEditorRule(body)
         const rid = res?.id ?? res?.id_rule ?? selectedUnit?.id
@@ -494,6 +686,7 @@ const EditorUnit = () => {
             imagePath: body.image_path,
             imagePath2: body.image_path_2,
             imagePath3: body.image_path_3,
+            mapEditorPublic,
           })
         }
         reloadCatalog()
@@ -553,6 +746,12 @@ const EditorUnit = () => {
           selectedUnitType={selectedUnitType}
           setSelectedFaction={setSelectedFaction}
           setSelectedUnitType={setSelectedUnitType}
+          hexSidebarCategories={HEX_SIDEBAR_CATEGORIES}
+          selectedHexCategory={selectedHexCategory}
+          setSelectedHexCategory={setSelectedHexCategory}
+          ruleChapterFilters={ruleChapterFilters}
+          selectedRuleChapterFilter={selectedRuleChapterFilter}
+          setSelectedRuleChapterFilter={setSelectedRuleChapterFilter}
           onAddClick={handleAddClick}
           units={units}
           hexes={hexes}
@@ -594,6 +793,8 @@ const EditorUnit = () => {
           handleSave={handleSave}
           handleDelete={handleDelete}
           handleClose={handleClose}
+          mapEditorPublic={mapEditorPublic}
+          setMapEditorPublic={setMapEditorPublic}
           EditorImageField={EditorImageField}
         />
       </div>

@@ -262,11 +262,11 @@
   flex-shrink: 0;
   margin: 0;
   padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: rgba(40, 40, 45, 0.78);
+  color: rgba(0, 0, 0, 1);
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   background: rgba(255, 255, 255, 0.14);
 }
@@ -275,7 +275,6 @@
 .cellLabelPlain {
   text-transform: none;
   letter-spacing: 0.02em;
-  font-weight: 600;
 }
 
 .cellBody {

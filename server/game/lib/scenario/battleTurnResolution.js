@@ -1,6 +1,45 @@
 'use strict'
 
 const { resolveTurn } = require('../../battleEngine')
+const { syncBattleReconByFaction } = require('../recon/battleReconResolve')
+
+function collectAliveUnitsOnField(cells) {
+  const info = new Map()
+  if (!Array.isArray(cells)) return info
+  for (const c of cells) {
+    const cellId = Number(c.id)
+    for (const u of c.units || []) {
+      const s = Number(u.str ?? u.strength)
+      if (Number.isFinite(s) && s > 0) {
+        const uid = Number(u.instanceId)
+        if (Number.isFinite(uid)) {
+          info.set(uid, {
+            unitName: String(u.name || '').trim() || undefined,
+            unitFaction: String(u.faction || '').trim().toLowerCase() || undefined,
+            destroyedCellId: cellId,
+          })
+        }
+      }
+      const tac = u.tactical
+      if (tac && Array.isArray(tac.carriedUnits)) {
+        for (const cu of tac.carriedUnits) {
+          const cs = Number(cu.str ?? cu.strength)
+          if (Number.isFinite(cs) && cs > 0) {
+            const cid = Number(cu.instanceId)
+            if (Number.isFinite(cid)) {
+              info.set(cid, {
+                unitName: String(cu.name || '').trim() || undefined,
+                unitFaction: String(cu.faction || '').trim().toLowerCase() || undefined,
+                destroyedCellId: cellId,
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+  return info
+}
 
 function buildMergedOrders(room, needAck) {
   const merged = new Map()
@@ -16,7 +55,7 @@ function buildMergedOrders(room, needAck) {
   return merged
 }
 
-function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrderLine }) {
+function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrderLine, room }) {
   const displayTurn = turnIdx + 1
   const log = []
   log.push(makeLogMeta(turnIdx, `—— Ход ${displayTurn} ——`))
@@ -33,32 +72,14 @@ function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrd
 
   if (!Array.isArray(cells) || cells.length === 0) return log
 
-  const aliveBefore = new Set()
-  const aliveBeforeInfo = new Map()
-  for (const c of cells) {
-    for (const u of c.units || []) {
-      const s = Number(u.str ?? u.strength)
-      if (Number.isFinite(s) && s > 0) {
-        const uid = Number(u.instanceId)
-        aliveBefore.add(uid)
-        aliveBeforeInfo.set(uid, {
-          unitName: String(u.name || '').trim() || undefined,
-          unitFaction: String(u.faction || '').trim().toLowerCase() || undefined,
-          destroyedCellId: Number(c.id),
-        })
-      }
-    }
-  }
+  const aliveBeforeInfo = collectAliveUnitsOnField(cells)
+  const aliveBefore = new Set(aliveBeforeInfo.keys())
 
   resolveTurn(cells, merged, log, turnIdx)
 
-  const aliveAfter = new Set()
-  for (const c of cells) {
-    for (const u of c.units || []) {
-      const s = Number(u.str ?? u.strength)
-      if (Number.isFinite(s) && s > 0) aliveAfter.add(Number(u.instanceId))
-    }
-  }
+  if (room) syncBattleReconByFaction(room, cells)
+
+  const aliveAfter = new Set(collectAliveUnitsOnField(cells).keys())
   for (const idAlive of aliveBefore) {
     if (aliveAfter.has(idAlive)) continue
     const info = aliveBeforeInfo.get(idAlive) || {}

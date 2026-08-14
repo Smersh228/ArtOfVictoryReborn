@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
 import type { LobbyFaction } from '../../api/rooms'
+import type { AirInterceptionTarget, AirUnitInFlight } from '../../game/battleAirSupport'
 import cursorPointer from '../../img/cursors/cursorPointer.cur'
 import {
   cellHasEditorPlacement,
@@ -9,13 +10,15 @@ import {
   clientToCanvas as toCanvasPoint,
   findCellAtPosition as findCellAtCanvasPosition,
   findUnitAtPosition as findUnitAtCanvasPosition,
+  findAirInterceptionTargetAtPosition,
   getCellCenter as getHexCellCenter,
   getCellCorners as getHexCellCorners,
 } from './cellsInteraction'
 import { drawPathOverlay } from './cellsDrawOverlays'
-import { drawUnitsOnCell } from './cellsDrawUnits'
+import { drawUnitsOnCell, drawAirInterceptionTargetsOnCell, drawAirUnitsInFlightOnCell } from './cellsDrawUnits'
 import { drawCellsCanvas } from './cellsDraw'
 import CellContextMenus from './CellContextMenus'
+import type { EditorMapCatalogUnitPick } from './EditorMapUnitOrderMenu'
 import { useCellsAssets } from './useCellsAssets'
 
 export interface BattlePendingShootPreview {
@@ -39,6 +42,19 @@ export interface BattleReportReplayHighlight {
   }
   unloadCellDecalId?: number
   lossCellId?: number
+  /** Область разведки при наведении на строку отчёта. */
+  reconZoneCellIds?: number[]
+  reconCenterCellId?: number
+  reconOrderKey?: string
+  /** Точка вылета при наведении на «появился в небе» в отчёте. */
+  airDepartureCellId?: number
+  /** Текущая позиция на маршруте (край карты) при hover отчёта. */
+  airFlightCellId?: number
+  /** Гекс воздушного боя и иконка приказа при наведении на строку отчёта. */
+  airCombatCellId?: number
+  airCombatOrderKey?: string
+  /** Гекс выстрела ПВО (сектор артиллерии по авиации) при наведении на строку отчёта. */
+  artilleryAirSectorCellId?: number
 }
 
 
@@ -66,7 +82,7 @@ interface CellsProps {
   viewerBattleFaction?: LobbyFaction
   battleHoverCursor?: string
   wrapClassName?: string
-  onCellClick?: (cell: Cell, unitId?: number) => void  
+  onCellClick?: (cell: Cell, unitId?: number, click?: { canvasX: number; canvasY: number }) => void  
   onUnitClick?: (unit: any, cell: Cell, event: React.MouseEvent) => void
   onUnitHover?: (unit: any, cell: Cell, event: React.MouseEvent) => void
   onUnitLeave?: () => void
@@ -75,6 +91,8 @@ interface CellsProps {
   onCellHover?: (cell: Cell | null, event: React.MouseEvent<HTMLCanvasElement>) => void
   onCellLeave?: () => void
   hoverPath?: Cell[] | null
+  /** Рисовать траекторию как авиацию (линия), без иконок походного приказа */
+  hoverPathIsAirMission?: boolean
   moveReachableCellIds?: number[] | null
   defendFacingPickCellIds?: number[] | null
   battleDefendHover?: BattleDefendHoverState | null
@@ -85,8 +103,46 @@ interface CellsProps {
   battleReportReplayHighlight?: BattleReportReplayHighlight | null
   battleLogisticsPickInstanceIds?: number[] | null
   battleUnloadCellIds?: number[] | null
+  /** Гекс вылета: красная подсветка гекса и иконка (панель). */
+  battleAirDepartureHoverCellId?: number | null
+  /** Гекс вылета при выборе авиаприказа: красный гекс и иконка. */
+  battleAirDeparturePickCellId?: number | null
+  /** Цель авиаприказа в превью — только иконка приказа на гексе. */
+  battleAirMissionPreview?: { targetCellId: number; orderKey: string } | null
+  /** Зона патрулирования: клетки в радиусе видимости от точки патруля. */
+  battlePatrolVisibilityCellIds?: number[] | null
+  /** Центр зоны патрулирования (точка патруля). */
+  battlePatrolCenterCellId?: number | null
+  /** Патруль: клетки для выбора радиуса зоны. */
+  patrolRangePickCellIds?: number[] | null
+  /** Область бомбардировки при наведении на цель. */
+  battleBombardmentAreaCellIds?: number[] | null
+  /** Бомбардировка: соседние гексы цели — выбор стороны захода. */
+  bombardmentDirectionPickCellIds?: number[] | null
+  /** Бомбардировка: гекс захода по траектории полёта (сторона захода). */
+  bombardmentApproachCellId?: number | null
   battleLogisticsUnitDecal?: { orderKey: 'tow' | 'loading'; targetInstanceIds: number[] } | null
   battlePendingLogisticsPreview?: BattlePendingLogisticsPreview | null
+  /** Цели перехвата: вражеская авиация на карте при выборе приказа «Перехват». */
+  battleAirInterceptionTargets?: AirInterceptionTarget[] | null
+  /** Авиация в полёте по маршруту (отображается на гексах траектории). */
+  battleAirUnitsInFlight?: AirUnitInFlight[]
+  /** Редактор карты: подсветка края для установки малой/большой авиации */
+  editorAviationEdgeHighlight?: boolean
+  editorAviationEdgeCellIds?: ReadonlySet<number>
+  /** Обновление данных ячейки из контекстного меню (hexExtra и т.д.) */
+  onEditorCellPatch?: (cellId: number, patch: (cell: Cell) => Cell) => void
+  editorCatalogUnits?: EditorMapCatalogUnitPick[]
+  onEditorUnitPatch?: (
+    cellId: number,
+    unitInstanceId: number,
+    patch: (unit: Record<string, unknown>) => Record<string, unknown>,
+  ) => void
+  editorFacingPickCellIds?: number[] | null
+  onEditorFacingCellPick?: (cell: Cell) => void
+  artilleryFacingPick?: { unitInstanceId: number; unitCellId: number } | null
+  onStartArtilleryFacingPick?: (unitInstanceId: number, unitCellId: number) => void
+  onCancelArtilleryFacingPick?: () => void
 }
 
 interface HoveredUnitState {
@@ -126,6 +182,7 @@ const Cells: React.FC<CellsProps> = ({
   onCellHover,
   onCellLeave,
   hoverPath,
+  hoverPathIsAirMission = false,
   moveReachableCellIds = null,
   defendFacingPickCellIds = null,
   battleDefendHover = null,
@@ -136,9 +193,30 @@ const Cells: React.FC<CellsProps> = ({
   battleReportReplayHighlight = null,
   battleLogisticsPickInstanceIds = null,
   battleUnloadCellIds = null,
+  battleAirDepartureHoverCellId = null,
+  battleAirDeparturePickCellId = null,
+  battleAirMissionPreview = null,
+  battlePatrolVisibilityCellIds = null,
+  battlePatrolCenterCellId = null,
+  patrolRangePickCellIds = null,
+  battleBombardmentAreaCellIds = null,
+  bombardmentDirectionPickCellIds = null,
+  bombardmentApproachCellId = null,
   battleLogisticsUnitDecal = null,
   battlePendingLogisticsPreview = null,
+  battleAirInterceptionTargets = null,
+  battleAirUnitsInFlight = [],
+  editorAviationEdgeHighlight = false,
+  editorAviationEdgeCellIds,
   wrapClassName,
+  onEditorCellPatch,
+  editorCatalogUnits,
+  onEditorUnitPatch,
+  editorFacingPickCellIds = null,
+  onEditorFacingCellPick,
+  artilleryFacingPick = null,
+  onStartArtilleryFacingPick,
+  onCancelArtilleryFacingPick,
 }) => {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -156,6 +234,14 @@ const Cells: React.FC<CellsProps> = ({
   const changeSectorOrderDecalImgRef = assets.refs.changeSectorOrderDecalImgRef
   const clottingOrderDecalImgRef = assets.refs.clottingOrderDecalImgRef
   const fireSupIconImgRef = assets.refs.fireSupIconImgRef
+  const airMissionOrderDecalImgRef = assets.refs.airMissionOrderDecalImgRef
+  const airDepartureDecalImgRef = assets.refs.airDepartureDecalImgRef
+  const fireAirGunDecalImgRef = assets.refs.fireAirGunDecalImgRef
+  const wireEdgeImgRef = assets.refs.wireEdgeImgRef
+  const trenchImgRef = assets.refs.trenchImgRef
+  const antiTankImgRef = assets.refs.antiTankImgRef
+  const dotImgRef = assets.refs.dotImgRef
+  const storageImgRef = assets.refs.storageImgRef
   const [hoverCell, setHoverCell] = useState<Cell | null>(null)
   const [hoveredUnit, setHoveredUnit] = useState<HoveredUnitState | null>(null)
   const [unitMenu, setUnitMenu] = useState<UnitMenuState | null>(null)
@@ -183,8 +269,8 @@ const Cells: React.FC<CellsProps> = ({
   const findCellAtPosition = (mouseX: number, mouseY: number) =>
     findCellAtCanvasPosition(cells, mouseX, mouseY, cellSize, width, height)
 
-  const findUnitAtPosition = (mouseX: number, mouseY: number) =>
-    findUnitAtCanvasPosition(cells, mouseX, mouseY, {
+  const findUnitAtPosition = (mouseX: number, mouseY: number) => {
+    const ground = findUnitAtCanvasPosition(cells, mouseX, mouseY, {
       lobbyPreview,
       mode,
       cellSize,
@@ -192,6 +278,17 @@ const Cells: React.FC<CellsProps> = ({
       height,
       isEnemyUnitHiddenByFog,
     })
+    if (ground) return ground
+    if (!battleAirInterceptionTargets?.length) return null
+    return findAirInterceptionTargetAtPosition(mouseX, mouseY, battleAirInterceptionTargets, {
+      lobbyPreview,
+      mode,
+      cellSize,
+      width,
+      height,
+      findCellAt: (mx, my) => findCellAtPosition(mx, my),
+    })
+  }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!cells.length || lobbyPreview) return
@@ -282,6 +379,7 @@ const Cells: React.FC<CellsProps> = ({
   if (unitUnderMouse) {
     e.stopPropagation()
     if (mode === 'editor') {
+      if (artilleryFacingPick) return
       setCellMenu(null)
     
       const wrapRect = wrapRef.current?.getBoundingClientRect()
@@ -299,12 +397,30 @@ const Cells: React.FC<CellsProps> = ({
       }
       
       if (onCellClick) {
-        onCellClick(unitUnderMouse.cell, unitUnderMouse.unit.id || unitUnderMouse.unit.instanceId)
+        const canvasPt = toCanvasPoint(e.clientX, e.clientY, rect, canvasRef.current)
+        onCellClick(
+          unitUnderMouse.cell,
+          unitUnderMouse.unit.id || unitUnderMouse.unit.instanceId,
+          { canvasX: canvasPt.x, canvasY: canvasPt.y },
+        )
       }
     }
   } else {
-    setUnitMenu(null)
     const cell = findCellAtPosition(x, y)
+    const facingPick =
+      mode === 'editor' &&
+      cell &&
+      editorFacingPickCellIds &&
+      editorFacingPickCellIds.includes(cell.id) &&
+      onEditorFacingCellPick
+    if (facingPick) {
+      e.stopPropagation()
+      onEditorFacingCellPick(cell)
+      return
+    }
+    if (!artilleryFacingPick) {
+      setUnitMenu(null)
+    }
     const showCellIdMenu =
       mode === 'editor' && cell && cellHasEditorPlacement(cell) && !hideEditorCellHexMenu
     if (showCellIdMenu) {
@@ -317,7 +433,9 @@ const Cells: React.FC<CellsProps> = ({
       setCellMenu(null)
     }
     if (onCellClick && cell) {
-      onCellClick(cell)
+      e.stopPropagation()
+      const canvasPt = toCanvasPoint(e.clientX, e.clientY, rect, canvasRef.current)
+      onCellClick(cell, undefined, { canvasX: canvasPt.x, canvasY: canvasPt.y })
     }
   }
   }
@@ -332,6 +450,7 @@ const Cells: React.FC<CellsProps> = ({
   const drawPath = (ctx: CanvasRenderingContext2D) => {
     drawPathOverlay(ctx, {
       hoverPath,
+      hoverPathIsAirMission,
       moveDecalImg: moveDecalImgRef.current,
       cellSize,
       getCellCenter,
@@ -362,6 +481,37 @@ const Cells: React.FC<CellsProps> = ({
       resolveEditorCachedImage,
       isEnemyUnitHiddenByFog,
     })
+
+    drawAirUnitsInFlightOnCell(ctx, {
+      cell,
+      center,
+      cellSize,
+      lobbyPreview,
+      mode,
+      viewerBattleFaction,
+      unitsInFlight: battleAirUnitsInFlight,
+      cells,
+      getCellCenter,
+      resolveEditorCachedImage,
+    })
+
+    if (battleAirInterceptionTargets?.length) {
+      const hoveredIdRaw = hoveredUnit?.unit?.instanceId
+      const hoveredId =
+        hoveredIdRaw != null && Number.isFinite(Number(hoveredIdRaw)) ? Number(hoveredIdRaw) : null
+      drawAirInterceptionTargetsOnCell(ctx, {
+        cell,
+        center,
+        cellSize,
+        lobbyPreview,
+        mode,
+        targets: battleAirInterceptionTargets,
+        hoveredInstanceId: hoveredId,
+        cells,
+        getCellCenter,
+        resolveEditorCachedImage,
+      })
+    }
   }
 
   const draw = () => {
@@ -376,11 +526,25 @@ const Cells: React.FC<CellsProps> = ({
       hoverCell,
       hoveredUnit,
       moveReachableCellIds,
-      defendFacingPickCellIds,
+      defendFacingPickCellIds:
+        mode === 'editor' && editorFacingPickCellIds?.length
+          ? editorFacingPickCellIds
+          : defendFacingPickCellIds,
       battleDefendHover,
       battleAreaFireCellIds,
       battleReportReplayHighlight,
       battleUnloadCellIds,
+      battleAirDepartureHoverCellId,
+      battleAirDeparturePickCellId,
+      battleAirMissionPreview,
+      battlePatrolVisibilityCellIds,
+      battlePatrolCenterCellId,
+      battleAirInterceptionTargetCellIds:
+        battleAirInterceptionTargets?.map((t) => t.engagementCell.id) ?? null,
+      patrolRangePickCellIds,
+      battleBombardmentAreaCellIds,
+      bombardmentDirectionPickCellIds,
+      bombardmentApproachCellId,
       battlePendingLogisticsPreview,
       battlePendingShootPreview,
       getCellCenter,
@@ -394,11 +558,22 @@ const Cells: React.FC<CellsProps> = ({
       clottingOrderDecalImg: clottingOrderDecalImgRef.current,
       unloadCellDecalImg: unloadCellDecalImgRef.current,
       shootOrderDecals: shootOrderDecalImgRef.current,
+      airMissionOrderDecals: airMissionOrderDecalImgRef.current,
+      airDepartureDecalImg: airDepartureDecalImgRef.current,
+      fireAirGunDecalImg: fireAirGunDecalImgRef.current,
+      editorAviationEdgeHighlight,
+      editorAviationEdgeCellIds,
+      wireEdgeImg: wireEdgeImgRef.current,
+      trenchImg: trenchImgRef.current,
+      antiTankImg: antiTankImgRef.current,
+      dotImg: dotImgRef.current,
+      storageImg: storageImgRef.current,
     })
   }
 
   useEffect(() => {
     const handleClickOutside = () => {
+      if (artilleryFacingPick) return
       if (unitMenu) {
         setUnitMenu(null)
       }
@@ -411,7 +586,7 @@ const Cells: React.FC<CellsProps> = ({
       document.addEventListener('click', handleClickOutside)
       return () => document.removeEventListener('click', handleClickOutside)
     }
-  }, [unitMenu, cellMenu, mode, lobbyPreview])
+  }, [unitMenu, cellMenu, mode, lobbyPreview, artilleryFacingPick])
 
   useEffect(() => {
     draw()
@@ -424,6 +599,7 @@ const Cells: React.FC<CellsProps> = ({
     lobbyPreview,
     viewerBattleFaction,
     hoverPath,
+    hoverPathIsAirMission,
     moveReachableCellIds,
     defendFacingPickCellIds,
     battleDefendHover,
@@ -434,8 +610,24 @@ const Cells: React.FC<CellsProps> = ({
     battleReportReplayHighlight,
     battleLogisticsPickInstanceIds,
     battleUnloadCellIds,
+    battleAirDepartureHoverCellId,
+    battleAirDeparturePickCellId,
+    battleAirMissionPreview,
+    battlePatrolVisibilityCellIds,
+    battlePatrolCenterCellId,
+    battleAirInterceptionTargets,
+    patrolRangePickCellIds,
+    battleBombardmentAreaCellIds,
+    bombardmentDirectionPickCellIds,
+    bombardmentApproachCellId,
     battleLogisticsUnitDecal,
     battlePendingLogisticsPreview,
+    battleAirInterceptionTargets,
+    battleAirUnitsInFlight,
+    editorAviationEdgeHighlight,
+    editorAviationEdgeCellIds,
+    editorFacingPickCellIds,
+    artilleryFacingPick,
     width,
     height,
     cellSize,
@@ -459,9 +651,30 @@ const Cells: React.FC<CellsProps> = ({
       <CellContextMenus
         mode={mode}
         lobbyPreview={lobbyPreview}
-        unitMenu={unitMenu}
-        cellMenu={cellMenu}
+        unitMenu={
+          unitMenu
+            ? {
+                ...unitMenu,
+                cell: cells.find((c) => c.id === unitMenu.cell.id) ?? unitMenu.cell,
+              }
+            : null
+        }
+        cellMenu={
+          cellMenu
+            ? {
+                ...cellMenu,
+                cell: cells.find((c) => c.id === cellMenu.cell.id) ?? cellMenu.cell,
+              }
+            : null
+        }
         onDeleteUnit={handleDeleteUnit}
+        onEditorCellPatch={onEditorCellPatch}
+        editorCatalogUnits={editorCatalogUnits}
+        onEditorUnitPatch={onEditorUnitPatch}
+        artilleryFacingPick={artilleryFacingPick}
+        onStartArtilleryFacingPick={onStartArtilleryFacingPick}
+        onCancelArtilleryFacingPick={onCancelArtilleryFacingPick}
+        onCloseUnitMenu={() => setUnitMenu(null)}
       />
     </div>
   )

@@ -39,8 +39,12 @@ function resolveGroupedAreaFire({
       if (isTruckUnit(defLive.unit)) applyCargoDamageFromTruckHit(cells, defLive.unit, dmg)
       sweepCorpses(cells)
       const defAfter = findUnitOnField(cells, tid)
-      if (defAfter && getStr(defAfter.unit) > 0 && dmg > 0) {
-        steadfastnessQueue.push({ id: tid, dmg })
+      if (defAfter && getStr(defAfter.unit) > 0) {
+        if (dmg > 0) {
+          steadfastnessQueue.push({ id: tid, dmg })
+        } else if (groupedArea.isSuppression) {
+          steadfastnessQueue.push({ id: tid, dmg: 0, fromSuppressionFire: true })
+        }
       }
       if (defAfter && getStr(defAfter.unit) > 0 && Number.isFinite(firstShooterId)) {
         maybeDefenderReturnFireAgainstShooter(
@@ -79,13 +83,20 @@ function resolveGroupedAreaFire({
         sectorReturnFired,
       )
     }
+    const orderKey = groupedArea.airOrderKey || null
+    const strikeLabel =
+      orderKey === 'attackAir'
+        ? 'Штурмовка'
+        : orderKey === 'bombardment'
+          ? 'Бомбардировка'
+          : 'Суммарный огонь по площади'
     const seg = areaRows.map((r) => `${r.tidArea}: урон ${r.dmgArea}`).join('; ')
     const anyWar = areaRows.some((r) => r.warDefArea)
     const totalDmg = areaRows.reduce((s, r) => s + r.dmgArea, 0)
     const totalHits = areaRows.reduce((s, r) => s + (Number(r.hitsArea) || 0), 0)
     le(
       ph,
-      `Суммарный огонь по площади: ${shooterIds.join('+')} → кл. ${targetCellId} · попаданий ${totalHits}, ${seg} (выпало: ${groupedArea.rollResults.join(',')})${anyWar ? ' [бой +1 З]' : ''}`,
+      `${strikeLabel}: ${shooterIds.join('+')} → кл. ${targetCellId} · попаданий ${totalHits}, ${seg} (выпало: ${groupedArea.rollResults.join(',')})${anyWar ? ' [бой +1 З]' : ''}`,
       {
         fireLine: {
           attackerId: Number(shooterIds[0]),
@@ -102,6 +113,7 @@ function resolveGroupedAreaFire({
           ammoCost,
           groupedAreaFire: true,
           shooterIds,
+          airOrderKey: orderKey || undefined,
           areaTargets: areaRows.map((r) => ({
             targetId: r.tidArea,
             damages: r.dmgArea,

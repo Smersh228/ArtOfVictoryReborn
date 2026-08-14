@@ -17,8 +17,8 @@ const EditorMapGuideModal: React.FC<EditorMapGuideModalProps> = ({ isOpen, onClo
       subtitle="Краткая инструкция в стиле интерфейса редактора"
       size="lg"
       footer={
-        <div className={styles.modalFooterActions}>
-          <Button name="Закрыть" onClick={onClose} />
+        <div className={styles.modalFooterActionsCenter}>
+          <Button name="Закрыть" onClick={onClose} className={styles.guideModalCloseButton} />
         </div>
       }
     >
@@ -91,16 +91,6 @@ const EditorMapGuideModal: React.FC<EditorMapGuideModalProps> = ({ isOpen, onClo
             </li>
           </ol>
         </div>
-
-        <div className={styles.manualTip}>
-          <span className={styles.manualTipLabel}>Важно</span>
-          На один гекс можно поставить не более трёх юнитов. Снять выбор объекта — крестик в уведомлении внизу справа
-          или смена вкладки.
-        </div>
-
-        <p className={styles.manualFooterNote}>
-          Окно закрывается кнопкой «Закрыть», по крестику в заголовке или клавишей Escape.
-        </p>
       </div>
     </Modal>
   );

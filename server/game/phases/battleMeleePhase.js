@@ -1,5 +1,11 @@
 'use strict'
 
+const { terrainAccuracyBonusFromCell } = require('../lib/map/battleTerrain')
+const {
+  hillMeleeDefenseBonus,
+  hillMeleeAccuracyPenalty,
+} = require('../lib/map/battleElevation')
+
 function syncMeleeLinksAfterCasualties(cells, deps) {
   const { getStr, findUnitOnField, hexDistCells } = deps
   for (const c of cells) {
@@ -37,6 +43,7 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
     hexDistCells,
     moveWarDefenseBonus,
     rangeArrayFor,
+    rangeArrayForAtCell,
     getAmmo,
     intensityArrayFor,
     computeShoot,
@@ -58,10 +65,14 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
   const ambDefA = A.unit.tactical?.defendOrder || A.unit.tactical?.ambushOrder ? 1 : 0
   const ambDefB = B.unit.tactical?.defendOrder || B.unit.tactical?.ambushOrder ? 1 : 0
 
-  const raA = rangeArrayFor(A.unit)
-  const raB = rangeArrayFor(B.unit)
+  const raA = rangeArrayForAtCell(A.unit, A.cell)
+  const raB = rangeArrayForAtCell(B.unit, B.cell)
   const closeA = A.unit.tactical?.fireSuppression ? 1 : raA[0] ?? 3
   const closeB = B.unit.tactical?.fireSuppression ? 1 : raB[0] ?? 3
+  const hillDefB = hillMeleeDefenseBonus(B.cell)
+  const hillDefA = hillMeleeDefenseBonus(A.cell)
+  const hillPenOnB = hillMeleeAccuracyPenalty(B.cell)
+  const hillPenOnA = hillMeleeAccuracyPenalty(A.cell)
 
   let dmgToB = 0
   let dmgToA = 0
@@ -70,7 +81,8 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
 
   if (getAmmo(A.unit) >= 1) {
     const ia = intensityArrayFor(A.unit, B.unit)
-    const res = computeShoot(A.unit, B.unit, B.cell, 1, ia, [closeA], false, undefined, warDefB + ambDefB, 0, undefined, 1)
+    const accBonusA = terrainAccuracyBonusFromCell(A.cell, A.unit, B.unit, true) - hillPenOnB
+    const res = computeShoot(A.unit, B.unit, B.cell, 1, ia, [closeA], false, undefined, warDefB + ambDefB + hillDefB, accBonusA, undefined, 1)
     dmgToB = res.damages
     for (const r of res.rollResults) rollsA.push(r)
     setAmmo(A.unit, getAmmo(A.unit) - 1)
@@ -81,7 +93,8 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
 
   if (getStr(A.unit) > 0 && getAmmo(B.unit) >= 1) {
     const ia = intensityArrayFor(B.unit, A.unit)
-    const res = computeShoot(B.unit, A.unit, A.cell, 1, ia, [closeB], false, undefined, warDefA + ambDefA, 0, undefined, 1)
+    const accBonusB = terrainAccuracyBonusFromCell(B.cell, B.unit, A.unit, true) - hillPenOnA
+    const res = computeShoot(B.unit, A.unit, A.cell, 1, ia, [closeB], false, undefined, warDefA + ambDefA + hillDefA, accBonusB, undefined, 1)
     dmgToA = res.damages
     for (const r of res.rollResults) rollsB.push(r)
     setAmmo(B.unit, getAmmo(B.unit) - 1)

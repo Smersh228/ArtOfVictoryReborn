@@ -7,10 +7,12 @@ export function useBattleViewState(params: {
   hasGrid: boolean;
   orderPick: unknown;
   leftMenu: unknown;
+  airSupportOpen: boolean;
   centerModal: unknown;
   battleEndedOverlay: boolean;
   battleAmmoModal: unknown;
   unloadCargoPickModal: unknown;
+  accompanimentPickModal: unknown;
   battleRef: React.RefObject<HTMLDivElement | null>;
   dismissOrderPicking: () => void;
 }) {
@@ -20,10 +22,12 @@ export function useBattleViewState(params: {
     hasGrid,
     orderPick,
     leftMenu,
+    airSupportOpen,
     centerModal,
     battleEndedOverlay,
     battleAmmoModal,
     unloadCargoPickModal,
+    accompanimentPickModal,
     battleRef,
     dismissOrderPicking,
   } = params;
@@ -50,8 +54,8 @@ export function useBattleViewState(params: {
     if (!orderPick) return;
     const onDocMouseDown = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (leftMenu || centerModal || battleEndedOverlay) return;
-      if (battleAmmoModal || unloadCargoPickModal) return;
+      if (leftMenu || airSupportOpen || centerModal || battleEndedOverlay) return;
+      if (battleAmmoModal || unloadCargoPickModal || accompanimentPickModal) return;
       const battleEl = battleRef.current;
       if (battleEl?.contains(t)) return;
       dismissOrderPicking();
@@ -62,10 +66,12 @@ export function useBattleViewState(params: {
     orderPick,
     dismissOrderPicking,
     leftMenu,
+    airSupportOpen,
     centerModal,
     battleEndedOverlay,
     battleAmmoModal,
     unloadCargoPickModal,
+    accompanimentPickModal,
     battleRef,
   ]);
 

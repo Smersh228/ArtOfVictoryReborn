@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import styles from './Modal.module.css'
 
-export type ModalSize = 'md' | 'lg'
+export type ModalSize = 'md' | 'lg' | 'xl'
 
 export interface ModalProps {
   isOpen: boolean
@@ -36,7 +36,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, size = 
       }}
     >
       <div
-        className={`${styles.dialog} ${size === 'lg' ? styles.dialogWide : ''}`}
+        className={`${styles.dialog} ${size === 'lg' ? styles.dialogWide : ''} ${size === 'xl' ? styles.dialogXl : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"

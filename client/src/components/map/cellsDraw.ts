@@ -1,5 +1,31 @@
 import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
-import { drawImageCoverInCircle, getTerrainColor, traceHexPath } from './cellsDrawBase'
+import {
+  buildCellByCubeKey,
+  effectiveElevationLevel,
+  elevationEdgeDrawMask,
+  strokeHexEdges,
+} from '../../game/cellElevation'
+import {
+  drawImageCoverInCircle,
+  drawImageCoverInCircleWithTransform,
+  getTerrainColor,
+  traceHexPath,
+} from './cellsDrawBase'
+import { readTileMirror, readTileRotationSteps, tileRotationRadians } from '../../game/cellTileTransform'
+import {
+  getWireEdgesMask,
+  WIRE_DRAW_BAND_RATIO,
+  WIRE_SPRITE_URL,
+} from '../../game/cellWireEdges'
+import {
+  DOT_SPRITE_URL,
+  STORAGE_SPRITE_URL,
+  ANTITANK_SPRITE_URL,
+  TRENCH_SPRITE_URL,
+  ensureCellBuilds,
+} from '../../game/editorMapFortifications'
+import { getTrenchEdgesMask } from '../../game/cellTrenchEdges'
+import { getAntiTankEdgesMask } from '../../game/cellAntiTankEdges'
 
 interface CachedImageState {
   ready: HTMLImageElement | null
@@ -29,12 +55,350 @@ interface MapBuildingLite {
 interface CellExtras {
   img?: string
   mapBuilding?: MapBuildingLite
+  hexExtra?: Record<string, unknown>
+}
+
+/** Контур по возвышенности: 1 — голубой, 2 — жёлтый, 3 — красный (0 и −1 — без цветного контура). */
+function elevationStrokeForLevel(level: number): { stroke: string; lineWidth: number } | null {
+  if (level === 3) return { stroke: '#e53935', lineWidth: 3 }
+  if (level === 2) return { stroke: '#ffea00', lineWidth: 3 }
+  if (level === 1) return { stroke: '#00bfff', lineWidth: 3 }
+  return null
 }
 
 const mapBuildingColors = {
   wallStroke: '#3e2723',
   wallFill: 'saddlebrown',
   labelText: 'white',
+}
+
+function drawAirDepartureMarker(
+  ctx: CanvasRenderingContext2D,
+  center: { x: number; y: number },
+  cellSize: number,
+  airDepartureDecalImg: HTMLImageElement | null | undefined,
+) {
+  const r = Math.max(8, cellSize * 0.15)
+  ctx.save()
+  if (airDepartureDecalImg?.naturalWidth) {
+    drawImageCoverInCircle(ctx, airDepartureDecalImg, center.x, center.y, r)
+  } else {
+    const pr = Math.max(6, Math.min(14, cellSize * 0.14))
+    ctx.fillStyle = 'rgba(211, 32, 32, 0.98)'
+    ctx.beginPath()
+    ctx.arc(center.x, center.y, pr, 0, 2 * Math.PI)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(255, 245, 245, 0.95)'
+    ctx.lineWidth = 2
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+function drawAirMissionOrderDecal(
+  ctx: CanvasRenderingContext2D,
+  center: { x: number; y: number },
+  cellSize: number,
+  orderKey: string,
+  airMissionOrderDecals: Record<string, HTMLImageElement>,
+) {
+  const key = String(orderKey || '').trim()
+  const airDecal = key ? airMissionOrderDecals[key] : undefined
+  const r = Math.max(8, cellSize * 0.15)
+  ctx.save()
+  if (airDecal?.naturalWidth) {
+    drawImageCoverInCircle(ctx, airDecal, center.x, center.y, r)
+  } else {
+    ctx.fillStyle = 'rgba(46, 125, 50, 0.92)'
+    ctx.beginPath()
+    ctx.arc(center.x, center.y, Math.max(9, cellSize * 0.13), 0, 2 * Math.PI)
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(200, 230, 200, 0.95)'
+    ctx.lineWidth = 2
+    ctx.stroke()
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'
+    ctx.font = `${Math.max(11, Math.round(cellSize * 0.26))}px system-ui, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText('✈', center.x, center.y + 1)
+  }
+  ctx.restore()
+}
+
+function drawHexEdgeStrip(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    center: { x: number; y: number }
+    corners: { x: number; y: number }[]
+    edgeIndex: number
+    img: HTMLImageElement
+    bandRatio: number
+    /** true — весь PNG (после ресайза в редакторе без угадывания полосы) */
+    useFullImage?: boolean
+    bandFrom?: 'top' | 'bottom'
+    bandOffsetRatio?: number
+    widthScale?: number
+    /** Сдвиг к центру гекса, доля от высоты спрайта */
+    inwardInset?: number
+    align?: 'bottom' | 'center'
+  },
+) {
+  const {
+    center,
+    corners,
+    edgeIndex,
+    img,
+    bandRatio,
+    useFullImage = false,
+    bandFrom = 'bottom',
+    bandOffsetRatio = 0,
+    widthScale = 1.25,
+    inwardInset = 0,
+    align = 'bottom',
+  } = params
+  const a = corners[edgeIndex]
+  const b = corners[(edgeIndex + 1) % 6]
+  const mx = (a.x + b.x) / 2
+  const my = (a.y + b.y) / 2
+  const edgeLen = Math.hypot(b.x - a.x, b.y - a.y)
+  const edgeAngle = Math.atan2(b.y - a.y, b.x - a.x)
+
+  const sw = img.naturalWidth
+  const sh = img.naturalHeight
+  const srcH = useFullImage ? sh : Math.max(4, Math.floor(sh * bandRatio))
+  const srcY = useFullImage
+    ? 0
+    : bandFrom === 'top'
+      ? Math.max(0, Math.min(sh - srcH, Math.floor(sh * bandOffsetRatio)))
+      : sh - srcH
+  const drawW = edgeLen * widthScale
+  const drawH = drawW * (srcH / sw)
+
+  let px = mx
+  let py = my
+  if (inwardInset > 0) {
+    const inX = center.x - mx
+    const inY = center.y - my
+    const inLen = Math.hypot(inX, inY) || 1
+    const shift = drawH * inwardInset
+    px += (inX / inLen) * shift
+    py += (inY / inLen) * shift
+  }
+
+  ctx.translate(px, py)
+  ctx.rotate(edgeAngle)
+  if (align === 'center') {
+    ctx.drawImage(img, 0, srcY, sw, srcH, -drawW / 2, -drawH / 2, drawW, drawH)
+    return
+  }
+  const localCenterY = -(center.x - mx) * Math.sin(edgeAngle) + (center.y - my) * Math.cos(edgeAngle)
+  if (localCenterY >= 0) ctx.scale(1, -1)
+  ctx.drawImage(img, 0, srcY, sw, srcH, -drawW / 2, -drawH, drawW, drawH)
+}
+
+function drawHexEdgeIcon(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    center: { x: number; y: number }
+    corners: { x: number; y: number }[]
+    edgeIndex: number
+    img: HTMLImageElement
+    cellSize: number
+    iconScale?: number
+    inwardRatio?: number
+  },
+) {
+  const { center, corners, edgeIndex, img, cellSize, iconScale = 0.36, inwardRatio = 0.14 } = params
+  const a = corners[edgeIndex]
+  const b = corners[(edgeIndex + 1) % 6]
+  let mx = (a.x + b.x) / 2
+  let my = (a.y + b.y) / 2
+  const inX = center.x - mx
+  const inY = center.y - my
+  const inLen = Math.hypot(inX, inY) || 1
+  mx += (inX / inLen) * cellSize * inwardRatio
+  my += (inY / inLen) * cellSize * inwardRatio
+  const edgeAngle = Math.atan2(b.y - a.y, b.x - a.x)
+  const size = cellSize * iconScale
+  ctx.translate(mx, my)
+  ctx.rotate(edgeAngle)
+  ctx.drawImage(img, -size / 2, -size * 0.85, size, size)
+}
+
+function drawCenterFortification(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    center: { x: number; y: number }
+    cellSize: number
+    img: HTMLImageElement
+    scale?: number
+  },
+) {
+  const { center, cellSize, img, scale = 0.88 } = params
+  const sw = img.naturalWidth
+  const sh = img.naturalHeight
+  if (!sw || !sh) return
+  const maxDim = cellSize * scale
+  const aspect = sw / sh
+  const drawW = aspect >= 1 ? maxDim : maxDim * aspect
+  const drawH = aspect >= 1 ? maxDim / aspect : maxDim
+  ctx.drawImage(img, center.x - drawW / 2, center.y - drawH / 2, drawW, drawH)
+}
+
+function drawWireEdges(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    cell: Cell
+    center: { x: number; y: number }
+    cellSize: number
+    getCellCorners: (x: number, y: number) => { x: number; y: number }[]
+    wireEdgeImg?: HTMLImageElement | null
+    resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+  },
+) {
+  const { cell, center, cellSize, getCellCorners, wireEdgeImg, resolveEditorCachedImage } = params
+  const mask = getWireEdgesMask(cell.builds)
+  if (!mask) return
+
+  const corners = getCellCorners(center.x, center.y)
+
+  for (let i = 0; i < 6; i++) {
+    if (!(mask & (1 << i))) continue
+
+    const img =
+      wireEdgeImg?.complete && wireEdgeImg?.naturalWidth
+        ? wireEdgeImg
+        : resolveEditorCachedImage(WIRE_SPRITE_URL).ready
+
+    if (img?.naturalWidth) {
+      ctx.save()
+      drawHexEdgeStrip(ctx, {
+        center,
+        corners,
+        edgeIndex: i,
+        img,
+        bandRatio: WIRE_DRAW_BAND_RATIO,
+        bandFrom: 'bottom',
+        inwardInset: 0,
+      })
+      ctx.restore()
+    }
+  }
+}
+
+function drawTrenchEdges(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    cell: Cell
+    center: { x: number; y: number }
+    getCellCorners: (x: number, y: number) => { x: number; y: number }[]
+    trenchImg?: HTMLImageElement | null
+    resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+  },
+) {
+  const { cell, center, getCellCorners, trenchImg, resolveEditorCachedImage } = params
+  const mask = getTrenchEdgesMask(cell.builds)
+  if (!mask) return
+
+  const img =
+    trenchImg?.complete && trenchImg.naturalWidth > 0
+      ? trenchImg
+      : resolveEditorCachedImage(TRENCH_SPRITE_URL).ready
+  if (!img?.naturalWidth) return
+
+  const corners = getCellCorners(center.x, center.y)
+
+  for (let i = 0; i < 6; i++) {
+    if (!(mask & (1 << i))) continue
+
+    ctx.save()
+    drawHexEdgeStrip(ctx, {
+      center,
+      corners,
+      edgeIndex: i,
+      img,
+      bandRatio: 1,
+      useFullImage: true,
+      align: 'bottom',
+      inwardInset: 0,
+    })
+    ctx.restore()
+  }
+}
+
+function drawAntiTankEdges(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    cell: Cell
+    center: { x: number; y: number }
+    cellSize: number
+    getCellCorners: (x: number, y: number) => { x: number; y: number }[]
+    antiTankImg?: HTMLImageElement | null
+    resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+  },
+) {
+  const { cell, center, cellSize, getCellCorners, antiTankImg, resolveEditorCachedImage } = params
+  const mask = getAntiTankEdgesMask(cell.builds)
+  if (!mask) return
+
+  const img =
+    antiTankImg?.complete && antiTankImg.naturalWidth > 0
+      ? antiTankImg
+      : resolveEditorCachedImage(ANTITANK_SPRITE_URL).ready
+  if (!img?.naturalWidth) return
+
+  const corners = getCellCorners(center.x, center.y)
+  for (let i = 0; i < 6; i++) {
+    if (!(mask & (1 << i))) continue
+    ctx.save()
+    drawHexEdgeIcon(ctx, {
+      center,
+      corners,
+      edgeIndex: i,
+      img,
+      cellSize,
+    })
+    ctx.restore()
+  }
+}
+
+function drawCenterBuildFortifications(
+  ctx: CanvasRenderingContext2D,
+  params: {
+    cell: Cell
+    center: { x: number; y: number }
+    cellSize: number
+    dotImg?: HTMLImageElement | null
+    storageImg?: HTMLImageElement | null
+    resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+  },
+) {
+  const { cell, center, cellSize, dotImg, storageImg, resolveEditorCachedImage } = params
+  const builds = ensureCellBuilds(cell.builds)
+
+  if (builds.dot > 0) {
+    const img =
+      dotImg?.complete && dotImg.naturalWidth > 0
+        ? dotImg
+        : resolveEditorCachedImage(DOT_SPRITE_URL).ready
+    if (img?.naturalWidth) {
+      ctx.save()
+      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.92 })
+      ctx.restore()
+    }
+  }
+
+  if (builds.storage > 0) {
+    const img =
+      storageImg?.complete && storageImg.naturalWidth > 0
+        ? storageImg
+        : resolveEditorCachedImage(STORAGE_SPRITE_URL).ready
+    if (img?.naturalWidth) {
+      ctx.save()
+      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.85 })
+      ctx.restore()
+    }
+  }
 }
 
 function drawMapBuilding(
@@ -98,8 +462,22 @@ export function drawCellsCanvas(params: {
   defendFacingPickCellIds: number[] | null
   battleDefendHover: any
   battleAreaFireCellIds: number[] | null
+  battlePatrolVisibilityCellIds?: number[] | null
+  battlePatrolCenterCellId?: number | null
+  battleAirInterceptionTargetCellIds?: number[] | null
+  patrolRangePickCellIds?: number[] | null
+  battleBombardmentAreaCellIds?: number[] | null
+  bombardmentDirectionPickCellIds?: number[] | null
+  bombardmentApproachCellId?: number | null
   battleReportReplayHighlight: any
   battleUnloadCellIds: number[] | null
+  /** Гекс вылета: красная подсветка + иконка при наведении на строку панели. */
+  battleAirDepartureHoverCellId?: number | null
+  /** Выбор авиаприказа с целью: красный гекс вылета и иконка; без жёлтого hover-кольца. */
+  battleAirDeparturePickCellId?: number | null
+  /** Превью цели: только иконка приказа (без заливки гекса). */
+  battleAirMissionPreview?: { targetCellId: number; orderKey: string } | null
+  airMissionOrderDecals?: Record<string, HTMLImageElement>
   battlePendingLogisticsPreview: any
   battlePendingShootPreview: any
   getCellCenter: (q: number, r: number) => { x: number; y: number }
@@ -113,6 +491,16 @@ export function drawCellsCanvas(params: {
   clottingOrderDecalImg: HTMLImageElement | null
   unloadCellDecalImg: HTMLImageElement | null
   shootOrderDecals: ShootOrderDecals
+  airMissionOrderDecals?: Record<string, HTMLImageElement>
+  airDepartureDecalImg?: HTMLImageElement | null
+  fireAirGunDecalImg?: HTMLImageElement | null
+  editorAviationEdgeHighlight?: boolean
+  editorAviationEdgeCellIds?: ReadonlySet<number>
+  wireEdgeImg?: HTMLImageElement | null
+  trenchImg?: HTMLImageElement | null
+  antiTankImg?: HTMLImageElement | null
+  dotImg?: HTMLImageElement | null
+  storageImg?: HTMLImageElement | null
 }) {
   const {
     canvas,
@@ -128,8 +516,19 @@ export function drawCellsCanvas(params: {
     defendFacingPickCellIds,
     battleDefendHover,
     battleAreaFireCellIds,
+    battlePatrolVisibilityCellIds = null,
+    battlePatrolCenterCellId = null,
+    battleAirInterceptionTargetCellIds = null,
+    patrolRangePickCellIds = null,
+    battleBombardmentAreaCellIds = null,
+    bombardmentDirectionPickCellIds = null,
+    bombardmentApproachCellId = null,
     battleReportReplayHighlight,
     battleUnloadCellIds,
+    battleAirDepartureHoverCellId = null,
+    battleAirDeparturePickCellId = null,
+    battleAirMissionPreview = null,
+    airMissionOrderDecals = {},
     battlePendingLogisticsPreview,
     battlePendingShootPreview,
     getCellCenter,
@@ -143,6 +542,15 @@ export function drawCellsCanvas(params: {
     clottingOrderDecalImg,
     unloadCellDecalImg,
     shootOrderDecals,
+    editorAviationEdgeHighlight = false,
+    editorAviationEdgeCellIds,
+    wireEdgeImg = null,
+    trenchImg = null,
+    antiTankImg = null,
+    dotImg = null,
+    storageImg = null,
+    airDepartureDecalImg = null,
+    fireAirGunDecalImg = null,
   } = params
 
   if (!canvas) return
@@ -165,6 +573,8 @@ export function drawCellsCanvas(params: {
       ? battleDefendHover.commitPreviewSectorCellIds
       : null
 
+  const cellsByCube = buildCellByCubeKey(cells)
+
   for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
     const cell = cells[cellIndex]
     const center = getCellCenter(cell.coor.x, cell.coor.z)
@@ -178,7 +588,15 @@ export function drawCellsCanvas(params: {
       traceHexPath(ctx, corners)
       if (hexTex) {
         ctx.clip()
-        drawImageCoverInCircle(ctx, hexTex, center.x, center.y, cellSize * 0.92)
+        drawImageCoverInCircleWithTransform(
+          ctx,
+          hexTex,
+          center.x,
+          center.y,
+          cellSize * 0.92,
+          tileRotationRadians(readTileRotationSteps(cell)),
+          readTileMirror(cell),
+        )
       }
       ctx.restore()
 
@@ -191,8 +609,26 @@ export function drawCellsCanvas(params: {
         ctx.lineWidth = 3
         ctx.stroke()
       } else {
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.45)'
-        ctx.lineWidth = 1
+        const elevStroke = elevationStrokeForLevel(effectiveElevationLevel(cell))
+        const edgeMask = elevationEdgeDrawMask(cell, cellsByCube, getCellCenter)
+        if (elevStroke) {
+          strokeHexEdges(ctx, corners, edgeMask, elevStroke.stroke, elevStroke.lineWidth)
+        } else {
+          strokeHexEdges(ctx, corners, edgeMask, 'rgba(0, 0, 0, 0.45)', 1)
+        }
+      }
+
+      if (
+        editorAviationEdgeHighlight &&
+        editorAviationEdgeCellIds &&
+        editorAviationEdgeCellIds.has(cell.id)
+      ) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(244, 67, 54, 0.26)'
+        ctx.fill()
+        ctx.strokeStyle = 'rgba(198, 40, 40, 0.98)'
+        ctx.lineWidth = 3
         ctx.stroke()
       }
 
@@ -210,11 +646,23 @@ export function drawCellsCanvas(params: {
         ctx.fillText(idLabel, center.x, center.y - 20)
       }
 
-      if (hoverCell?.id === cell.id && !hoveredUnit && !cell.highlight) {
+      if (hoverCell?.id === cell.id && !hoveredUnit && !cell.highlight && !defendFacingPickCellIds?.length) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.strokeStyle = 'rgba(234, 179, 0, 0.95)'
         ctx.lineWidth = 3
+        ctx.stroke()
+      }
+
+      if (defendFacingPickCellIds?.includes(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(56, 132, 220, 0.45)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(30, 90, 180, 0.9)'
+        ctx.lineWidth = 2.5
         ctx.stroke()
       }
     } else {
@@ -225,7 +673,15 @@ export function drawCellsCanvas(params: {
       if (hexTexBattle) {
         ctx.save()
         ctx.clip()
-        drawImageCoverInCircle(ctx, hexTexBattle, center.x, center.y, cellSize * 0.92)
+        drawImageCoverInCircleWithTransform(
+          ctx,
+          hexTexBattle,
+          center.x,
+          center.y,
+          cellSize * 0.92,
+          tileRotationRadians(readTileRotationSteps(cell)),
+          readTileMirror(cell),
+        )
         ctx.restore()
         ctx.beginPath()
         traceHexPath(ctx, corners)
@@ -241,9 +697,13 @@ export function drawCellsCanvas(params: {
         ctx.lineWidth = 3
         ctx.stroke()
       } else {
-        ctx.strokeStyle = 'black'
-        ctx.lineWidth = 1
-        ctx.stroke()
+        const elevStroke = elevationStrokeForLevel(effectiveElevationLevel(cell))
+        const edgeMask = elevationEdgeDrawMask(cell, cellsByCube, getCellCenter)
+        if (elevStroke) {
+          strokeHexEdges(ctx, corners, edgeMask, elevStroke.stroke, elevStroke.lineWidth)
+        } else {
+          strokeHexEdges(ctx, corners, edgeMask, 'black', 1)
+        }
       }
 
       const showBattleHexHoverRing =
@@ -252,8 +712,34 @@ export function drawCellsCanvas(params: {
         !cell.highlight &&
         !(mode === 'battle' && moveReachableCellIds && moveReachableCellIds.length > 0) &&
         !(mode === 'battle' && defendFacingPickCellIds && defendFacingPickCellIds.length > 0) &&
+        !(mode === 'editor' && defendFacingPickCellIds && defendFacingPickCellIds.length > 0) &&
         !(mode === 'battle' && battleUnloadCellIds && battleUnloadCellIds.length > 0) &&
-        !(mode === 'battle' && battleAreaFireCellIds && battleAreaFireCellIds.length > 0)
+        !(mode === 'battle' && battleAreaFireCellIds && battleAreaFireCellIds.length > 0) &&
+        !(mode === 'battle' && patrolRangePickCellIds && patrolRangePickCellIds.length > 0) &&
+        !(mode === 'battle' && battlePatrolVisibilityCellIds && battlePatrolVisibilityCellIds.length > 0) &&
+        !(
+          mode === 'battle' &&
+          battleReportReplayHighlight?.reconZoneCellIds &&
+          battleReportReplayHighlight.reconZoneCellIds.length > 0
+        ) &&
+        !(mode === 'battle' && battleBombardmentAreaCellIds && battleBombardmentAreaCellIds.length > 0) &&
+        !(mode === 'battle' && bombardmentDirectionPickCellIds && bombardmentDirectionPickCellIds.length > 0) &&
+        !(mode === 'battle' && bombardmentApproachCellId != null && cell.id === bombardmentApproachCellId) &&
+        !(
+          mode === 'battle' &&
+          battleReportReplayHighlight?.airDepartureCellId != null &&
+          Number(cell.id) === Number(battleReportReplayHighlight.airDepartureCellId)
+        ) &&
+        !(
+          mode === 'battle' &&
+          battleAirDeparturePickCellId != null &&
+          cell.id === battleAirDeparturePickCellId
+        ) &&
+        !(
+          mode === 'battle' &&
+          battleAirDepartureHoverCellId != null &&
+          cell.id === battleAirDepartureHoverCellId
+        )
 
       if (showBattleHexHoverRing) {
         ctx.beginPath()
@@ -273,8 +759,40 @@ export function drawCellsCanvas(params: {
       if (defendFacingPickCellIds?.includes(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
+        ctx.fillStyle =
+          mode === 'editor' ? 'rgba(56, 132, 220, 0.45)' : 'rgba(128, 128, 128, 0.5)'
+        ctx.fill()
+        if (mode === 'editor') {
+          ctx.beginPath()
+          traceHexPath(ctx, corners)
+          ctx.strokeStyle = 'rgba(30, 90, 180, 0.9)'
+          ctx.lineWidth = 2.5
+          ctx.stroke()
+        }
+      }
+
+      if (bombardmentApproachCellId != null && cell.id === bombardmentApproachCellId) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(56, 132, 220, 0.48)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(30, 90, 180, 0.92)'
+        ctx.lineWidth = 2.5
+        ctx.stroke()
+      }
+
+      if (bombardmentDirectionPickCellIds?.includes(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.5)'
         ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(90, 90, 90, 0.85)'
+        ctx.lineWidth = 2
+        ctx.stroke()
       }
 
       if (battleUnloadCellIds?.includes(cell.id)) {
@@ -289,6 +807,74 @@ export function drawCellsCanvas(params: {
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(200, 72, 72, 0.26)'
         ctx.fill()
+      }
+      if (patrolRangePickCellIds?.includes(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(128, 128, 128, 0.45)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(90, 90, 90, 0.85)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      }
+
+      if (battlePatrolVisibilityCellIds?.includes(cell.id)) {
+        const isPatrolCenter = battlePatrolCenterCellId != null && cell.id === battlePatrolCenterCellId
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = isPatrolCenter ? 'rgba(56, 160, 220, 0.3)' : 'rgba(56, 132, 220, 0.12)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.setLineDash(isPatrolCenter ? [] : [6, 5])
+        ctx.strokeStyle = isPatrolCenter ? 'rgba(24, 96, 180, 0.95)' : 'rgba(56, 132, 220, 0.62)'
+        ctx.lineWidth = isPatrolCenter ? 3 : 1.5
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+
+      if (battleAirInterceptionTargetCellIds?.includes(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(220, 60, 60, 0.28)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(220, 60, 60, 0.92)'
+        ctx.lineWidth = 2.5
+        ctx.stroke()
+      }
+      const reconZoneIds = battleReportReplayHighlight?.reconZoneCellIds
+      const isInReconZone = reconZoneIds?.some((id) => Number(id) === Number(cell.id))
+      if (mode === 'battle' && isInReconZone) {
+        const reconCenterId = battleReportReplayHighlight?.reconCenterCellId
+        const isReconCenter = reconCenterId != null && Number(reconCenterId) === Number(cell.id)
+        const isPatrolZone = battleReportReplayHighlight?.reconOrderKey === 'patrol'
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = isPatrolZone
+          ? isReconCenter
+            ? 'rgba(56, 160, 220, 0.3)'
+            : 'rgba(56, 132, 220, 0.12)'
+          : isReconCenter
+            ? 'rgba(52, 168, 108, 0.34)'
+            : 'rgba(52, 168, 108, 0.13)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.setLineDash(isReconCenter ? [] : [6, 5])
+        ctx.strokeStyle = isPatrolZone
+          ? isReconCenter
+            ? 'rgba(24, 96, 180, 0.95)'
+            : 'rgba(56, 132, 220, 0.62)'
+          : isReconCenter
+            ? 'rgba(24, 118, 68, 0.95)'
+            : 'rgba(52, 140, 88, 0.68)'
+        ctx.lineWidth = isReconCenter ? 3 : 1.5
+        ctx.stroke()
+        ctx.setLineDash([])
       }
       if (battleReportReplayHighlight?.lossCellId === cell.id) {
         ctx.beginPath()
@@ -320,6 +906,63 @@ export function drawCellsCanvas(params: {
         ctx.lineWidth = 2
         ctx.stroke()
       }
+
+      if (
+        battleReportReplayHighlight?.airFlightCellId != null &&
+        Number(cell.id) === Number(battleReportReplayHighlight.airFlightCellId)
+      ) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(255, 193, 7, 0.38)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(255, 152, 0, 0.95)'
+        ctx.lineWidth = 3
+        ctx.stroke()
+      }
+
+      if (
+        battleReportReplayHighlight?.airDepartureCellId != null &&
+        Number(cell.id) === Number(battleReportReplayHighlight.airDepartureCellId)
+      ) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(220, 48, 48, 0.45)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(185, 28, 28, 1)'
+        ctx.lineWidth = 4
+        ctx.stroke()
+      } else if (
+        battleAirDeparturePickCellId != null &&
+        cell.id === battleAirDeparturePickCellId
+      ) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(220, 48, 48, 0.45)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(185, 28, 28, 1)'
+        ctx.lineWidth = 4
+        ctx.stroke()
+      } else if (
+        battleAirDepartureHoverCellId != null &&
+        cell.id === battleAirDepartureHoverCellId
+      ) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(220, 48, 48, 0.38)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(185, 28, 28, 1)'
+        ctx.lineWidth = 3
+        ctx.stroke()
+      }
+
     }
 
     drawUnits(ctx, cell, center)
@@ -399,7 +1042,145 @@ export function drawCellsCanvas(params: {
       }
     }
 
+    if (
+      mode === 'battle' &&
+      battleBombardmentAreaCellIds?.includes(cell.id)
+    ) {
+      drawAirMissionOrderDecal(ctx, center, cellSize, 'bombardment', airMissionOrderDecals)
+    }
+
+    if (
+      mode === 'battle' &&
+      battlePatrolCenterCellId != null &&
+      cell.id === battlePatrolCenterCellId &&
+      battlePatrolVisibilityCellIds?.includes(cell.id) &&
+      !(
+        battleAirMissionPreview &&
+        battleAirMissionPreview.orderKey === 'patrol' &&
+        battleAirMissionPreview.targetCellId === cell.id
+      )
+    ) {
+      drawAirMissionOrderDecal(ctx, center, cellSize, 'patrol', airMissionOrderDecals)
+    }
+
+    if (
+      mode === 'battle' &&
+      battleAirMissionPreview &&
+      cell.id === battleAirMissionPreview.targetCellId &&
+      !(
+        battleAirMissionPreview.orderKey === 'bombardment' &&
+        battleBombardmentAreaCellIds?.includes(cell.id)
+      )
+    ) {
+      drawAirMissionOrderDecal(
+        ctx,
+        center,
+        cellSize,
+        battleAirMissionPreview.orderKey,
+        airMissionOrderDecals,
+      )
+    }
+
+    if (
+      mode === 'battle' &&
+      battleReportReplayHighlight?.reconCenterCellId != null &&
+      Number(battleReportReplayHighlight.reconCenterCellId) === Number(cell.id) &&
+      battleReportReplayHighlight?.reconOrderKey
+    ) {
+      drawAirMissionOrderDecal(
+        ctx,
+        center,
+        cellSize,
+        battleReportReplayHighlight.reconOrderKey,
+        airMissionOrderDecals,
+      )
+    }
+
+    if (
+      mode === 'battle' &&
+      battleReportReplayHighlight?.airCombatCellId != null &&
+      Number(battleReportReplayHighlight.airCombatCellId) === Number(cell.id) &&
+      battleReportReplayHighlight?.airCombatOrderKey
+    ) {
+      drawAirMissionOrderDecal(
+        ctx,
+        center,
+        cellSize,
+        battleReportReplayHighlight.airCombatOrderKey,
+        airMissionOrderDecals,
+      )
+    }
+
+    if (
+      mode === 'battle' &&
+      battleReportReplayHighlight?.artilleryAirSectorCellId != null &&
+      Number(battleReportReplayHighlight.artilleryAirSectorCellId) === Number(cell.id) &&
+      fireAirGunDecalImg?.naturalWidth
+    ) {
+      const r = Math.max(8, cellSize * 0.14)
+      ctx.save()
+      drawImageCoverInCircle(ctx, fireAirGunDecalImg, center.x, center.y, r)
+      ctx.restore()
+    }
+
     drawMapBuilding(ctx, { cell, center, cellSize, mode, resolveEditorCachedImage })
+
+    const reportDepartureId = battleReportReplayHighlight?.airDepartureCellId
+    if (
+      mode === 'battle' &&
+      reportDepartureId != null &&
+      Number(cell.id) === Number(reportDepartureId)
+    ) {
+      drawAirDepartureMarker(ctx, center, cellSize, airDepartureDecalImg)
+    } else if (mode === 'battle' && battleAirDeparturePickCellId != null && cell.id === battleAirDeparturePickCellId) {
+      drawAirDepartureMarker(ctx, center, cellSize, airDepartureDecalImg)
+    } else if (
+      mode === 'battle' &&
+      battleAirDepartureHoverCellId != null &&
+      cell.id === battleAirDepartureHoverCellId &&
+      !(
+        battleAirMissionPreview?.orderKey === 'interception' &&
+        Number(battleAirMissionPreview.targetCellId) === Number(cell.id)
+      )
+    ) {
+      drawAirDepartureMarker(ctx, center, cellSize, airDepartureDecalImg)
+    }
+  }
+
+  for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
+    const cell = cells[cellIndex]
+    const center = getCellCenter(cell.coor.x, cell.coor.z)
+    drawWireEdges(ctx, {
+      cell,
+      center,
+      cellSize,
+      getCellCorners,
+      wireEdgeImg,
+      resolveEditorCachedImage,
+    })
+    drawTrenchEdges(ctx, {
+      cell,
+      center,
+      getCellCorners,
+      trenchImg,
+      resolveEditorCachedImage,
+    })
+    drawAntiTankEdges(ctx, {
+      cell,
+      center,
+      cellSize,
+      getCellCorners,
+      antiTankImg,
+      resolveEditorCachedImage,
+    })
+    drawCenterBuildFortifications(ctx, {
+      cell,
+      center,
+      cellSize,
+      dotImg,
+      storageImg,
+      resolveEditorCachedImage,
+    })
   }
 
   drawPath(ctx)

@@ -1,8 +1,22 @@
 'use strict'
 
 const { getNeighbor, findCellByCoor, hexDistCells } = require('./battleHexGeometry')
+const { wireBlocksGroundMove, applyWireBreakthroughOnStep } = require('./battleWireEdges')
+const { antiTankBlocksGroundMove } = require('./battleAntiTankEdges')
+const { unitHasPropKey } = require('../../core/battleUnitType')
 const { getStr, unitFaction, opposing, findUnitOnField } = require('../unit/battleUnitField')
 const { terrainEntryCost } = require('./battleTerrain')
+const {
+  createMoveSlopeCounters,
+  slopeCountersAllow,
+  ravineCountersAllow,
+  applyMoveSlopeCounters,
+  moveCountersKey,
+  isRavineExitDirection,
+  isRavine,
+  canUnitTraverseSlope,
+  slopeTransition,
+} = require('./battleElevation')
 
 function getMeleeOpponentId(u) {
   const t = u.tactical
@@ -29,7 +43,23 @@ function cellForbidsThirdPartyMeleeEntry(allCells, cell, moverUnit) {
   return false
 }
 
-function canEnterCell(cell, unit, fogRevealedCellIds, allCells) {
+function canTraverseMoveEdge(fromCell, toCell, unit, counters) {
+  if (!fromCell || !toCell || !unit) return false
+  if (!slopeCountersAllow(unit, counters, fromCell, toCell)) return false
+  if (!ravineCountersAllow(unit, counters, fromCell, toCell)) return false
+  if (isRavine(fromCell) && !isRavineExitDirection(fromCell, toCell)) {
+    if (!canUnitTraverseSlope(unit, slopeTransition(fromCell, toCell))) return false
+  }
+  if (wireBlocksGroundMove(fromCell, toCell, unit, unitHasPropKey)) return false
+  if (antiTankBlocksGroundMove(fromCell, toCell, unit)) return false
+  return true
+}
+
+function moveStepCost(fromCell, toCell, unit) {
+  return terrainEntryCost(toCell, unit)
+}
+
+function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counters) {
   if (!cell) return false
   const us = cell.units || []
   let liveOnHex = 0
@@ -44,6 +74,9 @@ function canEnterCell(cell, unit, fogRevealedCellIds, allCells) {
     }
   }
   if (allCells && cellForbidsThirdPartyMeleeEntry(allCells, cell, unit)) return false
+  if (fromCell && counters) {
+    if (!canTraverseMoveEdge(fromCell, cell, unit, counters)) return false
+  }
   if (terrainEntryCost(cell, unit) === 0) return false
   return true
 }
@@ -52,8 +85,10 @@ function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds) {
   const result = []
   const visited = Object.create(null)
   const queue = []
-  visited[start.id] = 0
-  queue.push({ cell: start, spent: 0 })
+  const startCounters = createMoveSlopeCounters()
+  const startKey = `${start.id}:${moveCountersKey(startCounters)}`
+  visited[startKey] = 0
+  queue.push({ cell: start, spent: 0, counters: startCounters })
   while (queue.length > 0) {
     queue.sort((a, b) => a.spent - b.spent)
     const current = queue.shift()
@@ -61,14 +96,21 @@ function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds) {
     for (let dir = 0; dir < 6; dir++) {
       const nb = getNeighbor(current.cell.coor, dir)
       const neighbor = findCellByCoor(allCells, nb)
-      if (!neighbor || !canEnterCell(neighbor, unit, fogRevealedCellIds, allCells)) continue
-      const cost = terrainEntryCost(neighbor, unit)
+      if (
+        !neighbor ||
+        !canEnterCell(neighbor, unit, fogRevealedCellIds, allCells, current.cell, current.counters)
+      ) {
+        continue
+      }
+      const cost = moveStepCost(current.cell, neighbor, unit)
       const newSpent = current.spent + cost
       if (newSpent > maxPoints) continue
-      const old = visited[neighbor.id]
+      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor)
+      const vKey = `${neighbor.id}:${moveCountersKey(newCounters)}`
+      const old = visited[vKey]
       if (old === undefined || newSpent < old) {
-        visited[neighbor.id] = newSpent
-        queue.push({ cell: neighbor, spent: newSpent })
+        visited[vKey] = newSpent
+        queue.push({ cell: neighbor, spent: newSpent, counters: newCounters })
       }
     }
   }
@@ -78,42 +120,91 @@ function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds) {
 function findPath(start, target, allCells, unit, fogRevealedCellIds) {
   if (start.id === target.id) return [start]
   const visited = Object.create(null)
-  const parent = Object.create(null)
+  const prev = Object.create(null)
   const queue = []
-  visited[start.id] = 0
-  queue.push({ cell: start, cost: 0 })
+  const startCounters = createMoveSlopeCounters()
+  const startKey = `${start.id}:${moveCountersKey(startCounters)}`
+  visited[startKey] = 0
+  queue.push({ cell: start, cost: 0, counters: startCounters, key: startKey })
+  let goalKey = null
   while (queue.length > 0) {
     queue.sort((a, b) => a.cost - b.cost)
     const current = queue.shift()
     if (current.cell.id === target.id) {
-      const path = []
-      let cur = target
-      while (cur) {
-        path.unshift(cur)
-        cur = parent[cur.id]
-      }
-      return path
+      goalKey = current.key
+      break
     }
     for (let dir = 0; dir < 6; dir++) {
       const nb = getNeighbor(current.cell.coor, dir)
       const neighbor = findCellByCoor(allCells, nb)
-      if (!neighbor || !canEnterCell(neighbor, unit, fogRevealedCellIds, allCells)) continue
-      const cost = terrainEntryCost(neighbor, unit)
+      if (
+        !neighbor ||
+        !canEnterCell(neighbor, unit, fogRevealedCellIds, allCells, current.cell, current.counters)
+      ) {
+        continue
+      }
+      const cost = moveStepCost(current.cell, neighbor, unit)
       const newCost = current.cost + cost
-      const oldCost = visited[neighbor.id]
+      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor)
+      const vKey = `${neighbor.id}:${moveCountersKey(newCounters)}`
+      const oldCost = visited[vKey]
       if (oldCost === undefined || newCost < oldCost) {
-        visited[neighbor.id] = newCost
-        parent[neighbor.id] = current.cell
-        queue.push({ cell: neighbor, cost: newCost })
+        visited[vKey] = newCost
+        prev[vKey] = current.key
+        queue.push({ cell: neighbor, cost: newCost, counters: newCounters, key: vKey })
       }
     }
   }
-  return null
+  if (!goalKey) return null
+  const idChain = []
+  let k = goalKey
+  while (k) {
+    idChain.unshift(Number(String(k).split(':')[0]))
+    k = prev[k]
+  }
+  const path = []
+  for (let i = 0; i < idChain.length; i++) {
+    const c = allCells.find((x) => Number(x.id) === idChain[i])
+    if (c) path.push(c)
+  }
+  return path.length ? path : null
 }
 
 module.exports = {
   getMeleeOpponentId,
   canEnterCell,
+  canTraverseMoveEdge,
   findReachable,
   findPath,
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

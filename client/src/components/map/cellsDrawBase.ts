@@ -42,6 +42,57 @@ export function unitPositionsForDraw(
   return unitPositions
 }
 
+/** Смещение иконки авиации от центра гекса вдоль маршрута (рядом с гексом, не внутри). */
+export function airFlightIconPixelOffset(params: {
+  flightCell: Cell
+  pathCellIds: number[]
+  pathIndex: number
+  cells: Cell[]
+  cellSize: number
+  getCellCenter: (q: number, r: number) => { x: number; y: number }
+}): { x: number; y: number } {
+  const { flightCell, pathCellIds, pathIndex, cells, cellSize, getCellCenter } = params
+  const magnitude = cellSize * 0.38
+  const curCenter = getCellCenter(flightCell.coor.x, flightCell.coor.z)
+
+  const cellById = (id: number) => cells.find((c) => Number(c.id) === Number(id))
+
+  const nextId = pathIndex + 1 < pathCellIds.length ? pathCellIds[pathIndex + 1] : null
+  const prevId = pathIndex > 0 ? pathCellIds[pathIndex - 1] : null
+
+  let dx = 0
+  let dy = 0
+
+  if (nextId != null) {
+    const next = cellById(nextId)
+    if (next) {
+      const nextCenter = getCellCenter(next.coor.x, next.coor.z)
+      dx = nextCenter.x - curCenter.x
+      dy = nextCenter.y - curCenter.y
+    }
+  } else if (prevId != null) {
+    const prev = cellById(prevId)
+    if (prev) {
+      const prevCenter = getCellCenter(prev.coor.x, prev.coor.z)
+      dx = curCenter.x - prevCenter.x
+      dy = curCenter.y - prevCenter.y
+    }
+  }
+
+  const len = Math.hypot(dx, dy)
+  if (len < 1e-6) return { x: 0, y: 0 }
+  return { x: (dx / len) * magnitude, y: (dy / len) * magnitude }
+}
+
+export function airUnitInFlightDrawSize(cellSize: number): number {
+  return Math.max(22, Math.round(cellSize * 0.5))
+}
+
+/** Иконка вражеской цели при выборе приказа «Перехват» — компактно в центре гекса. */
+export function airInterceptionTargetDrawSize(cellSize: number): number {
+  return Math.max(12, Math.round(cellSize * 0.2))
+}
+
 export function unitDrawSize(
   unitCount: number,
   lobbyPreview: boolean,
@@ -128,13 +179,30 @@ export function drawImageCoverInCircle(
   cy: number,
   r: number,
 ) {
+  drawImageCoverInCircleWithTransform(ctx, img, cx, cy, r, 0, false)
+}
+
+export function drawImageCoverInCircleWithTransform(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  cx: number,
+  cy: number,
+  r: number,
+  rotationRad: number,
+  mirror: boolean,
+) {
   const imageWidth = img.naturalWidth || img.width
   const imageHeight = img.naturalHeight || img.height
   if (!imageWidth || !imageHeight) return
   const scale = Math.max((2 * r) / imageWidth, (2 * r) / imageHeight)
   const drawWidth = imageWidth * scale
   const drawHeight = imageHeight * scale
-  ctx.drawImage(img, cx - drawWidth / 2, cy - drawHeight / 2, drawWidth, drawHeight)
+  ctx.save()
+  ctx.translate(cx, cy)
+  if (rotationRad) ctx.rotate(rotationRad)
+  if (mirror) ctx.scale(-1, 1)
+  ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight)
+  ctx.restore()
 }
 
 export function drawImageCoverInSquare(

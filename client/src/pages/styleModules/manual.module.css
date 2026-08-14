@@ -146,10 +146,10 @@
 
 .filterLabel {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(40, 40, 45, 0.75);
+  color: #000;
   margin-bottom: 8px;
 }
 
@@ -162,12 +162,13 @@
 .filterButton {
   padding: 8px 14px;
   font-size: 13px;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.5);
   background: rgba(255, 255, 255, 0.42);
-  color: rgba(35, 35, 40, 0.9);
+  color: #000;
 }
 
 .filterButton:hover {
@@ -205,7 +206,7 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
 }
 
-/* Только текст: без колонки с картинкой (общие механики, ход игры) */
+
 .cardTextOnly {
   display: block;
 }
@@ -324,6 +325,10 @@
   min-width: 0;
   white-space: pre-line;
   text-align: center;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #000;
 }
 
 .cardRuleExtraPhotoFrame {
@@ -378,12 +383,13 @@
   margin-top: 2px;
   padding-top: 8px;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
+  font-weight: 600;
 }
 
 .cardStatSectionTitle {
   font-size: 14px;
   font-weight: 800;
-  color: rgba(35, 38, 45, 0.92);
+  color: #000;
   margin: 0 0 8px;
 }
 
@@ -393,7 +399,9 @@
   gap: 4px 20px;
   margin: 0;
   font-size: 13px;
+  font-weight: 600;
   line-height: 1.38;
+  color: #000;
 }
 
 @media (max-width: 720px) {
@@ -411,14 +419,14 @@
 }
 
 .statGridLabel {
-  font-weight: 700;
-  color: rgba(55, 55, 60, 0.78);
+  font-weight: 800;
+  color: #000;
   min-width: 0;
 }
 
 .statGridValue {
-  font-weight: 700;
-  color: rgba(30, 30, 35, 0.92);
+  font-weight: 800;
+  color: #000;
   font-variant-numeric: tabular-nums;
   word-break: break-word;
   min-width: 0;

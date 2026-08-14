@@ -51,8 +51,8 @@
   display: flex;
   flex-wrap: nowrap;
   flex: 1 1 auto;
-  align-items: center;
-  gap: 8px;
+  align-items: stretch;
+  gap: 10px;
   min-width: 0;
   width: 100%;
   padding: 6px 8px;
@@ -62,36 +62,43 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
 }
 
-
-.toolbarRow > div:not(.toolbarTurnGroup) {
-  margin: 0 !important;
-  flex: 1 1 0;
+.toolbarActions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 380px;
-  width: auto !important;
-  box-sizing: border-box !important;
 }
 
+.toolbarBtnSlot {
+  flex: 1 1 0;
+  min-width: 96px;
+  max-width: 200px;
+  display: flex;
+  align-items: center;
+}
+
+.toolbarBtnSlot > div {
+  width: 100% !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
 
 .toolbarTurnGroup {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: 10px;
-  flex: 1 1 0;
-  min-width: 0;
-  max-width: min(480px, 100%);
+  flex: 0 0 auto;
   margin: 0 !important;
   box-sizing: border-box;
 }
 
-.toolbarTurnGroup > div {
-  margin: 0 !important;
-  flex: 1 1 auto;
-  min-width: 0;
-  max-width: 380px;
-  width: auto !important;
-  box-sizing: border-box !important;
+.toolbarTurnGroup .toolbarBtnSlot {
+  flex: 0 1 200px;
+  min-width: 140px;
+  max-width: 220px;
 }
 
 .battleTurnCounter {
@@ -119,6 +126,11 @@
   inset: 0;
   z-index: 1000;
   background: transparent;
+}
+
+/* Пока выбирается цель приказа на карте — не перехватывать клики (панель слева всё ещё выше по z-index). */
+.leftMenuBackdropPassThrough {
+  pointer-events: none;
 }
 
 .leftMenuBackdropDim {
@@ -338,6 +350,215 @@
   margin-top: 0;
   padding-top: 0;
   border-top: none;
+}
+
+.airSupportHeaderActions {
+  margin-left: auto;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.airSupportList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.airSupportRow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.airSupportRowClickable {
+  cursor: pointer;
+}
+
+.airSupportRowClickable:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.airSupportRowStatic {
+  cursor: default;
+}
+
+.airSupportRowHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.airSupportUnitStats {
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+}
+
+.leftMenuPanelStandard .airSupportUnitStatRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0;
+  line-height: 1.4;
+}
+
+.leftMenuPanelStandard .airSupportUnitStatKey {
+  flex: 0 1 auto;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.leftMenuPanelStandard .airSupportUnitStatVal {
+  flex: 0 1 auto;
+  text-align: right;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.airSupportOrdersHint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.airSupportEmbeddedPanel {
+  margin-top: 6px;
+  padding: 8px 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.44) 0%,
+    rgba(230, 236, 246, 0.38) 100%
+  );
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.airSupportEmbeddedOrdersTitle {
+  margin: 0 0 6px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(40, 44, 52, 0.78);
+  text-shadow: 0 0 6px rgba(255, 255, 255, 0.65);
+}
+
+.airSupportEmbeddedOrdersBody {
+  max-height: min(30vh, 200px);
+}
+
+.leftMenuPanelStandard .airSupportWarning {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 200, 120, 0.95);
+}
+
+.airSupportIcon {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.airSupportIcon img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+}
+
+.airSupportIconFallback {
+  font-size: 22px;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+.airSupportMeta {
+  min-width: 0;
+}
+
+.airSupportName {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.airSupportSub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.leftMenuPanelStandard .airSupportName {
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.airSupportReadinessBadge {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 5px 11px;
+  border-radius: 999px;
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  line-height: 1.25;
+}
+
+.leftMenuPanelStandard .airSupportReadinessBadge[data-ready='true'] {
+  color: rgba(230, 255, 238, 0.98);
+  background: rgba(28, 120, 68, 0.5);
+  border: 1px solid rgba(130, 220, 160, 0.55);
+}
+
+.leftMenuPanelStandard .airSupportReadinessBadge[data-ready='false'] {
+  color: rgba(255, 246, 228, 0.96);
+  background: rgba(160, 95, 28, 0.48);
+  border: 1px solid rgba(255, 190, 110, 0.5);
+}
+
+.leftMenuPanelStandard .airSupportReadinessBadge[data-status='airborne'] {
+  color: rgba(230, 245, 255, 0.98);
+  background: rgba(40, 90, 160, 0.55);
+  border: 1px solid rgba(120, 180, 255, 0.55);
+}
+
+.airSupportNotReadyHint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 215, 160, 0.92);
+  line-height: 1.35;
+}
+
+.airSupportRecallRow {
+  margin: 8px 0 0;
+}
+
+.leftMenuPanelStandard .airSupportSub {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .leftMenuFooter {
@@ -992,17 +1213,29 @@
     padding: 6px;
   }
 
-  .toolbarRow > div:not(.toolbarTurnGroup),
-  .toolbarTurnGroup > div {
+  .toolbarActions {
+    flex-wrap: wrap;
+    flex: 1 1 100%;
+    gap: 6px;
+  }
+
+  .toolbarBtnSlot {
     flex: 1 1 calc(50% - 6px);
     max-width: none;
-    min-width: 0;
+    min-width: min(140px, 46%);
   }
 
   .toolbarTurnGroup {
     width: 100%;
     flex: 1 1 100%;
     gap: 8px;
+    justify-content: space-between;
+  }
+
+  .toolbarTurnGroup .toolbarBtnSlot {
+    flex: 1 1 auto;
+    min-width: 120px;
+    max-width: none;
   }
 
   .battleTurnCounter {
@@ -1069,9 +1302,18 @@
     gap: 5px;
   }
 
-  .toolbarRow > div:not(.toolbarTurnGroup),
-  .toolbarTurnGroup > div {
-    flex-basis: 100%;
+  .toolbarActions {
+    gap: 5px;
+  }
+
+  .toolbarBtnSlot {
+    flex: 1 1 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .toolbarTurnGroup .toolbarBtnSlot {
+    flex: 1 1 auto;
   }
 
   .battleTurnCounter {

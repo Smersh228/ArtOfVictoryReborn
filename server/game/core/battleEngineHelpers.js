@@ -123,10 +123,18 @@ function isAttackOrderValid(cells, attackerId, targetId, deps) {
   return ce.cost <= attackReachBudget(atk.unit, deps)
 }
 
-function validateUnitOrdersAllowed(unit, deps) {
+function validateUnitOrdersAllowed(unit, deps, orderKey) {
   const { getMeleeOpponentId } = deps
   if (!unit) return null
-  if (getMeleeOpponentId(unit)) return 'юнит в ближнем бою'
+  if (unit.tactical?.desantEquipping || unit.tactical?.desantEquipScheduled) {
+    return 'снаряжение после десантирования'
+  }
+  const ok = String(orderKey || '').trim()
+  if (getMeleeOpponentId(unit)) {
+    if (ok !== 'fire' && ok !== 'fireHard') {
+      return 'юнит в ближнем бою'
+    }
+  }
   if (unit.tactical && unit.tactical.fireSuppression) return 'огневое подавление'
   return null
 }

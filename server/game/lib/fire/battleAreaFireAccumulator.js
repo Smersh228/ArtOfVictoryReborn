@@ -1,5 +1,7 @@
 'use strict'
 
+const { terrainAccuracyBonusFromCell } = require('../map/battleTerrain')
+
 function accumulateAreaFireForShooter({
   atk,
   targets,
@@ -27,6 +29,7 @@ function accumulateAreaFireForShooter({
     if (!defSpotNow || getStr(defSpotNow.unit) <= 0) continue
     const tgtU = defSpotNow.unit
     const hadAmbush = isAmbushConcealed(tgtU)
+    const accBonus = terrainAccuracyBonusFromCell(atk.cell, atk.unit, tgtU, false)
     const salvoTarget = computeShootSalvoCore(
       atk.unit,
       tgtU,
@@ -37,6 +40,7 @@ function accumulateAreaFireForShooter({
       undefined,
       artilleryClosed,
       1,
+      accBonus,
     )
     const hits = areaFireHitsForTargetByOrder(salvoTarget.hitSuccesses, ti, artilleryClosed)
     if (hadAmbush && clearAmbushOrderFully(tgtU)) {

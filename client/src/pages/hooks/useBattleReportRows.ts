@@ -4,24 +4,36 @@ import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
 import {
   battleLogEntryReplayWithFallback,
   battleReportEntryShouldOmit,
+  collectSyntheticAirAppearanceReportRows,
   formatBattleReportLines,
 } from '../battleReportLog';
 import {
   isDirectFireHiddenByGrouped,
+  isIntelligenceAirLaunchHiddenByRecon,
+  isAirCombatDetailHiddenBySummary,
+  isAirCombatInterruptHiddenByRoundSummary,
+  isAirCombatNoAmmoHidden,
+  isAirMissionDoneHiddenByReturn,
+  isPatrolActiveHiddenByMissionOnStation,
   shouldHideFormattedBattleReport,
   shouldHideRawBattleReportLine,
 } from '../battleReportVisibility';
 
 type BattleLogEntry = NonNullable<RoomDetailResponse['battleLog']>[number];
 
-function battleLogEntriesLatestTurn(log: BattleLogEntry[] | undefined): BattleLogEntry[] {
-  if (!log?.length) return [];
+function battleLogLatestTurn(log: BattleLogEntry[] | undefined): number | null {
+  if (!log?.length) return null;
   let max = -Infinity;
   for (const e of log) {
     if (typeof e.turn === 'number' && Number.isFinite(e.turn)) max = Math.max(max, e.turn);
   }
-  if (!Number.isFinite(max) || max < 0) return log;
-  return log.filter((e) => e.turn === max);
+  return Number.isFinite(max) && max >= 0 ? max : null;
+}
+
+function battleLogEntriesLatestTurn(log: BattleLogEntry[] | undefined): BattleLogEntry[] {
+  const latestTurn = battleLogLatestTurn(log);
+  if (latestTurn == null) return log ?? [];
+  return (log ?? []).filter((e) => e.turn === latestTurn);
 }
 
 function extractDestroyedUnitName(detail: string): string | null {
@@ -49,12 +61,13 @@ function inferDestroyedFactionFromMeta(meta: unknown): 'rkka' | 'wehrmacht' | nu
 
 export function useBattleReportRows(params: {
   battleLog: RoomDetailResponse['battleLog'] | undefined;
+  battleTurnIndex: number;
   cells: Cell[];
   viewerBattleFaction: LobbyFaction;
   battleFogRevealedCellIds: Set<number> | null;
   hasGrid: boolean;
 }) {
-  const { battleLog, cells, viewerBattleFaction, battleFogRevealedCellIds, hasGrid } = params;
+  const { battleLog, battleTurnIndex, cells, viewerBattleFaction, battleFogRevealedCellIds, hasGrid } = params;
 
   const battleReportVisibleLog = useMemo(() => battleLogEntriesLatestTurn(battleLog), [battleLog]);
 
@@ -65,6 +78,7 @@ export function useBattleReportRows(params: {
       isTurnHeader: boolean;
       formatted: any;
       line: string;
+      logEntry: BattleLogEntry;
       replay: any;
       interactive: boolean;
     }> = [];
@@ -72,16 +86,22 @@ export function useBattleReportRows(params: {
       const entry = battleReportVisibleLog[i];
       if (battleReportEntryShouldOmit(entry, cells, viewerBattleFaction, battleFogRevealedCellIds)) continue;
       if (isDirectFireHiddenByGrouped(entry, battleReportVisibleLog)) continue;
+      if (isIntelligenceAirLaunchHiddenByRecon(entry, battleReportVisibleLog)) continue;
+      if (isAirCombatDetailHiddenBySummary(entry, battleReportVisibleLog)) continue;
+      if (isAirCombatInterruptHiddenByRoundSummary(entry, battleReportVisibleLog)) continue;
+      if (isAirCombatNoAmmoHidden(entry)) continue;
+      if (isAirMissionDoneHiddenByReturn(entry, battleReportVisibleLog)) continue;
+      if (isPatrolActiveHiddenByMissionOnStation(entry, battleReportVisibleLog)) continue;
       const isMeta = entry.phase === -1;
       const line = String(entry.text ?? '').trim() || '—';
-      if (shouldHideRawBattleReportLine(line)) continue;
       const isTurnHeader = isMeta && line.startsWith('——');
       const formatted = formatBattleReportLines(entry, cells, {
         viewerFaction: viewerBattleFaction,
         fogRevealedCellIds: battleFogRevealedCellIds,
       });
+      if (shouldHideRawBattleReportLine(line) && !formatted) continue;
       if (shouldHideFormattedBattleReport(formatted)) continue;
-      const replay = battleLogEntryReplayWithFallback(entry, cells);
+      const replay = battleLogEntryReplayWithFallback(entry, cells, battleReportVisibleLog);
       const interactive = replay != null && hasGrid;
       baseRows.push({
         key: `${entry.t ?? 0}-${i}-${line.slice(0, 24)}`,
@@ -89,8 +109,21 @@ export function useBattleReportRows(params: {
         isTurnHeader,
         formatted,
         line,
+        logEntry: entry,
         replay,
         interactive,
+      });
+    }
+
+    for (const synth of collectSyntheticAirAppearanceReportRows(cells, battleTurnIndex, battleLog)) {
+      baseRows.push({
+        key: `synthetic-air-${synth.unitInstanceId}`,
+        isMeta: false,
+        isTurnHeader: false,
+        formatted: synth.formatted,
+        line: synth.formatted.detail,
+        replay: synth.replay,
+        interactive: hasGrid,
       });
     }
 
@@ -115,7 +148,14 @@ export function useBattleReportRows(params: {
     });
 
     return { rows: filteredRows };
-  }, [battleReportVisibleLog, cells, viewerBattleFaction, battleFogRevealedCellIds, hasGrid]);
+  }, [battleReportVisibleLog, battleTurnIndex, battleLog, cells, viewerBattleFaction, battleFogRevealedCellIds, hasGrid]);
+
+  const battleReportLatestTurn = useMemo(() => battleLogLatestTurn(battleLog), [battleLog]);
+
+  const battleReportActionCount = useMemo(
+    () => battleReportRows.rows.filter((row) => !row.isMeta && !row.isTurnHeader).length,
+    [battleReportRows.rows],
+  );
 
   const destroyedSummary = useMemo(() => {
     const rkka = new Map<string, number>();
@@ -161,5 +201,5 @@ export function useBattleReportRows(params: {
     };
   }, [battleLog]);
 
-  return { battleReportRows, destroyedSummary };
+  return { battleReportRows, destroyedSummary, battleReportLatestTurn, battleReportActionCount };
 }

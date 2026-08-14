@@ -32,6 +32,10 @@
   max-width: 520px;
 }
 
+.dialogXl {
+  max-width: min(620px, 96vw);
+}
+
 .header {
   display: flex;
   align-items: flex-start;

@@ -73,8 +73,12 @@ function resolveGroupedDirectFire({
         ambushCleared: true,
       })
     }
-    if (defAfter && getStr(defAfter.unit) > 0 && totalDamageGrouped > 0) {
-      steadfastnessQueue.push({ id: grouped.targetId, dmg: totalDamageGrouped })
+    if (defAfter && getStr(defAfter.unit) > 0) {
+      if (totalDamageGrouped > 0) {
+        steadfastnessQueue.push({ id: grouped.targetId, dmg: totalDamageGrouped })
+      } else if (isSup) {
+        steadfastnessQueue.push({ id: grouped.targetId, dmg: 0, fromSuppressionFire: true })
+      }
     }
     if (defAfter && getStr(defAfter.unit) > 0 && grouped.shooterIds.length > 0) {
       maybeDefenderReturnFireAgainstShooter(

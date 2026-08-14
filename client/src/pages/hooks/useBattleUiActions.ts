@@ -1,6 +1,8 @@
 import { useCallback, useMemo } from 'react';
 import type React from 'react';
+import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
 import type { BattleOrderPayload } from '../../api/rooms';
+import { buildAccompanimentOrderPayload } from '../../game/battleAirSupport';
 
 type BattleLeftPanelId = 'report' | 'tasks';
 type BattleCenterModalId = 'surrender' | 'nextTurn' | null;
@@ -28,6 +30,12 @@ export function useBattleUiActions(params: {
   setOrderPick: React.Dispatch<React.SetStateAction<any>>;
   unloadCargoPickModal: any;
   setUnloadCargoPickModal: React.Dispatch<React.SetStateAction<any>>;
+  accompanimentPickModal: {
+    escorter: { instanceId?: number | string };
+    candidates: import('../../game/battleAirSupport').AccompanimentEscortCandidate[];
+  } | null;
+  setAccompanimentPickModal: React.Dispatch<React.SetStateAction<any>>;
+  cells: Cell[];
 }) {
   const {
     leftMenu,
@@ -52,6 +60,9 @@ export function useBattleUiActions(params: {
     setOrderPick,
     unloadCargoPickModal,
     setUnloadCargoPickModal,
+    accompanimentPickModal,
+    setAccompanimentPickModal,
+    cells,
   } = params;
 
   const closeLeftMenu = useCallback(() => setLeftMenu(null), [setLeftMenu]);
@@ -181,6 +192,32 @@ export function useBattleUiActions(params: {
     [unloadCargoPickModal, setOrderPick, setUnloadCargoPickModal],
   );
 
+  const onCloseAccompanimentModal = useCallback(() => {
+    setAccompanimentPickModal(null);
+  }, [setAccompanimentPickModal]);
+
+  const onSelectAccompanimentTarget = useCallback(
+    (targetInstanceId: number) => {
+      if (!accompanimentPickModal) return;
+      const escorterIid = parseInt(`${accompanimentPickModal.escorter.instanceId ?? ''}`, 10);
+      if (!Number.isFinite(escorterIid)) return;
+      const candidate = accompanimentPickModal.candidates.find((c) => c.unitInstanceId === targetInstanceId);
+      if (!candidate) return;
+      const payload = buildAccompanimentOrderPayload(escorterIid, candidate, cells);
+      if (!payload) {
+        window.alert('Не удалось построить траекторию сопровождения.');
+        return;
+      }
+      setPendingOrders((prev) => {
+        const next = prev.filter((x) => x.unitInstanceId !== escorterIid);
+        next.push(payload);
+        return next;
+      });
+      setAccompanimentPickModal(null);
+    },
+    [accompanimentPickModal, cells, setPendingOrders, setAccompanimentPickModal],
+  );
+
   return {
     closeLeftMenu,
     closeCenterModal,
@@ -199,5 +236,7 @@ export function useBattleUiActions(params: {
     onConfirmAmmoTransfer,
     onCloseUnloadCargoModal,
     onSelectUnloadCargo,
+    onCloseAccompanimentModal,
+    onSelectAccompanimentTarget,
   };
 }

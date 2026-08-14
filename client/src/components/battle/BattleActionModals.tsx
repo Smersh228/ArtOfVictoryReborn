@@ -30,6 +30,17 @@ interface BattleActionModalsProps {
   unloadingIconUrl: string | null;
   onCloseUnloadCargoModal: () => void;
   onSelectUnloadCargo: (instanceId: number) => void;
+  accompanimentPickModal: {
+    orderLabel: string;
+    candidates: Array<{
+      unitInstanceId: number;
+      unitName: string;
+      orderLabel: string;
+    }>;
+  } | null;
+  accompanimentIconUrl: string | null;
+  onCloseAccompanimentModal: () => void;
+  onSelectAccompanimentTarget: (instanceId: number) => void;
 }
 
 const BattleActionModals: React.FC<BattleActionModalsProps> = ({
@@ -44,6 +55,10 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
   unloadingIconUrl,
   onCloseUnloadCargoModal,
   onSelectUnloadCargo,
+  accompanimentPickModal,
+  accompanimentIconUrl,
+  onCloseAccompanimentModal,
+  onSelectAccompanimentTarget,
 }) => {
   return (
     <>
@@ -132,6 +147,54 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
                 </ul>
                 <div className={styles.battleModalCancelWrap}>
                   <Button name="Отмена" className={styles.battleModalBtn} onClick={onCloseUnloadCargoModal} />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {accompanimentPickModal
+        ? createPortal(
+            <div
+              role="dialog"
+              aria-label="Кого сопровождать"
+              className={styles.battleModalBackdrop}
+              onMouseDown={(e) => {
+                if (e.target === e.currentTarget) onCloseAccompanimentModal();
+              }}
+            >
+              <div
+                className={`${styles.battleModalPanel} ${styles.battleModalPanelScroll}`}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <h3 className={styles.battleModalTitleRow}>
+                  {accompanimentIconUrl ? (
+                    <img src={accompanimentIconUrl} alt="" className={styles.battleModalTitleIcon} />
+                  ) : null}
+                  Сопровождение — выберите самолёт
+                </h3>
+                <p className={styles.battleModalMetaMuted}>
+                  Сопровождающий летит к той же цели по своей траектории.
+                </p>
+                <ul className={styles.battleModalCargoList}>
+                  {accompanimentPickModal.candidates.map((row) => (
+                    <li key={row.unitInstanceId} className={styles.battleModalCargoItem}>
+                      <button
+                        type="button"
+                        className={styles.battleModalCargoBtn}
+                        onClick={() => onSelectAccompanimentTarget(row.unitInstanceId)}
+                      >
+                        <span>
+                          <strong>{row.unitName}</strong>
+                          <span className={styles.battleModalMetaMuted}> — {row.orderLabel}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div className={styles.battleModalCancelWrap}>
+                  <Button name="Отмена" className={styles.battleModalBtn} onClick={onCloseAccompanimentModal} />
                 </div>
               </div>
             </div>,

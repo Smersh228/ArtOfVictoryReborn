@@ -9,6 +9,8 @@ import BattleMapStage from '../components/battle/BattleMapStage';
 import BattleCenterModals from '../components/battle/BattleCenterModals';
 import BattleActionModals from '../components/battle/BattleActionModals';
 import BattleSidePanel from '../components/battle/BattleSidePanel';
+import BattleAirSupportPanel from '../components/battle/BattleAirSupportPanel';
+import { formatBattleAirDesantLine, type AccompanimentEscortCandidate } from '../game/battleAirSupport';
 import BattleToolbar from '../components/battle/BattleToolbar';
 import BattleUnitOrdersPanel from '../components/battle/BattleUnitOrdersPanel';
 import BattleUnitTipCard from '../components/battle/BattleUnitTipCard';
@@ -21,6 +23,7 @@ import {
   buildInitialBattleCells,
   cellsFromEditorPayload,
   factionsOpposedOnMap,
+  normalizeBattleCells,
   formatBattleTechCargoLine,
   formatBattleUnitFactionLabel,
   formatBattleUnitPlayerLabel,
@@ -31,8 +34,15 @@ import {
 } from './battlePageUtils';
 import { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { parseBattlePlayer, useBattleSync } from '../game/battleSync';
+import {
+  collectAirSupportUnitsFromCells,
+  airSupportUnitsForViewer,
+  buildAirSupportReadinessMap,
+  isAirUnitOnRecallableMission,
+} from '../game/battleAirSupport';
+import { hasFriendlyAviationChallengeOnField } from '../game/battleHqMorale';
 import { findUnitCellByInstanceId } from '../game/battleMovePreview';
-import { computeBattleFireHighlights } from '../game/battleFirePreview';
+import { computeBattleFireHighlights, explainNoFireTargets } from '../game/battleFirePreview';
 import {
   getCarriedUnitsFromTruck,
   isTruckUnitBattle,
@@ -86,7 +96,13 @@ type OrderPickState = {
   orderLabel: string;
   defendStep?: 'facing' | 'range';
   defendFacingPickedId?: number;
-  unloadCargoInstanceId?: number;
+  bombardmentStep?: 'target' | 'direction';
+  bombardmentTargetCellId?: number;
+  bombardmentFlightPathCellIds?: number[];
+  patrolStep?: 'target' | 'radius';
+  patrolTargetCellId?: number;
+  patrolFlightPathCellIds?: number[];
+  useFireAdjustment?: boolean;
 };
 
 const battlePointerCursor =
@@ -173,7 +189,7 @@ const Battle: React.FC = () => {
       try {
         await leaveRoom(apiRoomId);
       } catch {
-        /* уходим в меню даже если API недоступен */
+       
       }
     }
     navigate('/main');
@@ -183,6 +199,10 @@ const Battle: React.FC = () => {
   const [cells, setCells] = useState<Cell[]>([]);
   const [battleMapLoad, setBattleMapLoad] = useState<'loading' | 'ready'>('loading');
   const [leftMenu, setLeftMenu] = useState<BattleLeftPanelId | null>(null);
+  const [airSupportOpen, setAirSupportOpen] = useState(false);
+  const [airSupportPanelHover, setAirSupportPanelHover] = useState<{ cellId: number; instanceId: number } | null>(
+    null,
+  );
   const [centerModal, setCenterModal] = useState<BattleCenterModalId | null>(null);
   const mapWrapRef = useRef<HTMLDivElement>(null);
   const hasGrid = cells.length > 0;
@@ -191,7 +211,7 @@ const Battle: React.FC = () => {
   useEffect(() => {
     setBattleUnitTip(null);
   }, [turn]);
-  /** id клетки под курсором — показывается в углу карты */
+ 
   const [battleHoverCellId, setBattleHoverCellId] = useState<number | null>(null);
   const [battleUnitOrders, setBattleUnitOrders] = useState<BattleUnitOrdersState | null>(null);
   const [battleMapPayload, setBattleMapPayload] = useState<EditorMapPayloadLobby | null>(null);
@@ -212,7 +232,14 @@ const Battle: React.FC = () => {
     orderLabel: string;
     carried: Record<string, unknown>[];
   } | null>(null);
+  const [accompanimentPickModal, setAccompanimentPickModal] = useState<{
+    escorter: Record<string, unknown>;
+    cell: Cell;
+    orderLabel: string;
+    candidates: AccompanimentEscortCandidate[];
+  } | null>(null);
   const [battleReportReplay, setBattleReportReplay] = useState<BattleLogReplayState | null>(null);
+  const [reportAcknowledgedTurn, setReportAcknowledgedTurn] = useState<number | null>(null);
 
   const dismissOrderPicking = useCallback(() => {
     orderPickRef.current = null;
@@ -221,6 +248,7 @@ const Battle: React.FC = () => {
     setBattleHoverCellId(null);
     setBattleAmmoModal(null);
     setUnloadCargoPickModal(null);
+    setAccompanimentPickModal(null);
   }, []);
 
   useEffect(() => {
@@ -259,7 +287,7 @@ const Battle: React.FC = () => {
           detail.battleCells.length > 0
         ) {
           lastBattleFieldRevisionRef.current = detail.battleFieldRevision ?? 0;
-          setCells(detail.battleCells as Cell[]);
+          setCells(normalizeBattleCells(detail.battleCells as Cell[]));
           if (Number.isFinite(mid)) {
             try {
               const { map } = await fetchRoomLobbyMap(apiRoomId);
@@ -304,7 +332,7 @@ const Battle: React.FC = () => {
     if (!Array.isArray(serverCells) || serverCells.length === 0) return;
     if (rev === lastBattleFieldRevisionRef.current) return;
     lastBattleFieldRevisionRef.current = rev;
-    setCells(serverCells as Cell[]);
+    setCells(normalizeBattleCells(serverCells as Cell[]));
   }, [roomDetail?.battleFieldRevision, roomDetail?.battleCells, roomDetail?.battleStartedAt]);
 
   const { mapViewport } = useBattleViewState({
@@ -313,10 +341,12 @@ const Battle: React.FC = () => {
     hasGrid,
     orderPick,
     leftMenu,
+    airSupportOpen,
     centerModal,
     battleEndedOverlay,
     battleAmmoModal,
     unloadCargoPickModal,
+    accompanimentPickModal,
     battleRef,
     dismissOrderPicking,
   });
@@ -325,6 +355,7 @@ const Battle: React.FC = () => {
     battleCellSize,
     battleFogRevealedCellIds,
     moveReachableCellIds,
+    cutWireTargetCellIds,
     defendFacingPickCellIds,
     defendRangePickCellIds,
     defendPickHighlightCellIds,
@@ -339,6 +370,18 @@ const Battle: React.FC = () => {
     battlePendingLogisticsPreview,
     battleDefendHover,
     defendRangeOrderPreview,
+    battleAirDeparturePickCellId,
+    battleAirMissionPreview,
+    battlePatrolVisibilityCellIds,
+    battlePatrolCenterCellId,
+    patrolRangePickCellIds,
+    battleBombardmentAreaCellIds,
+    bombardmentDirectionPickCellIds,
+    bombardmentApproachCellId,
+    cellsHoverPathIsAirMission,
+    battleAirInterceptionTargets,
+    battleAirUnitsInFlight,
+    fireAdjustmentToggleAvailable,
   } = useBattleDerivedState({
     cells,
     mapViewport,
@@ -354,7 +397,64 @@ const Battle: React.FC = () => {
     battleReportReplay,
     unloadCargoPickModal,
     unitIsMineOnMap,
+    airSupportHoverCellId: airSupportPanelHover?.cellId ?? null,
+    airSupportHoverUnitInstanceId: airSupportPanelHover?.instanceId ?? null,
+    airSupportOpen,
+    battleReconByFaction: roomDetail?.battleReconByFaction ?? null,
   });
+
+  const handleHoverReportRow = useCallback(
+    (payload: BattleLogReplayState | { text?: string; meta?: unknown; phase?: number } | null) => {
+      if (!payload) {
+        setBattleReportReplay(null);
+        return;
+      }
+      if (typeof payload === 'object' && 'text' in payload && !('kind' in payload)) {
+        setBattleReportReplay(battleLogEntryReplayWithFallback(payload, cells));
+        return;
+      }
+      setBattleReportReplay(payload as BattleLogReplayState);
+    },
+    [cells],
+  );
+
+  const airSupportUnitsRaw = useMemo(() => collectAirSupportUnitsFromCells(cells), [cells]);
+  const airSupportUnits = useMemo(
+    () => airSupportUnitsForViewer(airSupportUnitsRaw, viewerBattleFaction),
+    [airSupportUnitsRaw, viewerBattleFaction],
+  );
+  const showAirSupportButton = airSupportUnits.length > 0;
+  const airSupportDisabled = !hasFriendlyAviationChallengeOnField(cells, viewerBattleFaction);
+
+  const airSupportReadiness = useMemo(() => buildAirSupportReadinessMap(cells, turn), [cells, turn]);
+
+  const recallAirUnit = useCallback(
+    (instanceId: number) => {
+      setPendingOrders((prev) => {
+        const next = prev.filter((x) => x.unitInstanceId !== instanceId);
+        next.push({ unitInstanceId: instanceId, orderKey: 'airRecall' });
+        return next;
+      });
+    },
+    [setPendingOrders],
+  );
+
+  const toggleAirSupport = useCallback(() => {
+    if (airSupportDisabled) return;
+    setAirSupportOpen((prev) => {
+      const next = !prev;
+      if (next) setLeftMenu(null);
+      return next;
+    });
+  }, [setLeftMenu, airSupportDisabled]);
+
+  useEffect(() => {
+    if (!showAirSupportButton) setAirSupportOpen(false);
+  }, [showAirSupportButton]);
+
+  useEffect(() => {
+    if (!airSupportOpen) setAirSupportPanelHover(null);
+  }, [airSupportOpen]);
 
   useEffect(() => {
     setBattleReportReplay(null);
@@ -368,6 +468,13 @@ const Battle: React.FC = () => {
     if (battleEndedOverlay) setCenterModal(null);
   }, [battleEndedOverlay]);
 
+  useEffect(() => {
+    if (battleEndedOverlay) {
+      setAirSupportOpen(false);
+      setAirSupportPanelHover(null);
+    }
+  }, [battleEndedOverlay]);
+
   const missionMaxTurns = battleMapPayload?.conditions?.maxTurns?.trim() ?? '';
 
   const allyTasksBattle = battleMapPayload?.conditions?.allyTasks?.trim() ?? '';
@@ -378,19 +485,21 @@ const Battle: React.FC = () => {
     closeCenterModal,
     sideTitle,
     sideSubtitle,
-    backdropMouseDown,
+    backdropMouseDown: hookBackdropMouseDown,
     onConfirmSurrender,
     onConfirmNextTurn,
     onExitAfterScenario,
     onExitAfterVictory,
-    onLeaveOrSurrender,
-    onShowReport,
-    onShowTasks,
-    onNextTurn,
+    onLeaveOrSurrender: hookLeaveOrSurrender,
+    onShowReport: hookShowReport,
+    onShowTasks: hookShowTasks,
+    onNextTurn: hookNextTurn,
     onCloseAmmoModal,
     onConfirmAmmoTransfer,
     onCloseUnloadCargoModal,
     onSelectUnloadCargo,
+    onCloseAccompanimentModal,
+    onSelectAccompanimentTarget,
   } = useBattleUiActions({
     leftMenu,
     setLeftMenu,
@@ -414,15 +523,59 @@ const Battle: React.FC = () => {
     setOrderPick,
     unloadCargoPickModal,
     setUnloadCargoPickModal,
+    accompanimentPickModal,
+    setAccompanimentPickModal,
+    cells,
   });
 
-  const { battleReportRows, destroyedSummary } = useBattleReportRows({
-    battleLog: roomDetail?.battleLog,
-    cells,
-    viewerBattleFaction,
-    battleFogRevealedCellIds,
-    hasGrid,
-  });
+  const backdropMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      setAirSupportOpen(false);
+      hookBackdropMouseDown(e);
+    },
+    [hookBackdropMouseDown],
+  );
+
+  const { battleReportRows, destroyedSummary, battleReportLatestTurn, battleReportActionCount } =
+    useBattleReportRows({
+      battleLog: roomDetail?.battleLog,
+      battleTurnIndex: turn,
+      cells,
+      viewerBattleFaction,
+      battleFogRevealedCellIds,
+      hasGrid,
+    });
+
+  const reportBadgeCount =
+    leftMenu === 'report' ||
+    battleReportLatestTurn == null ||
+    battleReportActionCount <= 0 ||
+    (reportAcknowledgedTurn != null && battleReportLatestTurn <= reportAcknowledgedTurn)
+      ? 0
+      : battleReportActionCount;
+
+  const onShowReport = useCallback(() => {
+    setAirSupportOpen(false);
+    if (leftMenu !== 'report' && battleReportLatestTurn != null) {
+      setReportAcknowledgedTurn(battleReportLatestTurn);
+    }
+    hookShowReport();
+  }, [hookShowReport, leftMenu, battleReportLatestTurn]);
+
+  const onShowTasks = useCallback(() => {
+    setAirSupportOpen(false);
+    hookShowTasks();
+  }, [hookShowTasks]);
+
+  const onNextTurn = useCallback(() => {
+    setAirSupportOpen(false);
+    hookNextTurn();
+  }, [hookNextTurn]);
+
+  const onLeaveOrSurrender = useCallback(() => {
+    setAirSupportOpen(false);
+    hookLeaveOrSurrender();
+  }, [hookLeaveOrSurrender]);
 
   const { battleOrdersRef, battleTipRef, battleTipPos, battleOrdersPos, standardPanelStyle } = useBattleHudLayout({
     battleRef,
@@ -430,6 +583,7 @@ const Battle: React.FC = () => {
     battleUnitOrders,
     setBattleUnitOrders,
     leftMenu,
+    airSupportOpen,
     centerModal,
     battleEndedOverlay,
     panelMarginLeft: PANEL_MARGIN_LEFT,
@@ -437,16 +591,24 @@ const Battle: React.FC = () => {
     minSidePanelWidth: MIN_SIDE_PANEL_WIDTH,
   });
 
+  const battleTipPendingOrderKey = useMemo(() => {
+    if (!battleUnitTip) return null;
+    const iid = Number(battleUnitTip.unit.instanceId);
+    if (!Number.isFinite(iid)) return null;
+    const p = pendingOrders.find((x) => x.unitInstanceId === iid);
+    return p?.orderKey ?? null;
+  }, [battleUnitTip, pendingOrders]);
+
   const dimBackdrop = centerModal !== null || battleEndedOverlay;
 
-  const showOverlay = leftMenu !== null || centerModal !== null || battleEndedOverlay;
+  const showOverlay = leftMenu !== null || centerModal !== null || battleEndedOverlay || airSupportOpen;
 
   const overlayPortal =
     showOverlay &&
     createPortal(
       <>
         <div
-          className={`${styles.leftMenuBackdrop} ${dimBackdrop ? styles.leftMenuBackdropDim : ''}`}
+          className={`${styles.leftMenuBackdrop} ${dimBackdrop ? styles.leftMenuBackdropDim : ''} ${orderPick ? styles.leftMenuBackdropPassThrough : ''}`}
           role="presentation"
           aria-hidden
           onMouseDown={backdropMouseDown}
@@ -460,11 +622,48 @@ const Battle: React.FC = () => {
           battleStartedAt={roomDetail?.battleStartedAt}
           battleReportRows={battleReportRows}
           destroyedSummary={destroyedSummary}
-          onHoverReportRow={setBattleReportReplay}
+          onHoverReportRow={handleHoverReportRow}
           onCloseLeftMenu={closeLeftMenu}
           myBattleFaction={myBattleFaction}
           allyTasksBattle={allyTasksBattle}
           axisTasksBattle={axisTasksBattle}
+        />
+        <BattleAirSupportPanel
+          open={airSupportOpen}
+          onClose={() => setAirSupportOpen(false)}
+          units={airSupportUnits}
+          cells={cells}
+          standardPanelStyle={standardPanelStyle ?? {}}
+          onHoverAirSupportRow={setAirSupportPanelHover}
+          readonlyBattle={readonlyBattle}
+          viewerBattleFaction={viewerBattleFaction}
+          unitIsMineOnMap={unitIsMineOnMap}
+          airSupportReadiness={airSupportReadiness}
+          onRecallAir={recallAirUnit}
+          ordersDeps={{
+            apiRoomId,
+            battleStarted: Boolean(roomDetail?.battleStartedAt),
+            myBattleFaction,
+            cells,
+            battleFogRevealedCellIds: battleFogRevealedCellIds ? Array.from(battleFogRevealedCellIds) : null,
+            readBattleUnitOrdersFromPayload,
+            inferOrderKey,
+            isTruckUnitBattle,
+            getCarriedUnitsFromTruck,
+            resolveBattleCellOnField,
+            canPlaceAmbushFromEnemyVision,
+            getBattleOrderIconUrl,
+            findUnitCellByInstanceId,
+            readAmmoCountUi,
+            computeBattleFireHighlights: computeBattleFireHighlights as any,
+            explainNoFireTargets: explainNoFireTargets as any,
+            setBattleUnitOrders,
+            setOrderPick,
+            setUnloadCargoPickModal,
+            setPendingOrders,
+            pendingOrders,
+            setAccompanimentPickModal,
+          }}
         />
         <BattleCenterModals
           centerModal={centerModal}
@@ -496,6 +695,9 @@ const Battle: React.FC = () => {
             left={battleTipPos.left}
             top={battleTipPos.top}
             unit={battleUnitTip.unit}
+            unitCell={battleUnitTip.cell}
+            cells={cells}
+            pendingOrderKey={battleTipPendingOrderKey}
             factionLabel={formatBattleUnitFactionLabel(battleUnitTip.unit)}
             playerLabel={formatBattleUnitPlayerLabel(
               battleUnitTip.unit,
@@ -504,6 +706,7 @@ const Battle: React.FC = () => {
               spectatorNames,
             )}
             cargoLine={formatBattleTechCargoLine(battleUnitTip.unit as unknown as Record<string, unknown>)}
+            desantLine={formatBattleAirDesantLine(battleUnitTip.unit as unknown as Record<string, unknown>)}
           />
         )}
         {battleUnitOrders && (
@@ -526,10 +729,13 @@ const Battle: React.FC = () => {
             findUnitCellByInstanceId={findUnitCellByInstanceId}
             readAmmoCountUi={readAmmoCountUi}
             computeBattleFireHighlights={computeBattleFireHighlights as any}
+            explainNoFireTargets={explainNoFireTargets as any}
             setBattleUnitOrders={setBattleUnitOrders}
             setOrderPick={setOrderPick}
             setUnloadCargoPickModal={setUnloadCargoPickModal}
             setPendingOrders={setPendingOrders}
+            pendingOrders={pendingOrders}
+            setAccompanimentPickModal={setAccompanimentPickModal}
           />
         )}
       </>,
@@ -552,6 +758,17 @@ const Battle: React.FC = () => {
         unloadingIconUrl={getBattleOrderIconUrl('unloading')}
         onCloseUnloadCargoModal={onCloseUnloadCargoModal}
         onSelectUnloadCargo={onSelectUnloadCargo}
+        accompanimentPickModal={
+          accompanimentPickModal
+            ? {
+                orderLabel: accompanimentPickModal.orderLabel,
+                candidates: accompanimentPickModal.candidates,
+              }
+            : null
+        }
+        accompanimentIconUrl={getBattleOrderIconUrl('accompaniment')}
+        onCloseAccompanimentModal={onCloseAccompanimentModal}
+        onSelectAccompanimentTarget={onSelectAccompanimentTarget}
       />
       <div ref={battleRef} className={styles.battle}>
         <BattleToolbar
@@ -560,10 +777,14 @@ const Battle: React.FC = () => {
           battleControlsDisabled={battleControlsDisabled}
           waitingNextTurn={waitingNextTurn}
           turn={turn}
+          showAirSupportButton={showAirSupportButton}
+          airSupportDisabled={airSupportDisabled}
+          onToggleAirSupport={toggleAirSupport}
           onLeaveOrSurrender={onLeaveOrSurrender}
           onShowReport={onShowReport}
           onShowTasks={onShowTasks}
           onNextTurn={onNextTurn}
+          reportBadgeCount={reportBadgeCount}
         />
 
         <BattleMapStage
@@ -582,7 +803,13 @@ const Battle: React.FC = () => {
           turn={turn}
           setBattleUnitTip={setBattleUnitTip}
           setBattleHoverCellId={setBattleHoverCellId}
-          moveReachableCellIds={moveReachableCellIds ? Array.from(moveReachableCellIds) : null}
+          moveReachableCellIds={
+            cutWireTargetCellIds
+              ? Array.from(cutWireTargetCellIds)
+              : moveReachableCellIds
+                ? Array.from(moveReachableCellIds)
+                : null
+          }
           defendPickHighlightCellIds={defendPickHighlightCellIds ? Array.from(defendPickHighlightCellIds) : null}
           defendRangeOrderPreview={defendRangeOrderPreview}
           battleReportSectorHover={battleReportSectorHover}
@@ -590,6 +817,7 @@ const Battle: React.FC = () => {
           battleFireTargetInstanceIds={battleFireTargetInstanceIds ? Array.from(battleFireTargetInstanceIds) : null}
           battlePendingShootPreview={battlePendingShootPreview}
           cellsHoverPath={cellsHoverPath}
+          cellsHoverPathIsAirMission={cellsHoverPathIsAirMission}
           battleReportReplayHighlight={battleReportReplayHighlight}
           battleFogRevealedCellIds={battleFogRevealedCellIds ? Array.from(battleFogRevealedCellIds) : null}
           battleLogisticsPickInstanceIds={battleLogisticsPickInstanceIds ? Array.from(battleLogisticsPickInstanceIds) : null}
@@ -610,6 +838,26 @@ const Battle: React.FC = () => {
           setOrderPick={setOrderPick}
           setBattleAmmoModal={setBattleAmmoModal}
           showResolvingOverlay={showResolvingOverlay}
+          battleAirDepartureHoverCellId={airSupportPanelHover?.cellId ?? null}
+          battleAirDeparturePickCellId={battleAirDeparturePickCellId}
+          battleAirMissionPreview={battleAirMissionPreview}
+          battlePatrolVisibilityCellIds={
+            battlePatrolVisibilityCellIds ? Array.from(battlePatrolVisibilityCellIds) : null
+          }
+          battlePatrolCenterCellId={battlePatrolCenterCellId}
+          patrolRangePickCellIds={
+            patrolRangePickCellIds ? Array.from(patrolRangePickCellIds) : null
+          }
+          battleBombardmentAreaCellIds={
+            battleBombardmentAreaCellIds ? Array.from(battleBombardmentAreaCellIds) : null
+          }
+          bombardmentDirectionPickCellIds={
+            bombardmentDirectionPickCellIds ? Array.from(bombardmentDirectionPickCellIds) : null
+          }
+          bombardmentApproachCellId={bombardmentApproachCellId}
+          battleAirInterceptionTargets={battleAirInterceptionTargets}
+          battleAirUnitsInFlight={battleAirUnitsInFlight}
+          fireAdjustmentToggleAvailable={fireAdjustmentToggleAvailable}
         />
       </div>
     </>

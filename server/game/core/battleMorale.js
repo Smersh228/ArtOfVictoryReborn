@@ -10,14 +10,42 @@ function hasTankFear(u, deps) {
   return u.tankFear === true || u.tank_phobia === true || unitHasPropKey(u, 'tankPhobia')
 }
 
-function getMor(u) {
+const hqMorale = require('../lib/unit/battleHqMorale')
+
+function getBaseMor(u) {
   const n = Number(u.mor ?? u.morale)
   return Number.isFinite(n) ? n : 0
 }
 
+function getMor(u) {
+  return getBaseMor(u)
+}
+
+function getEffectiveMor(u, cells, findUnitOnField) {
+  const base = getBaseMor(u)
+  const bonus = hqMorale.getHqMoraleBonus(u, cells, findUnitOnField)
+  return Math.max(0, Math.min(12, base + bonus))
+}
+
+function resolveMorForUnit(u, deps) {
+  const { cells, findUnitOnField } = deps || {}
+  if (cells && typeof findUnitOnField === 'function') {
+    return getEffectiveMor(u, cells, findUnitOnField)
+  }
+  return getBaseMor(u)
+}
+
+function applyMoraleRollResult(unit, sum) {
+  const n = Number(sum)
+  if (!Number.isFinite(n)) return
+  const v = Math.max(0, Math.min(12, Math.floor(n)))
+  unit.mor = v
+  unit.morale = v
+}
+
 function getMoraleThresholdForSteadfastness(u, deps) {
   const { isTruckUnit } = deps
-  const mor = getMor(u)
+  const mor = resolveMorForUnit(u, deps)
   if (mor > 0) return mor
   if (isTruckUnit(u)) return 7
   return 0
@@ -28,12 +56,14 @@ function roll2d6() {
 }
 
 function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttackOnFail, deps) {
-  const { ensureTacticalBattle, clearDefendOnUnit } = deps
-  const mor = getMor(unit)
+  const { ensureTacticalBattle, clearDefendOnUnit, cells, findUnitOnField } = deps
+  deps = { ...deps, cells, findUnitOnField }
+  const mor = resolveMorForUnit(unit, deps)
   if (mor <= 0) return true
   const sum = roll2d6()
   const t = ensureTacticalBattle(unit)
   t.steadfastnessUiRoll = sum
+  applyMoraleRollResult(unit, sum)
   if (sum < mor) {
     le(ph, `${tag}: юнит ${unit.instanceId} (${sum} < ${mor})`)
     return true
@@ -70,15 +100,16 @@ function tryAttackMoraleTests(le, ph, atkPack, defPack, deps) {
 }
 
 function resolveSuppressionRecovery(cells, le, deps) {
-  const { PHASE_KEYS, getStr } = deps
+  const { PHASE_KEYS, getStr, findUnitOnField } = deps
   const ph = PHASE_KEYS.defend
   for (const c of cells) {
     for (const u of c.units || []) {
       if (getStr(u) <= 0) continue
       if (!u.tactical || !u.tactical.fireSuppression) continue
-      const mor = getMor(u)
+      const mor = resolveMorForUnit(u, { cells, findUnitOnField })
       if (mor <= 0) continue
       const sum = roll2d6()
+      applyMoraleRollResult(u, sum)
       if (sum < mor) {
         delete u.tactical.fireSuppression
         le(ph, `Подавление снято: юнит ${u.instanceId} (${sum} < ${mor})`, { unitInstanceId: u.instanceId })
@@ -90,7 +121,10 @@ function resolveSuppressionRecovery(cells, le, deps) {
 module.exports = {
   isTankUnit,
   hasTankFear,
+  getBaseMor,
   getMor,
+  getEffectiveMor,
+  applyMoraleRollResult,
   getMoraleThresholdForSteadfastness,
   roll2d6,
   rollTankFearSteadfastness,

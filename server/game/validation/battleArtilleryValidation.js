@@ -1,6 +1,6 @@
 'use strict'
 
-function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey, deps) {
+function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey, deps, options) {
   const {
     isArtilleryUnit,
     unitHasPropKey,
@@ -8,11 +8,13 @@ function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey,
     isArtilleryFireTargetCellAllowed,
     hexDistCells,
     rangeArrayFor,
+    rangeArrayForAtCell,
     fireRangeTableMode,
     shootingAccuracyAtHexDistance,
     getAmmo,
     artilleryAreaClosedIgnoresTerrainLos,
     isHexVisible,
+    resolveArtilleryFireVisibility,
   } = deps
   const tc = cells.find((c) => Number(c.id) === Number(targetCellId))
   if (!tc) return 'клетка не найдена'
@@ -23,11 +25,15 @@ function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey,
   }
   if (!isArtilleryFireTargetCellAllowed(atk.unit, tc.id)) return 'клетка вне сектора обстрела'
   const d = hexDistCells(atk.cell, tc)
-  const ra = rangeArrayFor(atk.unit)
+  const ra = rangeArrayForAtCell ? rangeArrayForAtCell(atk.unit, atk.cell) : rangeArrayFor(atk.unit)
   const rMode = fireRangeTableMode(ra)
   const outOfRange = rMode === 'ranged' ? d < 1 || d >= ra.length : d > ra.length
   if (outOfRange) return 'клетка вне дальности стрельбы'
-  if (shootingAccuracyAtHexDistance(atk.unit, d) <= 0) {
+  const acc =
+    shootingAccuracyAtHexDistance.length >= 3
+      ? shootingAccuracyAtHexDistance(atk.unit, d, atk.cell)
+      : shootingAccuracyAtHexDistance(atk.unit, d)
+  if (acc <= 0) {
     return 'на этой дистанции меткость 0 — огонь невозможен'
   }
   const isSup = String(orderKey || '').trim() === 'fireHard'
@@ -35,10 +41,20 @@ function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey,
   if (getAmmo(atk.unit) < needAmmo) {
     return isSup ? 'недостаточно БК для подавления (нужно 3)' : 'недостаточно БК для огня (нужен 1)'
   }
-  const losClear =
-    artilleryAreaClosedIgnoresTerrainLos(atk.unit) || isHexVisible(atk.cell, tc, cells)
-  if (!losClear && !unitHasPropKey(atk.unit, 'concealedTargetFire')) {
-    return 'нет прямой видимости на клетку (нужно свойство «Стрельба по закрытым целям»)'
+  const losVis = resolveArtilleryFireVisibility
+    ? resolveArtilleryFireVisibility(
+        atk,
+        tc,
+        cells,
+        { unitHasPropKey, isArtilleryUnit, artilleryAreaClosedIgnoresTerrainLos, isHexVisible },
+        { useFireAdjustment: !!(options && options.useFireAdjustment) },
+      )
+    : {
+        allowed:
+          artilleryAreaClosedIgnoresTerrainLos(atk.unit) || isHexVisible(atk.cell, tc, cells),
+      }
+  if (!losVis.allowed) {
+    return losVis.reason || 'нет прямой видимости на клетку (нужно «Стрельба по закрытым целям» или корректировка огня)'
   }
   return null
 }

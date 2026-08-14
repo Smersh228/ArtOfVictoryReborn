@@ -1,14 +1,11 @@
-import { API_ORIGIN } from './editorCatalog'
+import { apiBaseUrl } from './editorCatalog'
 import type { SavedMapDetail } from './maps'
 
 const CLIENT_ID_KEY = 'aot_network_client_id'
 
 
 function roomsApiBase(): string {
-  const v = import.meta.env.VITE_API_ORIGIN as string | undefined
-  if (v != null && String(v).trim() !== '') return String(v).replace(/\/$/, '')
-  if (import.meta.env.DEV) return ''
-  return API_ORIGIN.replace(/\/$/, '')
+  return apiBaseUrl()
 }
 
 function roomsUrl(path: string): string {
@@ -57,6 +54,16 @@ export type BattleOrderPayload = {
   orderKey: string
   targetUnitInstanceId?: number
   targetCellId?: number
+  /** Корректировка огня (только артиллерия, приказ «Огонь», 1 раз за ход на сторону) */
+  useFireAdjustment?: boolean
+  /** Прямая траектория полёта (точка вылета → назначение), id клеток по линии на гексе */
+  flightPathCellIds?: number[]
+  /** Бомбардировка: сосед цели — сторона захода ковровой бомбардировки */
+  bombardmentDirectionCellId?: number
+  /** Бомбардировка: гексы под удар (линия вперёд от цели) */
+  bombardmentAreaCellIds?: number[]
+  /** Патруль: радиус зоны патрулирования (шаги от центра, ≤ дальность видимости) */
+  patrolRangeSteps?: number
   transferAmmo?: number
   defendFacingCellId?: number
   defendMaxRangeSteps?: number
@@ -78,6 +85,7 @@ export type RoomDetailResponse = {
   battleTurnAckCount?: number
   battleTurnAckNeed?: number
   battleCells?: unknown[]
+  battleReconByFaction?: { rkka?: number[]; wehrmacht?: number[] }
   battleLog?: {
     phase?: number
     text?: string

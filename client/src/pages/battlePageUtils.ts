@@ -1,6 +1,6 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
-import type { LobbyFaction } from '../api/rooms';
 import type { BattlePlayerId } from '../game/battleSync';
+import { ensureCellBuilds } from '../game/editorMapFortifications';
 import { generateEmptyGrid } from '../game/hexGrid';
 import { placeUnitsOnGrid } from '../game/battleUnits';
 import { getCarriedUnitsFromTruck } from '../game/battleLogisticsUi';
@@ -129,7 +129,17 @@ export function inferOrderKey(o: { name: string; order_key?: string }): string |
   if (n.includes('развёртыв') || n.includes('развертыв')) return 'deploy';
   if (n.includes('смена') && n.includes('сектор')) return 'changeSector';
   if (n.includes('выгруз')) return 'unloading';
-  if (n.includes('припас') && (n.includes('получ') || n.includes('получен'))) return 'getSup';
+  if (n.includes('припас') && (n.includes('загруз') || n.includes('получ') || n.includes('получен'))) return 'getSup';
+  if (n.includes('разведк') && (n.includes('авиац') || n.includes('авиа'))) return 'intelligenceAir';
+  if ((n.includes('поддержк') || n.includes('поддержка')) && (n.includes('авиац') || n.includes('авиа')))
+    return 'airSupply';
+  if (n.includes('сброс') && n.includes('припас')) return 'airSupply';
+  if (n.includes('сопровожд') && (n.includes('авиац') || n.includes('авиа'))) return 'accompaniment';
+  if (n.includes('штурмов')) return 'attackAir';
+  if (n.includes('бомбардир')) return 'bombardment';
+  if (n.includes('десант')) return 'desant';
+  if (n.includes('перехват')) return 'interception';
+  if (n.includes('патрулир')) return 'patrol';
   return null;
 }
 
@@ -149,11 +159,15 @@ export function factionsOpposedOnMap(fa: string, fb: string): boolean {
   return (sov && axisB) || (axis && sovB);
 }
 
+export function normalizeBattleCells(cells: Cell[]): Cell[] {
+  return cells.map((c) => ({ ...c, builds: ensureCellBuilds(c.builds) }));
+}
+
 export function cellsFromEditorPayload(payload: unknown): Cell[] | null {
   if (payload == null || typeof payload !== 'object') return null;
   const cells = (payload as { cells?: unknown }).cells;
   if (!Array.isArray(cells) || cells.length === 0) return null;
-  return cells as Cell[];
+  return normalizeBattleCells(cells as Cell[]);
 }
 
 export function buildInitialBattleCells(): Cell[] {

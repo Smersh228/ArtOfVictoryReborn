@@ -19,7 +19,14 @@ const { ensureGroupedAreaFireBucket } = require('./lib/fire/battleAreaFireGroupi
 const { resolveGroupedAreaFire } = require('./lib/fire/battleAreaFireResolver')
 const { resolveGroupedDirectFire } = require('./lib/fire/battleDirectFireResolver')
 const { splitNums, normalizeFireObject, targetTypeToFireKey } = require('./lib/fire/battleFireNormalize')
-const { hexDist, getNeighbor, findCellByCoor, hexDistCells } = require('./lib/map/battleHexGeometry')
+const {
+  hexDist,
+  getNeighbor,
+  findCellByCoor,
+  hexDistCells,
+  hexFlightPathCellIds,
+} = require('./lib/map/battleHexGeometry')
+const { rangeArrayForShooterOnCell } = require('./lib/map/battleElevation')
 const { getStr, setStr, unitFaction, opposing, findUnitOnField } = require('./lib/unit/battleUnitField')
 const {
   getMoveCap,
@@ -36,6 +43,10 @@ const {
   terrainEntryCost,
   terrainDefenseBonusFromCell,
 } = require('./lib/map/battleTerrain')
+const {
+  desantHalfCombatActive,
+  applyDesantHalfStat,
+} = require('./lib/air/battleDesant')
 const {
   getMeleeOpponentId,
   findReachable,
@@ -56,6 +67,7 @@ const {
 } = require('./core/battleUnitType')
 const transport = require('./core/battleTransport')
 const ambush = require('./core/battleAmbush')
+const fireAdj = require('./lib/fire/battleFireAdjustment')
 const artilleryValidation = require('./validation/battleArtilleryValidation')
 const specialPhase = require('./phases/battleSpecialPhase')
 const logisticsValidation = require('./validation/battleLogisticsValidation')
@@ -63,10 +75,24 @@ const overwatchCore = require('./core/battleOverwatchCore')
 const overwatchFire = require('./phases/battleOverwatchFire')
 const meleePhase = require('./phases/battleMeleePhase')
 const morale = require('./core/battleMorale')
+
+/** Клетки текущего хода — для пассивного бонуса морали в зоне штаба. */
+let turnMoraleCells = null
+
+function setTurnMoraleCells(cells) {
+  turnMoraleCells = cells
+}
+
+function clearTurnMoraleCells() {
+  turnMoraleCells = null
+}
 const engineHelpers = require('./core/battleEngineHelpers')
 const defendAmbushPhase = require('./phases/battleDefendAmbushPhase')
 const movePhase = require('./phases/battleMovePhase')
 const firePhase = require('./phases/battleFirePhase')
+const airStrikePhase = require('./phases/battleAirStrikePhase')
+const airSortieModule = require('./lib/air/battleAirSortie')
+const artilleryAirSector = require('./lib/fire/battleArtilleryAirSector')
 
 function intensityArrayFor(attacker, target, fireTables) {
   const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
@@ -77,7 +103,11 @@ function intensityArrayFor(attacker, target, fireTables) {
 
 function rangeArrayFor(attacker, fireTables) {
   const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
-  return ft.range && ft.range.length ? ft.range : [3, 2, 1]
+  return ft.range && ft.range.length ? ft.range.slice() : [3, 2, 1]
+}
+
+function rangeArrayForAtCell(attacker, shooterCell, fireTables) {
+  return rangeArrayForShooterOnCell(rangeArrayFor(attacker, fireTables), shooterCell)
 }
 
 
@@ -120,8 +150,8 @@ function getAccuracy(rangeArray, distance, mode) {
 }
 
 
-function shootingAccuracyAtHexDistance(unit, distanceHex) {
-  const ra = rangeArrayFor(unit)
+function shootingAccuracyAtHexDistance(unit, distanceHex, shooterCell) {
+  const ra = rangeArrayForAtCell(unit, shooterCell)
   const mode = fireRangeTableMode(ra)
   return getAccuracy(ra, Number(distanceHex), mode)
 }
@@ -171,7 +201,11 @@ function computeShoot(
   if (Number.isFinite(asDiv) && asDiv > 1) {
     diceCount = Math.max(0, Math.round(diceCount / asDiv))
   }
-  let accuracy = getAccuracy(rangeArray, distance, mode) + Math.max(0, Number(bonusAccuracy) || 0)
+  if (desantHalfCombatActive(attacker)) {
+    diceCount = Math.max(0, applyDesantHalfStat(diceCount))
+  }
+  let accuracy = getAccuracy(rangeArray, distance, mode) + (Number(bonusAccuracy) || 0)
+  if (accuracy < 0) accuracy = 0
   if (accuracy === 0) {
     return {
       hits: 0,
@@ -184,7 +218,10 @@ function computeShoot(
   }
   const bonus = Math.max(0, Number(extraDefense) || 0)
   const terrainDef = terrainDefenseBonusFromCell(targetCell, target)
-  const defense = getDef(target) + bonus + terrainDef
+  let defense = getDef(target) + bonus + terrainDef
+  if (desantHalfCombatActive(target)) {
+    defense = applyDesantHalfStat(defense)
+  }
   const rolls = rollDice(diceCount, rng)
   const hits = rolls.filter((r) => r <= accuracy).length
   let remainingHits = hits - defense
@@ -193,10 +230,7 @@ function computeShoot(
   return { hits, damages, rollResults: rolls, diceCount, baseDiceCount, accuracy }
 }
 
-/**
 
- * @param {boolean} artilleryClosedTarget
- */
 function computeShootSalvoCore(
   attacker,
   targetForIntensity,
@@ -207,6 +241,7 @@ function computeShootSalvoCore(
   rng,
   artilleryClosedTarget,
   areaStackDivisor,
+  bonusAccuracy,
 ) {
   const mode = fireRangeTableMode(rangeArray)
   if (mode === 'ranged') {
@@ -229,7 +264,8 @@ function computeShootSalvoCore(
   if (Number.isFinite(asDiv) && asDiv > 1) {
     diceCount = Math.max(0, Math.round(diceCount / asDiv))
   }
-  const accuracy = getAccuracy(rangeArray, distance, mode)
+  const accuracy =
+    getAccuracy(rangeArray, distance, mode) + Math.max(0, Number(bonusAccuracy) || 0)
   if (accuracy === 0) {
     return { hitSuccesses: 0, rollResults: [], diceCount, baseDiceCount, accuracy }
   }
@@ -335,11 +371,8 @@ function collectOpposingHostilesOnCell(targetCell, attackerUnit) {
   return out
 }
 
-/**
- 
- * @returns {string|null} 
- */
-function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey) {
+
+function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey, options) {
   return artilleryValidation.validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey, {
     isArtilleryUnit,
     unitHasPropKey,
@@ -347,12 +380,14 @@ function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey)
     isArtilleryFireTargetCellAllowed,
     hexDistCells,
     rangeArrayFor,
+    rangeArrayForAtCell,
     fireRangeTableMode,
     shootingAccuracyAtHexDistance,
     getAmmo,
     artilleryAreaClosedIgnoresTerrainLos,
     isHexVisible,
-  })
+    resolveArtilleryFireVisibility: fireAdj.resolveArtilleryFireVisibility,
+  }, options)
 }
 
 
@@ -376,6 +411,7 @@ function canSpotAmbushTarget(attackerUnit, attackerCell, targetUnit, targetCell,
     isArtilleryUnit,
     unitHasPropKey,
     rangeArrayFor,
+    rangeArrayForAtCell,
     fireRangeTableMode,
     computeRevealedCellIdsForFaction,
     getStr,
@@ -430,7 +466,7 @@ function ensureCarriedUnits(truckUnit) {
   return transport.ensureCarriedUnits(truckUnit)
 }
 
-/** Юнит уже в грузе какого‑либо грузовика (массив carriedUnits). */
+
 function isUnitInAnyCarriedUnits(cells, instanceId) {
   return transport.isUnitInAnyCarriedUnits(cells, instanceId, { isTruckUnit })
 }
@@ -496,10 +532,7 @@ function resolveSpecialPhaseOrder(cells, o, le, ph) {
   })
 }
 
-/**
- 
- * @returns {string|null} 
- */
+
 function validateLogisticsOrder(cells, o) {
   return logisticsValidation.validateLogisticsOrder(cells, o, {
     findUnitOnField,
@@ -534,8 +567,8 @@ function moveWarDefenseBonus(targetInstanceId, ordersByUnit) {
   return overwatchCore.moveWarDefenseBonus(targetInstanceId, ordersByUnit)
 }
 
-function maxShootHexDistanceForUnit(u) {
-  return overwatchCore.maxShootHexDistanceForUnit(u, { rangeArrayFor, fireRangeTableMode })
+function maxShootHexDistanceForUnit(u, shooterCell) {
+  return overwatchCore.maxShootHexDistanceForUnit(u, { rangeArrayFor, rangeArrayForAtCell, fireRangeTableMode }, shooterCell)
 }
 
 
@@ -545,18 +578,22 @@ function defenderSeesCellForOverwatch(allCells, defCell, stepCell, defenderUnit)
     readVisionRange,
     isHexVisible,
     rangeArrayFor,
+    rangeArrayForAtCell,
     fireRangeTableMode,
   })
 }
 
 
-function trySteadfastnessAfterOverwatchDamage(le, ph, unit, damageDealt) {
+function trySteadfastnessAfterOverwatchDamage(le, ph, unit, damageDealt, opts) {
   return overwatchCore.trySteadfastnessAfterOverwatchDamage(le, ph, unit, damageDealt, {
     getStr,
     getMoraleThresholdForSteadfastness,
     roll2d6,
     ensureTacticalBattle,
     clearDefendOnUnit,
+    cells: turnMoraleCells,
+    findUnitOnField,
+    ...(opts && typeof opts === 'object' ? opts : {}),
   })
 }
 
@@ -591,10 +628,7 @@ function maybeAllDefendersReturnFireForAreaImpactCell(
   )
 }
 
-/**
 
- * @param {number|undefined|null} fireImpactCellId 
- */
 function maybeDefenderReturnFireAgainstShooter(
   cells,
   shooterInstanceId,
@@ -689,9 +723,7 @@ function resolveDefendSectorIdleFire(
   )
 }
 
-/**
- * @returns {{ fired: boolean, stopStepIndex: number|null, died: boolean }}
- */
+
 function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit, le, ph) {
   return overwatchFire.tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit, le, ph, {
     findUnitOnField,
@@ -796,27 +828,32 @@ function hasTankFear(u) {
 }
 
 function getMor(u) {
+  if (turnMoraleCells) {
+    return morale.getEffectiveMor(u, turnMoraleCells, findUnitOnField)
+  }
   return morale.getMor(u)
 }
 
 
 function getMoraleThresholdForSteadfastness(u) {
-  return morale.getMoraleThresholdForSteadfastness(u, { isTruckUnit })
+  return morale.getMoraleThresholdForSteadfastness(u, {
+    isTruckUnit,
+    cells: turnMoraleCells,
+    findUnitOnField,
+  })
 }
 
 function roll2d6() {
   return morale.roll2d6()
 }
 
-/**
- * 
- * @param {boolean} suppressOnFail 
- * @param {boolean} abortAttackOnFail 
- */
+
 function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttackOnFail) {
   return morale.rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttackOnFail, {
     ensureTacticalBattle,
     clearDefendOnUnit,
+    cells: turnMoraleCells,
+    findUnitOnField,
   })
 }
 
@@ -938,11 +975,13 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
 }
 
 function resolveSuppressionRecovery(cells, le) {
-  return morale.resolveSuppressionRecovery(cells, le, { PHASE_KEYS, getStr })
+  return morale.resolveSuppressionRecovery(cells, le, { PHASE_KEYS, getStr, findUnitOnField })
 }
 
-function validateUnitOrdersAllowed(unit) {
-  return engineHelpers.validateUnitOrdersAllowed(unit, { getMeleeOpponentId })
+function validateUnitOrdersAllowed(unit, orderKey) {
+  const airBlock = require('./lib/air/battleAirSortie').getAirOrderBlockReason(unit)
+  if (airBlock) return airBlock
+  return engineHelpers.validateUnitOrdersAllowed(unit, { getMeleeOpponentId }, orderKey)
 }
 
 
@@ -950,13 +989,9 @@ function clearDefendOnUnit(unit) {
   return engineHelpers.clearDefendOnUnit(unit)
 }
 
-/**
- * @param {object[]} cells
- * @param {Map<number, object>} ordersByUnit 
- * @param {{ push: Function }} log
- * @param {number} [turnIndex] 
- */
+
 function resolveTurn(cells, ordersByUnit, log, turnIndex) {
+  setTurnMoraleCells(cells)
   resetTurnResources(cells)
   const steadfastnessQueue = []
   
@@ -967,7 +1002,43 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
   const sectorReturnFired = new Set()
   const tlog = turnIndex
   const le = (ph, text, meta) => log.push(logEntry(ph, text, tlog, meta))
+  const sectorFireDeps = {
+    findUnitOnField,
+    getStr,
+    getAmmo,
+    setAmmo,
+    defenderSeesCellForOverwatch,
+    hexDist,
+    rangeArrayFor,
+    rangeArrayForAtCell,
+    fireRangeTableMode,
+    intensityArrayFor,
+    computeShoot,
+    setStr,
+    logUnitDestroyed,
+    isHexVisible,
+    unitHasPropKey,
+    trySteadfastnessAfterOverwatchDamage,
+    sweepCorpses,
+    opposing,
+    unitFaction,
+  }
   resolveSuppressionRecovery(cells, le)
+  airSortieModule.tickAirSorties(cells, le, turnIndex, {
+    beginAirCooldown: (unit, dep, path, fromId, fired, le2, ph2) =>
+      artilleryAirSector.beginAirCooldownWithSector(
+        cells,
+        unit,
+        dep,
+        path,
+        fromId,
+        fired,
+        le2,
+        ph2,
+        sectorFireDeps,
+      ),
+  })
+  require('./lib/air/battleDesant').tickDesantParatrooperStates(cells, le, turnIndex)
   const orderEntries = [...ordersByUnit.entries()].filter(([id]) => {
     const f = findUnitOnField(cells, id)
     return f != null
@@ -991,16 +1062,69 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
   }
 
   const phases = [
+    PHASE_KEYS.defend,
     PHASE_KEYS.fireHard,
     PHASE_KEYS.fire,
-    PHASE_KEYS.steadfastnessFlush,
-    PHASE_KEYS.defend,
     PHASE_KEYS.air,
+    PHASE_KEYS.steadfastnessFlush,
     PHASE_KEYS.attack,
     PHASE_KEYS.ambush,
     PHASE_KEYS.special,
     PHASE_KEYS.move,
   ]
+
+  const airPhaseDeps = {
+    PHASE_KEYS,
+    findUnitOnField,
+    validateUnitOrdersAllowed,
+    countOpposingHostilesOnCell,
+    setAmmo,
+    getAmmo,
+    collectOpposingHostilesOnCell,
+    isAmbushConcealed,
+    canSpotAmbushTarget,
+    hexDist,
+    rangeArrayFor,
+    rangeArrayForAtCell,
+    fireRangeTableMode,
+    computeShootSalvoCore,
+    ensureGroupedAreaFireBucket,
+    accumulateAreaFireForShooter,
+    getStr,
+    areaFireHitsForTargetByOrder,
+    areaFireDiceForTargetByOrder,
+    computeShoot,
+    resolveGroupedAreaFire,
+    areaFireDamageFromSalvo,
+    setStr,
+    logUnitDestroyed,
+    isTruckUnit,
+    applyCargoDamageFromTruckHit,
+    sweepCorpses,
+    maybeDefenderReturnFireAgainstShooter,
+    maybeAllDefendersReturnFireForAreaImpactCell,
+    moveWarDefenseBonus,
+    clearAmbushOrderFully,
+    hexFlightPathCellIds,
+    ensureTacticalBattle,
+    intensityArrayFor,
+    opposing,
+    unitFaction,
+    hexDistCells,
+    addUnitToCell,
+    linkMeleeOpponents,
+    turnIndex: tlog,
+    steadfastnessQueue,
+    sectorAggression,
+    sectorReturnFired,
+    ordersByUnit,
+    getAmmo,
+    setAmmo,
+    defenderSeesCellForOverwatch,
+    isHexVisible,
+    unitHasPropKey,
+    trySteadfastnessAfterOverwatchDamage,
+  }
 
   for (const ph of phases) {
     const list = byPhase.get(ph) || []
@@ -1008,7 +1132,9 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
       for (const q of steadfastnessQueue) {
         const p = findUnitOnField(cells, q.id)
         if (p && getStr(p.unit) > 0) {
-          trySteadfastnessAfterOverwatchDamage(le, PHASE_KEYS.steadfastnessFlush, p.unit, q.dmg)
+          trySteadfastnessAfterOverwatchDamage(le, PHASE_KEYS.steadfastnessFlush, p.unit, q.dmg, {
+            fromSuppressionFire: q.fromSuppressionFire === true,
+          })
         }
       }
       steadfastnessQueue.length = 0
@@ -1026,7 +1152,20 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
       })
       continue
     }
-    if (ph === PHASE_KEYS.air) continue
+    if (ph === PHASE_KEYS.air) {
+      airStrikePhase.processAirPhase(
+        cells,
+        list,
+        ordersByUnit,
+        le,
+        ph,
+        steadfastnessQueue,
+        sectorAggression,
+        sectorReturnFired,
+        airPhaseDeps,
+      )
+      continue
+    }
     if (ph === PHASE_KEYS.special) {
       for (const o of list) {
         resolveSpecialPhaseOrder(cells, o, le, ph)
@@ -1058,8 +1197,9 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
           isAmbushConcealed,
           canSpotAmbushTarget,
           hexDist,
-          rangeArrayFor,
-          fireRangeTableMode,
+      rangeArrayFor,
+      rangeArrayForAtCell,
+      fireRangeTableMode,
           artilleryAreaClosedIgnoresTerrainLos,
           isHexVisible,
           unitHasPropKey,
@@ -1140,6 +1280,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
         revealAmbushesAdjacentToCell,
         isTruckUnit,
         syncCargoAfterTransportMove,
+        unitHasPropKey,
       })
     }
   }
@@ -1153,7 +1294,11 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
     sectorReturnFired,
   )
 
+  airStrikePhase.processAirInboundEndOfTurn(cells, le, PHASE_KEYS.air, airPhaseDeps)
+  sweepCorpses(cells)
+
   resetTurnResources(cells)
+  clearTurnMoraleCells()
 }
 
 module.exports = {

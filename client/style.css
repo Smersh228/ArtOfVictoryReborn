@@ -1,6 +1,104 @@
+
+html {
+  font-family: "Courier New", Courier, monospace;
+  font-weight: 700;
+}
+
 body {
+  margin: 0;
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+*,
+*::before,
+*::after {
+  font-family: "Courier New", Courier, monospace;
+  font-weight: 700;
+}
+
+.app-route-loading {
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(45, 52, 64, 0.75);
+  letter-spacing: 0.04em;
+}
 
 
-margin: 0;
+* {
+  cursor: url("./src/img/cursors/cursorDefault.cur"), default;
+}
 
+
+a[href],
+button,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+[role="button"] {
+  cursor: url("./src/img/cursors/cursorPointer.cur"), pointer;
+}
+
+a[href]:hover,
+button:hover,
+input[type="button"]:hover,
+input[type="submit"]:hover,
+input[type="reset"]:hover,
+[role="button"]:hover {
+  cursor: url("./src/img/cursors/cursorPointer.cur"), pointer;
+}
+
+a[href]:active,
+button:active,
+input[type="button"]:active,
+input[type="submit"]:active,
+input[type="reset"]:active,
+[role="button"]:active {
+  cursor: url("./src/img/cursors/cursorPointer.cur"), pointer;
+}
+
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="email"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input:not([type]),
+textarea,
+select {
+  cursor: url("./src/img/cursors/cursorPar.cur"), text;
+}
+
+input[type="text"]:hover,
+input[type="password"]:hover,
+input[type="number"]:hover,
+input[type="email"]:hover,
+input[type="search"]:hover,
+input[type="url"]:hover,
+input[type="tel"]:hover,
+input:not([type]):hover,
+textarea:hover,
+select:hover {
+  cursor: url("./src/img/cursors/cursorPar.cur"), text;
+}
+
+textarea:focus,
+input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="number"]:focus,
+input[type="email"]:focus,
+input[type="search"]:focus,
+input[type="url"]:focus,
+input[type="tel"]:focus,
+input:not([type]):focus,
+select:focus {
+  cursor: url("./src/img/cursors/cursorPar.cur"), text;
 }

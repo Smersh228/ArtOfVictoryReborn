@@ -1,5 +1,7 @@
 'use strict'
 
+const { terrainAccuracyBonusFromCell } = require('../lib/map/battleTerrain')
+
 function maybeAllDefendersReturnFireForAreaImpactCell(
   cells,
   shooterInstanceId,
@@ -68,6 +70,7 @@ function maybeDefenderReturnFireAgainstShooter(
     getAmmo,
     hexDist,
     rangeArrayFor,
+    rangeArrayForAtCell,
     rangeArrayAmbushAccuracyBonus,
     fireRangeTableMode,
     intensityArrayFor,
@@ -113,7 +116,7 @@ function maybeDefenderReturnFireAgainstShooter(
     atk.cell.coor.y,
     atk.cell.coor.z,
   )
-  const baseRaRet = rangeArrayFor(du)
+  const baseRaRet = rangeArrayForAtCell(du, defCell)
   const isAmbushRet = du.tactical.ambushOrder && !du.tactical.defendOrder
   const ra = isAmbushRet ? rangeArrayAmbushAccuracyBonus(baseRaRet) : baseRaRet
   const rMode = fireRangeTableMode(ra)
@@ -127,7 +130,8 @@ function maybeDefenderReturnFireAgainstShooter(
     if (!unitHasPropKey(du, 'concealedTargetFire')) return
     artilleryClosedOw = true
   }
-  const res = computeShoot(du, atk.unit, atk.cell, d, ia, ra, false, undefined, warDefA, 0, artilleryClosedOw, 1)
+  const accBonusOw = terrainAccuracyBonusFromCell(defCell, du, atk.unit, false)
+  const res = computeShoot(du, atk.unit, atk.cell, d, ia, ra, false, undefined, warDefA, accBonusOw, artilleryClosedOw, 1)
   setAmmo(du, getAmmo(du) - 1)
   if (sectorReturnFired) {
     sectorReturnFired.add(`${Number(defenderInstanceId)}:${Number(shooterInstanceId)}`)
@@ -195,6 +199,7 @@ function resolveDefendSectorIdleFire(
     defenderSeesCellForOverwatch,
     hexDist,
     rangeArrayFor,
+    rangeArrayForAtCell,
     rangeArrayAmbushAccuracyBonus,
     fireRangeTableMode,
     intensityArrayFor,
@@ -245,7 +250,7 @@ function resolveDefendSectorIdleFire(
             hCell.coor.y,
             hCell.coor.z,
           )
-          const baseRa0 = rangeArrayFor(du)
+          const baseRa0 = rangeArrayForAtCell(du, defCell)
           const ra0 = isAmbushDu ? rangeArrayAmbushAccuracyBonus(baseRa0) : baseRa0
           const rMode0 = fireRangeTableMode(ra0)
           const out0 = rMode0 === 'ranged' ? dist < 1 || dist >= ra0.length : dist > ra0.length
@@ -273,7 +278,7 @@ function resolveDefendSectorIdleFire(
         tgtCell.coor.y,
         tgtCell.coor.z,
       )
-      const baseRa = rangeArrayFor(du)
+      const baseRa = rangeArrayForAtCell(du, defCell)
       const ra = isAmbushDu ? rangeArrayAmbushAccuracyBonus(baseRa) : baseRa
       const ia = intensityArrayFor(du, tgt)
       const warDefT = moveWarDefenseBonus(Number(tgt.instanceId), ordersByUnit)
@@ -283,7 +288,8 @@ function resolveDefendSectorIdleFire(
         if (!unitHasPropKey(du, 'concealedTargetFire')) continue
         artilleryClosedOw = true
       }
-      const res = computeShoot(du, tgt, tgtCell, d, ia, ra, false, undefined, warDefT, 0, artilleryClosedOw, 1)
+      const accBonusSector = terrainAccuracyBonusFromCell(defCell, du, tgt, false)
+      const res = computeShoot(du, tgt, tgtCell, d, ia, ra, false, undefined, warDefT, accBonusSector, artilleryClosedOw, 1)
       setAmmo(du, getAmmo(du) - 1)
       const tagW = warDefT ? ' [бой +1 З]' : ''
       const idleIntro = isAmbushDu
@@ -340,6 +346,7 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
     defenderSeesCellForOverwatch,
     hexDist,
     rangeArrayFor,
+    rangeArrayForAtCell,
     rangeArrayAmbushAccuracyBonus,
     fireRangeTableMode,
     getAmmo,
@@ -399,7 +406,7 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
           owCell.coor.y,
           owCell.coor.z,
         )
-        const baseRa = rangeArrayFor(u)
+        const baseRa = rangeArrayForAtCell(u, defCell)
         const isAmbushOw = u.tactical.ambushOrder && !u.tactical.defendOrder
         const ra = isAmbushOw ? rangeArrayAmbushAccuracyBonus(baseRa) : baseRa
         const rMode = fireRangeTableMode(ra)
@@ -428,7 +435,8 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
         if (!unitHasPropKey(u, 'concealedTargetFire')) continue
         artilleryClosedOw = true
       }
-      const res = computeShoot(u, moverTgt.unit, owCell, d, ia, ra, false, undefined, warDef, 0, artilleryClosedOw, 1)
+      const accBonusMove = terrainAccuracyBonusFromCell(defCell, u, moverTgt.unit, false)
+      const res = computeShoot(u, moverTgt.unit, owCell, d, ia, ra, false, undefined, warDef, accBonusMove, artilleryClosedOw, 1)
       setAmmo(u, getAmmo(u) - 1)
       shots.push({
         attackerId: u.instanceId,

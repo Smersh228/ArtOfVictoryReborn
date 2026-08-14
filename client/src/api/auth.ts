@@ -1,5 +1,10 @@
-const API_ORIGIN = import.meta.env.VITE_API_ORIGIN || 'http://localhost:5000'
-const API_URL = `${API_ORIGIN}/api/auth`
+import { apiBaseUrl } from './editorCatalog'
+
+function authApiUrl(path: string): string {
+  const base = apiBaseUrl()
+  const p = path.startsWith('/') ? path : `/${path}`
+  return base ? `${base}/api/auth${p}` : `/api/auth${p}`
+}
 
 export interface User {
   id: number
@@ -11,19 +16,24 @@ export interface AuthResponse {
   success: boolean
   user?: User
   message?: string
+  maintenance?: boolean
 }
 
 const jsonHeaders = { 'Content-Type': 'application/json' }
 
 export const register = async (username: string, email: string, password: string): Promise<AuthResponse> => {
   try {
-    const res = await fetch(`${API_URL}/register`, {
+    const res = await fetch(authApiUrl('/register'), {
       method: 'POST',
       headers: jsonHeaders,
       credentials: 'include',
       body: JSON.stringify({ username, email, password }),
     })
-    return await res.json()
+    const data = (await res.json()) as AuthResponse
+    if (res.status === 503 && data.maintenance) {
+      return { success: false, maintenance: true, message: data.message || 'Идут технические работы. Зайдите позже.' }
+    }
+    return data
   } catch {
     return { success: false, message: 'Ошибка соединения с сервером' }
   }
@@ -31,13 +41,17 @@ export const register = async (username: string, email: string, password: string
 
 export const login = async (usernameOrEmail: string, password: string): Promise<AuthResponse> => {
   try {
-    const res = await fetch(`${API_URL}/login`, {
+    const res = await fetch(authApiUrl('/login'), {
       method: 'POST',
       headers: jsonHeaders,
       credentials: 'include',
       body: JSON.stringify({ usernameOrEmail, password }),
     })
-    return await res.json()
+    const data = (await res.json()) as AuthResponse
+    if (res.status === 503 && data.maintenance) {
+      return { success: false, maintenance: true, message: data.message || 'Идут технические работы. Зайдите позже.' }
+    }
+    return data
   } catch {
     return { success: false, message: 'Ошибка соединения с сервером' }
   }
@@ -46,8 +60,16 @@ export const login = async (usernameOrEmail: string, password: string): Promise<
 
 export const verifySession = async (): Promise<AuthResponse> => {
   try {
-    const res = await fetch(`${API_URL}/verify`, { credentials: 'include' })
-    return await res.json()
+    const res = await fetch(authApiUrl('/verify'), { credentials: 'include' })
+    const data = (await res.json()) as AuthResponse
+    if (res.status === 503 && data.maintenance) {
+      return {
+        success: false,
+        maintenance: true,
+        message: data.message || 'Идут технические работы. Зайдите позже.',
+      }
+    }
+    return data
   } catch {
     return { success: false, message: 'Ошибка соединения с сервером' }
   }
@@ -55,7 +77,7 @@ export const verifySession = async (): Promise<AuthResponse> => {
 
 export const logoutRequest = async (): Promise<void> => {
   try {
-    await fetch(`${API_URL}/logout`, { method: 'POST', credentials: 'include' })
+    await fetch(authApiUrl('/logout'), { method: 'POST', credentials: 'include' })
   } catch {
     
   }

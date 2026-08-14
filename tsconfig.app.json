@@ -15,11 +15,10 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
-     "baseUrl":".",
+        "baseUrl": ".",
     "paths": {
-    "*": ["*","*.ts","*tsx","*.css"]
+      "@/*": ["client/src/*"]
     },
-    "typeRoots": ["./node_modules/@types","./src/types"],
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
@@ -28,5 +27,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["client/src"]
 }

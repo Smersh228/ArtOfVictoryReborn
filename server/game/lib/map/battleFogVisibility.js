@@ -2,6 +2,13 @@
 
 const { getStr, unitFaction, opposing } = require('../unit/battleUnitField')
 const { readVisionRange } = require('../unit/battleUnitVision')
+const { hexDistCells } = require('./battleHexGeometry')
+const {
+  effectiveElevationLevel,
+  isRavine,
+  isBattleAirUnitType,
+  elevationLoSBonusSteps,
+} = require('./battleElevation')
 
 const LOS_BLOCKING = new Set([
   'mountain',
@@ -85,27 +92,78 @@ function cellBlocksLineOfSight(cell) {
   return LOS_BLOCKING.has(t)
 }
 
-function isHexVisible(observer, target, cells) {
+function ravineBlocksHexLoS(observer, target, dist, options) {
+  if (options && options.airObserver) return false
+  if (isRavine(observer) && dist > 1) return true
+  if (isRavine(target) && dist > 1) return true
+  return false
+}
+
+/** Гребень выше наблюдателя закрывает клетки за собой; сам гребень виден как цель. */
+function lineOpenWithElevationRidge(observer, target, cells) {
+  const obsE = effectiveElevationLevel(observer)
   const line = cubeLineDraw(cellToCube(observer), cellToCube(target))
   for (let i = 1; i < line.length - 1; i++) {
     const c = findCellByCube(cells, line[i])
     if (!c) return false
-    if (cellBlocksLineOfSight(c)) return false
+    if (effectiveElevationLevel(c) > obsE) return false
   }
   return true
 }
 
-function visibleCellIdsInRange(observer, maxRange, cells) {
+/** Тень в один гекс сразу за преградой для видимости. */
+function lineOpenWithOneHexShadow(observer, target, cells) {
+  const line = cubeLineDraw(cellToCube(observer), cellToCube(target))
+  const targetCube = cellToCube(target)
+  for (let i = 1; i < line.length - 1; i++) {
+    const c = findCellByCube(cells, line[i])
+    if (!c) return false
+    if (!cellBlocksLineOfSight(c)) continue
+    const shadowCube = line[i + 1]
+    if (
+      shadowCube &&
+      shadowCube.x === targetCube.x &&
+      shadowCube.y === targetCube.y &&
+      shadowCube.z === targetCube.z
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
+function isHexVisible(observer, target, cells, options) {
+  if (!observer || !target) return false
+  const dist = hexDistCells(observer, target)
+  if (dist <= 0) return true
+  if (ravineBlocksHexLoS(observer, target, dist, options)) return false
+  if (!(options && options.airObserver) && !lineOpenWithElevationRidge(observer, target, cells)) return false
+  return lineOpenWithOneHexShadow(observer, target, cells)
+}
+
+function visibleCellIdsInRange(observer, maxRange, cells, options) {
   const obs = cellToCube(observer)
   const out = new Set()
   out.add(observer.id)
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i]
     if (c.id === observer.id) continue
-    if (cubeDistance(obs, cellToCube(c)) > maxRange) continue
-    if (isHexVisible(observer, c, cells)) out.add(c.id)
+    const dist = cubeDistance(obs, cellToCube(c))
+    const bonus = elevationLoSBonusSteps(observer, c)
+    if (dist > maxRange + bonus) continue
+    if (isHexVisible(observer, c, cells, options)) out.add(c.id)
   }
   return out
+}
+
+function isUnitVisibleFromCell(observerCell, observerUnit, targetCell, targetUnit, cells) {
+  if (!observerCell || !targetCell) return false
+  const dist = hexDistCells(observerCell, targetCell)
+  if (dist <= 0) return true
+  const airObs = observerUnit && isBattleAirUnitType(observerUnit)
+  if (isRavine(observerCell) && dist > 1 && !airObs) return false
+  if (isRavine(targetCell) && dist > 1 && !airObs) return false
+  return isHexVisible(observerCell, targetCell, cells, { airObserver: airObs })
 }
 
 function isCellSeenByAnyHostileUnit(subjectUnit, targetCell, cells) {
@@ -118,8 +176,11 @@ function isCellSeenByAnyHostileUnit(subjectUnit, targetCell, cells) {
       const u = us[ui]
       if (getStr(u) <= 0) continue
       if (!opposing(mySide, unitFaction(u))) continue
-      const seen = visibleCellIdsInRange(cell, readVisionRange(u), cells)
+      const seen = visibleCellIdsInRange(cell, readVisionRange(u), cells, {
+        airObserver: isBattleAirUnitType(u),
+      })
       if (seen.has(targetCell.id)) return true
+      if (isUnitVisibleFromCell(cell, u, targetCell, null, cells)) return true
     }
   }
   return false
@@ -136,7 +197,9 @@ function computeRevealedCellIdsForFaction(cells, faction) {
       if (unitFaction(u) !== faction) continue
       if (getStr(u) <= 0) continue
       const r = readVisionRange(u)
-      const ids = visibleCellIdsInRange(cell, r, cells)
+      const ids = visibleCellIdsInRange(cell, r, cells, {
+        airObserver: isBattleAirUnitType(u),
+      })
       ids.forEach((id) => revealed.add(id))
     }
   }
@@ -148,5 +211,6 @@ module.exports = {
   visibleCellIdsInRange,
   cellBlocksLineOfSight,
   isHexVisible,
+  isUnitVisibleFromCell,
   isCellSeenByAnyHostileUnit,
 }

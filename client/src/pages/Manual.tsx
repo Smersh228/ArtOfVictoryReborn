@@ -99,6 +99,8 @@ function unitStatRows(u: Record<string, unknown>): ManualStatRow[] {
   pushRow(rows, 'Мораль', u.mor);
   pushRow(rows, 'Боеприпасы', u.ammo);
   pushRow(rows, 'Мины', u.mines);
+  pushRow(rows, 'Взрывчатка', u.explosives);
+  pushRow(rows, 'Дымовые снаряды', u.smokeShells);
   pushRow(rows, 'Видимость', u.vis);
 
   const fire = u.fire;
@@ -110,6 +112,10 @@ function unitStatRows(u: Record<string, unknown>): ManualStatRow[] {
     pushRow(rows, 'Урон по технике', f.tech);
     pushRow(rows, 'Урон по лёгким танкам', f.lt);
     pushRow(rows, 'Урон по средним танкам', f.mt);
+    pushRow(rows, 'Урон по тяжёлым танкам', f.ht);
+    pushRow(rows, 'Урон по малой авиации', f.sa);
+    pushRow(rows, 'Урон по большой авиации', f.ba);
+    pushRow(rows, 'Урон по строениям', f.build);
   }
 
   const orders = u.orders;

@@ -2,9 +2,8 @@ import React from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 
-
 export const RequireAuth: React.FC = () => {
-  const { user, loading } = useAuth()
+  const { user, loading, maintenanceNotice } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -16,7 +15,16 @@ export const RequireAuth: React.FC = () => {
   }
 
   if (!user) {
-    return <Navigate to="/auth" replace state={{ from: location.pathname + location.search }} />
+    return (
+      <Navigate
+        to="/auth"
+        replace
+        state={{
+          from: location.pathname + location.search,
+          maintenance: maintenanceNotice || undefined,
+        }}
+      />
+    )
   }
 
   return <Outlet />

@@ -107,9 +107,10 @@
 
 .mainTabs {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 8px;
   flex-shrink: 0;
-  padding: 7px 6px;
+  padding: 10px 10px;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.35);
@@ -117,16 +118,22 @@
 }
 
 .mainTab {
-  flex: 1;
-  padding: 8px 6px;
+  flex: 1 1 calc(33.333% - 6px);
+  min-width: 104px;
+  padding: 10px 12px;
   text-align: center;
   border-radius: 8px;
   cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 700;
   color: #000;
   border: 1px solid transparent;
   transition: background 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 .mainTab:hover {
@@ -137,7 +144,7 @@
   background: rgba(255, 255, 255, 0.72);
   border-color: rgba(255, 255, 255, 0.65);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
-  color: #222;
+  color: #000;
 }
 
 .filterGroup {
@@ -158,13 +165,13 @@
   letter-spacing: 0.06em;
 }
 
-/* Заголовок блока условий — без капса, как в макете «Методы победы» */
+
 .conditionsVictoryTitle {
   text-transform: none;
   letter-spacing: 0.02em;
 }
 
-/* Поля «Задачи СССР / Германии» — без ручного растягивания по вертикали */
+
 .panelTextarea.conditionsTasksTextarea {
   resize: none;
   min-height: 80px;
@@ -203,7 +210,7 @@
   color: #fff;
 }
 
-/* Нижняя часть: сетка как .editorUnitItems в редакторе юнитов */
+
 .rightPalette {
   flex: 1;
   display: flex;
@@ -292,6 +299,43 @@
   display: block;
 }
 
+/* Укрепления: обычный размер иконки */
+.objectIconBuild {
+  width: 84px;
+  height: 84px;
+  padding: 6px;
+  overflow: hidden;
+}
+
+.objectIconBuild img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  object-position: center;
+  transform: scale(0.92);
+  transform-origin: center center;
+  border-radius: 4px;
+}
+
+/* Только колючая проволка — крупнее (спрайт занимает верхнюю часть PNG) */
+.objectIconBuildWire {
+  width: 92px;
+  height: 92px;
+  padding: 2px;
+}
+
+.objectIconBuildWire img {
+  object-position: top center;
+  transform: scale(2.0);
+  transform-origin: top center;
+}
+
+.objectItemBuild {
+  min-height: 152px;
+}
+
 .objectItem > .objectName {
   font-size: 12px;
   line-height: 1.25;
@@ -306,7 +350,7 @@
   word-break: break-word;
 }
 
-/* Верхние кнопки: один класс (без отдельной обёртки в разметке) */
+
 .toolbarRow {
   flex-shrink: 0;
   display: flex;
@@ -420,8 +464,8 @@
 
 .fieldLabel {
   font-size: 12px;
-  font-weight: 600;
-  color: rgba(40, 40, 40, 0.65);
+  font-weight: 700;
+  color: #000;
   margin-bottom: 4px;
 }
 
@@ -549,7 +593,7 @@
   font-size: 14px;
 }
 
-/* Manual — руководство в модальном окне (та же стеклянная стилистика) */
+
 
 .manual {
   display: flex;
@@ -652,44 +696,6 @@
   color: rgba(50, 50, 55, 0.88);
 }
 
-.manualTip {
-  margin: 0;
-  padding: 12px 14px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: rgba(45, 45, 50, 0.9);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 200, 120, 0.45);
-  background: rgba(255, 248, 230, 0.45);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-.manualTipLabel {
-  display: inline-block;
-  margin-right: 8px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: rgba(120, 70, 0, 0.95);
-  background: rgba(255, 200, 100, 0.4);
-  border: 1px solid rgba(200, 140, 40, 0.25);
-}
-
-.manualFooterNote {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: rgba(80, 80, 85, 0.75);
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
 .modalFormGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -758,6 +764,13 @@
 .modalFooterActionsCenter > div {
   width: 100%;
   margin: 0 !important;
+}
+
+.guideModalCloseButton {
+  width: 100% !important;
+  max-width: 100%;
+  box-sizing: border-box;
+  color: #000;
 }
 
 .exportPanelInner {
@@ -858,7 +871,7 @@
   width: 100%;
 }
 
-/* Кнопка как на главном меню (Button), без лишних отступов в строке */
+
 .exportOpenButton {
   margin: 0 !important;
   width: 100% !important;
@@ -1007,13 +1020,15 @@
   }
 
   .mainTabs {
-    padding: 6px 5px;
-    gap: 5px;
+    padding: 8px 8px;
+    gap: 8px;
   }
 
   .mainTab {
-    font-size: 13px;
-    padding: 7px 5px;
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    font-size: 12px;
+    padding: 10px 10px;
   }
 
   .toolbarPrimary > div,

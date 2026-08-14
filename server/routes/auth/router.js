@@ -4,10 +4,12 @@ const {
   loginHandler,
   logoutHandler,
   verifyHandler,
+  maintenanceStatusHandler,
 } = require('./handlers')
 
 const router = express.Router()
 
+router.get('/maintenance-status', maintenanceStatusHandler)
 router.post('/register', registerHandler)
 router.post('/login', loginHandler)
 router.post('/logout', logoutHandler)

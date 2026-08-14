@@ -1,6 +1,17 @@
 'use strict'
 
+/** Для авиации на поле боя ОД не ограничивают дальность хода (как «бесконечный» запас). */
+const AIR_BATTLE_EFFECTIVE_MOVE_POINTS = 99999999
+
+function isBattleAirUnitType(u) {
+  const t = String(u?.type ?? '')
+  return t === 'lightAir' || t === 'heavyAir'
+}
+
 function getMoveCap(u) {
+  if (u != null && typeof u === 'object' && isBattleAirUnitType(u)) {
+    return AIR_BATTLE_EFFECTIVE_MOVE_POINTS
+  }
   const n = Number(u.mov ?? u.moveCap ?? 4)
   return Number.isFinite(n) && n > 0 ? n : 4
 }
@@ -29,6 +40,7 @@ function setAmmo(u, n) {
 
 function getMovePoint(u) {
   if (u == null || typeof u !== 'object') return 0
+  if (isBattleAirUnitType(u)) return AIR_BATTLE_EFFECTIVE_MOVE_POINTS
   if (!('movePoint' in u) || u.movePoint === undefined || u.movePoint === null) {
     return getMoveCap(u)
   }
@@ -37,6 +49,10 @@ function getMovePoint(u) {
 }
 
 function setMovePoint(u, n) {
+  if (u != null && typeof u === 'object' && isBattleAirUnitType(u)) {
+    u.movePoint = AIR_BATTLE_EFFECTIVE_MOVE_POINTS
+    return
+  }
   u.movePoint = Math.max(0, n)
 }
 

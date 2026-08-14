@@ -1,4 +1,5 @@
 const express = require('express')
+const fs = require('fs')
 const path = require('path')
 const cors = require('cors')
 const cookieParser = require('cookie-parser')
@@ -9,6 +10,10 @@ const editorRoutes = require('./routes/editor')
 const editorUploadRoutes = require('./routes/editorUpload/router')
 const roomsRoutes = require('./routes/rooms')
 const mapsRoutes = require('./routes/maps/router')
+const adminMaintenanceRoutes = require('./routes/admin/maintenanceRoutes')
+const { maintenanceApiGate } = require('./maintenanceMiddleware')
+const { ensureMaintenanceSchema } = require('./maintenance')
+const { ensureUnitCatalogColumns } = require('./routes/editor/shared')
 
 const app = express()
 const PORT = process.env.PORT || 5000
@@ -43,12 +48,40 @@ app.use(express.json({ limit: '20mb' }))
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 
+app.use('/api', maintenanceApiGate)
+
 app.use('/api/auth', authRoutes)
+app.use('/api/admin/maintenance', adminMaintenanceRoutes)
 app.use('/api/editor', editorRoutes)
 app.use('/api/editor', editorUploadRoutes)
 app.use('/api/rooms', roomsRoutes)
 app.use('/api/maps', mapsRoutes)
 
+/** Продакшен: раздача SPA из aov/dist (если каталог есть). Nginx может отдавать dist сам — тогда SERVE_CLIENT=0. */
+const DIST_DIR = path.join(__dirname, '..', 'dist')
+const DIST_INDEX = path.join(DIST_DIR, 'index.html')
+const SERVE_CLIENT = process.env.SERVE_CLIENT !== '0' && fs.existsSync(DIST_INDEX)
+
+if (SERVE_CLIENT) {
+  app.use(express.static(DIST_DIR))
+  app.get(/^\/(?!api(?:\/|$)|uploads(?:\/|$)).*/, (_req, res) => {
+    res.sendFile(DIST_INDEX)
+  })
+}
+
+ensureMaintenanceSchema().catch((e) => {
+  console.error('maintenance schema:', e.message)
+})
+
+ensureUnitCatalogColumns().catch((e) => {
+  console.error('editor catalog columns (map_editor_public):', e.message)
+})
+
 app.listen(PORT, () => {
   console.log(`API слушает порт ${PORT}`)
+  if (SERVE_CLIENT) {
+    console.log(`Клиент (dist): ${DIST_DIR}`)
+  } else if (process.env.SERVE_CLIENT !== '0') {
+    console.warn(`Клиент не найден: ${DIST_INDEX} — выполните npm run build в каталоге aov/`)
+  }
 })

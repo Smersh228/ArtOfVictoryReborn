@@ -1,5 +1,7 @@
 'use strict'
 
+const { applyWireBreakthroughOnStep } = require('../lib/map/battleWireEdges')
+
 function processMovePhase(cells, list, ordersByUnit, le, ph, movedInstanceIds, deps) {
   const {
     findUnitOnField,
@@ -60,6 +62,7 @@ function processMovePhase(cells, list, ordersByUnit, le, ph, movedInstanceIds, d
     const finalCell = path[endStepIndex]
     let spent = 0
     for (let i = 1; i <= endStepIndex; i++) {
+      applyWireBreakthroughOnStep(path[i - 1], path[i], afterOw.unit, deps.unitHasPropKey)
       spent += terrainEntryCost(path[i], afterOw.unit)
     }
     const pathIds = path.slice(0, endStepIndex + 1).map((c) => c.id)

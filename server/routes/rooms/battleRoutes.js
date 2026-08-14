@@ -89,6 +89,7 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       const log = buildTurnResolutionLog(cells, merged, turnIdx, {
         makeLogMeta: battleLogMeta,
         formatOrderLine: formatSubmittedOrderLine,
+        room,
       })
       resolutionLog = log
       if (!Array.isArray(room.battleLog)) room.battleLog = []

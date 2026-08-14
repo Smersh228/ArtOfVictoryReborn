@@ -8,9 +8,11 @@ interface ButtonProps {
   className?: string
   disabled?: boolean
   title?: string
+  badgeCount?: number
 }
 
-const Button: React.FC<ButtonProps> = ({ name, size, onClick, className, disabled, title }) => {
+const Button: React.FC<ButtonProps> = ({ name, size, onClick, className, disabled, title, badgeCount }) => {
+  const showBadge = badgeCount != null && badgeCount > 0
   return (
     <div
       title={title}
@@ -19,6 +21,11 @@ const Button: React.FC<ButtonProps> = ({ name, size, onClick, className, disable
       className={[styles.button, disabled ? styles.buttonDisabled : '', className].filter(Boolean).join(' ')}
     >
       {name}
+      {showBadge ? (
+        <span className={styles.buttonBadge} aria-label={`Новых действий: ${badgeCount}`}>
+          {badgeCount > 99 ? '99+' : badgeCount}
+        </span>
+      ) : null}
     </div>
   )
 }

@@ -14,6 +14,16 @@ import deployOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/deploy.png'
 import changeSectorOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/changeSector.png'
 import clottingOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/clotting.png'
 import fireSupIconUrl from '../../img/fireSup.png'
+import airDepartureDecalUrl from '../../img/propertis/И16.png'
+import fireAirGunDecalUrl from '../../img/propertis/fireAirGun.png'
+import { EDITOR_BATTLE_ORDER_DEFS } from '../../game/battleOrderIcons'
+import { WIRE_SPRITE_URL } from '../../game/cellWireEdges'
+import {
+  DOT_SPRITE_URL,
+  STORAGE_SPRITE_URL,
+  ANTITANK_SPRITE_URL,
+  TRENCH_SPRITE_URL,
+} from '../../game/editorMapFortifications'
 
 export interface CachedImageState {
   ready: HTMLImageElement | null
@@ -44,6 +54,17 @@ export function useCellsAssets() {
   const changeSectorOrderDecalImgRef = useRef<HTMLImageElement | null>(null)
   const clottingOrderDecalImgRef = useRef<HTMLImageElement | null>(null)
   const fireSupIconImgRef = useRef<HTMLImageElement | null>(null)
+  /** Иконки авиаприказов на целевом гексе (превью из панели «Авиаподдержка»). */
+  const airMissionOrderDecalImgRef = useRef<Record<string, HTMLImageElement>>({})
+  /** Иконка точки вылета авиации на карте. */
+  const airDepartureDecalImgRef = useRef<HTMLImageElement | null>(null)
+  /** Иконка обстрела ПВО (сектор артиллерии по авиации) в отчёте боя. */
+  const fireAirGunDecalImgRef = useRef<HTMLImageElement | null>(null)
+  const wireEdgeImgRef = useRef<HTMLImageElement | null>(null)
+  const trenchImgRef = useRef<HTMLImageElement | null>(null)
+  const antiTankImgRef = useRef<HTMLImageElement | null>(null)
+  const dotImgRef = useRef<HTMLImageElement | null>(null)
+  const storageImgRef = useRef<HTMLImageElement | null>(null)
   const imageCacheRef = useRef<Record<string, HTMLImageElement>>({})
   const [textureVersion, setTextureVersion] = useState(0)
   const bumpTextures = () => setTextureVersion((v) => v + 1)
@@ -134,6 +155,67 @@ export function useCellsAssets() {
     }
   }, [])
 
+  useEffect(() => {
+    airDepartureDecalImgRef.current = buildImage(airDepartureDecalUrl)
+    return () => {
+      airDepartureDecalImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    fireAirGunDecalImgRef.current = buildImage(fireAirGunDecalUrl)
+    return () => {
+      fireAirGunDecalImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    wireEdgeImgRef.current = buildImage(WIRE_SPRITE_URL)
+    return () => {
+      wireEdgeImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    trenchImgRef.current = buildImage(TRENCH_SPRITE_URL)
+    return () => {
+      trenchImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    antiTankImgRef.current = buildImage(ANTITANK_SPRITE_URL)
+    return () => {
+      antiTankImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    dotImgRef.current = buildImage(DOT_SPRITE_URL)
+    return () => {
+      dotImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    storageImgRef.current = buildImage(STORAGE_SPRITE_URL)
+    return () => {
+      storageImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const next: Record<string, HTMLImageElement> = {}
+    for (const d of EDITOR_BATTLE_ORDER_DEFS) {
+      if (d.editorCategory !== 'aviation' || !d.icon) continue
+      next[d.order_key] = buildImage(d.icon)
+    }
+    airMissionOrderDecalImgRef.current = next
+    return () => {
+      airMissionOrderDecalImgRef.current = {}
+    }
+  }, [])
+
   const resolveEditorCachedImage = (path: string | null | undefined): CachedImageState => {
     const url = resolveEditorImageUrl(path)
     if (!url) return { ready: null, pending: false, noUrl: true }
@@ -173,6 +255,14 @@ export function useCellsAssets() {
       changeSectorOrderDecalImgRef,
       clottingOrderDecalImgRef,
       fireSupIconImgRef,
+      airMissionOrderDecalImgRef,
+      airDepartureDecalImgRef,
+      fireAirGunDecalImgRef,
+      wireEdgeImgRef,
+      trenchImgRef,
+      antiTankImgRef,
+      dotImgRef,
+      storageImgRef,
     },
   }
 }

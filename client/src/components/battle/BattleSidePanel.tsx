@@ -18,6 +18,7 @@ interface BattleSidePanelProps {
       isMeta: boolean;
       isTurnHeader: boolean;
       interactive: boolean;
+      logEntry?: BattleLogEntry;
       replay?: any;
       formatted?: { order?: string; detail?: string; stats?: string } | null;
       line: string;
@@ -89,6 +90,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                     className={`${styles.battleReportLine} ${row.isMeta ? styles.battleReportLineMeta : ''} ${row.isTurnHeader ? styles.battleReportLineTurn : ''} ${row.interactive ? styles.battleReportLineInteractive : ''}`}
                     onMouseEnter={() => {
                       if (row.replay) onHoverReportRow(row.replay);
+                      else if (row.logEntry) onHoverReportRow(row.logEntry);
                     }}
                     onMouseLeave={() => onHoverReportRow(null)}
                   >

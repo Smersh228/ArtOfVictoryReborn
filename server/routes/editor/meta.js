@@ -4,6 +4,8 @@ const { requireCatalogEditorAdmin } = require('../../catalogEditorAdminMiddlewar
 const {
   ensureDefaultUnitProperties,
   ensureDefaultBattleOrders,
+  ensureUnitCatalogColumns,
+  isMapEditorPublicRow,
   UNIT_SELECT,
   mapUnitClientRow,
   mapUnitCatalog,
@@ -74,17 +76,31 @@ router.get('/client/catalog', async (req, res) => {
   try {
     await ensureDefaultBattleOrders()
     await ensureDefaultUnitProperties()
+    await ensureUnitCatalogColumns()
     try {
       const r = await pool.query(UNIT_SELECT)
       out.unitsEditor = r.rows.map(mapUnitClientRow)
-      out.units = r.rows.map(mapUnitCatalog)
+      out.units = r.rows.filter((row) => row.map_editor_public !== false).map(mapUnitCatalog)
     } catch (e) {
       console.error('editor catalog units:', e.message)
     }
     try {
-      const r = await pool.query('SELECT * FROM hex ORDER BY id_hex')
+      const r = await pool.query(`
+        SELECT h.*,
+          lb.build_name AS _hex_linked_build_name,
+          lb.build_image_path AS _hex_linked_build_image_path
+        FROM hex h
+        LEFT JOIN LATERAL (
+          SELECT b.name AS build_name, b.image_path AS build_image_path
+          FROM build b
+          WHERE h.id_cobj IS NOT NULL AND b.id_cobj = h.id_cobj
+          ORDER BY b.id_build ASC NULLS LAST
+          LIMIT 1
+        ) lb ON true
+        ORDER BY h.id_hex
+      `)
       out.hexesEditor = r.rows.map(mapHexClient)
-      out.hexes = r.rows.map(mapHexCatalog)
+      out.hexes = r.rows.filter(isMapEditorPublicRow).map(mapHexCatalog)
     } catch (e) {
       console.error('editor catalog hexes:', e.message)
     }
@@ -98,7 +114,7 @@ router.get('/client/catalog', async (req, res) => {
     try {
       const r = await pool.query('SELECT * FROM rule ORDER BY id_rule')
       out.rulesEditor = r.rows.map(mapRuleClient)
-      out.rules = r.rows.map((row) => {
+      out.rules = r.rows.filter(isMapEditorPublicRow).map((row) => {
         const m = mapRuleClient(row)
         return {
           id: m.id,

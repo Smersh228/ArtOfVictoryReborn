@@ -1,5 +1,7 @@
 'use strict'
 
+const recon = require('../lib/recon/battleReconResolve')
+
 function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
   const {
     findUnitOnField,
@@ -322,6 +324,68 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
       defendSectorCellIds: sectorIdsA,
       unitInstanceId: Number(cur.unit.instanceId),
     })
+    return
+  }
+
+  if (k === 'cutWire') {
+    const wireEdges = require('../lib/map/battleWireEdges')
+    const tid = o.targetCellId
+    if (tid == null) {
+      le(ph, `Снятие проволоки: ${cur.unit.instanceId} — не указана цель`)
+      return
+    }
+    const tgtCell = cells.find((c) => Number(c.id) === Number(tid))
+    if (!tgtCell) {
+      le(ph, `Снятие проволоки: ${cur.unit.instanceId} — клетка не найдена`)
+      return
+    }
+    if (hexDistCells(cur.cell, tgtCell) !== 1) {
+      le(ph, `Снятие проволоки: ${cur.unit.instanceId} — цель не рядом`)
+      return
+    }
+    if (!wireEdges.hasWireOnCell(tgtCell.builds)) {
+      le(ph, `Снятие проволоки: на кл. ${tgtCell.id} нет проволоки`)
+      return
+    }
+    tgtCell.builds = wireEdges.clearAllWireOnBuilds(tgtCell.builds)
+    le(ph, `Снятие проволоки: юнит ${cur.unit.instanceId} снял проволоку с кл. ${tgtCell.id}`)
+    return
+  }
+
+  if (k === 'razvedka' || k === 'svzy') {
+    const cid = o.targetCellId != null ? Number(o.targetCellId) : Number(cur.cell.id)
+    const centerCell = cells.find((c) => Number(c.id) === cid) || cur.cell
+    const label = k === 'razvedka' ? 'Разведка' : 'Радиоперехват'
+    recon.resolveReconMission({
+      unit: cur.unit,
+      centerCell,
+      cells,
+      orderKey: k,
+      le,
+      ph,
+      label,
+    })
+    return
+  }
+
+  const SPECIAL_STUB_ORDER_KEYS = new Set([
+    'hardMove',
+    'explomost',
+    'fireMove',
+  ])
+  const SAPPER_STUB_ORDER_KEYS = new Set([
+    'buildPonton',
+    'cutEj',
+    'demining',
+    'mining',
+    'trenches',
+  ])
+  if (SPECIAL_STUB_ORDER_KEYS.has(k)) {
+    le(ph, `Спецприказ: юнит ${cur.unit.instanceId} — «${k}» (пока без игрового эффекта)`)
+    return
+  }
+  if (SAPPER_STUB_ORDER_KEYS.has(k)) {
+    le(ph, `Сапёрный приказ: юнит ${cur.unit.instanceId} — «${k}» (пока без игрового эффекта)`)
     return
   }
 }

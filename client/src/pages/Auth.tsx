@@ -1,8 +1,9 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import styles from './styleModules/auth.module.css'
 import buttonStyles from '../components/styleModules/button.module.css'
 import { login, register } from '../api/auth'
+import { fetchMaintenancePublicStatus } from '../api/maintenance'
 import { useAuth } from '../context/AuthContext'
 
 type Mode = 'login' | 'register'
@@ -11,16 +12,34 @@ const Auth: React.FC = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const rawFrom = (location.state as { from?: string } | null)?.from || '/main'
+  const maintenanceFromState = (location.state as { maintenance?: string } | null)?.maintenance
   const from =
     rawFrom === '/auth' || rawFrom.startsWith('/auth?') || rawFrom === '/' ? '/main' : rawFrom
-  const { setUser } = useAuth()
+  const { setUser, setMaintenanceNotice } = useAuth()
   const [mode, setMode] = useState<Mode>('login')
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [maintenanceBanner, setMaintenanceBanner] = useState<string | null>(maintenanceFromState ?? null)
   const [pending, setPending] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const st = await fetchMaintenancePublicStatus()
+      if (cancelled) return
+      if (st.enabled) setMaintenanceBanner(st.message)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (maintenanceFromState) setMaintenanceBanner(maintenanceFromState)
+  }, [maintenanceFromState])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -34,7 +53,13 @@ const Auth: React.FC = () => {
           return
         }
         const r = await register(uname, email.trim(), password)
+        if (r.maintenance) {
+          setMaintenanceBanner(r.message || 'Идут технические работы. Зайдите позже.')
+          setError(r.message || 'Идут технические работы. Зайдите позже.')
+          return
+        }
         if (r.success && r.user) {
+          setMaintenanceNotice(null)
           setUser(r.user)
           navigate(from, { replace: true })
           return
@@ -42,7 +67,13 @@ const Auth: React.FC = () => {
         setError(r.message || 'Не удалось зарегистрироваться')
       } else {
         const r = await login(identifier.trim(), password)
+        if (r.maintenance) {
+          setMaintenanceBanner(r.message || 'Идут технические работы. Зайдите позже.')
+          setError(r.message || 'Идут технические работы. Зайдите позже.')
+          return
+        }
         if (r.success && r.user) {
+          setMaintenanceNotice(null)
           setUser(r.user)
           navigate(from, { replace: true })
           return
@@ -58,6 +89,12 @@ const Auth: React.FC = () => {
     <div className={styles.authPage}>
       <div className={styles.card}>
         <h1 className={styles.title}>Вход и регистрация</h1>
+
+        {maintenanceBanner ? (
+          <p className={styles.maintenanceBanner} role="status">
+            {maintenanceBanner}
+          </p>
+        ) : null}
 
         <div className={styles.tabs} role="tablist" aria-label="Режим">
           <div

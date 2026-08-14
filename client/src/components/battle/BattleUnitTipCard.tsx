@@ -7,9 +7,13 @@ interface BattleUnitTipCardProps {
   left: number;
   top: number;
   unit: Record<string, unknown>;
+  unitCell?: import('../../../server/src/game/gameLogic/cells/cell').Cell | null;
+  cells?: import('../../../server/src/game/gameLogic/cells/cell').Cell[] | null;
+  pendingOrderKey?: string | null;
   factionLabel: string;
   playerLabel: string;
   cargoLine: string | null;
+  desantLine?: string | null;
 }
 
 const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
@@ -17,9 +21,13 @@ const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
   left,
   top,
   unit,
+  unitCell = null,
+  cells = null,
+  pendingOrderKey = null,
   factionLabel,
   playerLabel,
   cargoLine,
+  desantLine = null,
 }) => {
   return (
     <div
@@ -43,7 +51,13 @@ const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
           <span className={styles.battleUnitTipVal}>{cargoLine}</span>
         </div>
       ) : null}
-      {unitStatsRowsForTip(unit).map((row) => (
+      {desantLine != null ? (
+        <div className={styles.battleUnitTipRow}>
+          <span className={styles.battleUnitTipKey}>Десантники</span>
+          <span className={styles.battleUnitTipVal}>{desantLine}</span>
+        </div>
+      ) : null}
+      {unitStatsRowsForTip(unit, cells, unitCell, { pendingOrderKey }).map((row) => (
         <div key={row.key} className={styles.battleUnitTipRow}>
           <span className={styles.battleUnitTipKey}>{row.key}</span>
           <span className={styles.battleUnitTipVal}>{row.val}</span>

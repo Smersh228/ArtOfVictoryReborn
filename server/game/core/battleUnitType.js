@@ -23,12 +23,17 @@ function isArtilleryDeployedForBattle(u) {
   return isArtilleryUnit(u) && u.tactical && u.tactical.artilleryDeployed === true
 }
 
+/** Свойство каталога «Сектор стрельбы» (fireSector): огонь только внутри сектора при развёртывании. */
+function artilleryUsesFireSectorProperty(u) {
+  return isArtilleryUnit(u) && unitHasPropKey(u, 'fireSector')
+}
+
 function isArtilleryFireTargetCellAllowed(attacker, targetCellId) {
   if (!isArtilleryUnit(attacker)) return true
-  const t = attacker.tactical || {}
-  if (!t.artilleryFireSector) return true
+  if (!isArtilleryDeployedForBattle(attacker)) return true
+  if (!artilleryUsesFireSectorProperty(attacker)) return true
   const arr = attacker.defendSectorCellIds
-  if (!Array.isArray(arr) || !arr.length) return true
+  if (!Array.isArray(arr) || !arr.length) return false
   const cid = Number(targetCellId)
   return arr.some((id) => Number(id) === cid)
 }
@@ -74,6 +79,7 @@ module.exports = {
   isArmoredVehicleTarget,
   isArtilleryUnit,
   isArtilleryDeployedForBattle,
+  artilleryUsesFireSectorProperty,
   isArtilleryFireTargetCellAllowed,
   clearArtillerySectorGeometry,
   unitHasPropKey,

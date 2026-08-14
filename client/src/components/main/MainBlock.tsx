@@ -7,6 +7,8 @@ import CreateServerPanel from './CreateServerPanel'
 import type { GameRoom } from './Room'
 import { useAuth } from '../../context/AuthContext'
 import { isCatalogEditorAdmin } from '../../utils/catalogEditorAdmin'
+import MaintenanceAdminPanel from './MaintenanceAdminPanel'
+import Modal from '../Modal'
 import { fetchRoomsList, createRoom, joinRoom, spectateRoom } from '../../api/rooms'
 
 type NetworkView = 'list' | 'create'
@@ -20,6 +22,7 @@ const MainBlock: React.FC = () => {
   const [listError, setListError] = useState<string | null>(null)
   const [roomsFetchedOnce, setRoomsFetchedOnce] = useState(false)
   const [joiningServerId, setJoiningServerId] = useState<number | null>(null)
+  const [showAllowlistModal, setShowAllowlistModal] = useState(false)
 
   const toggleNetwork = useCallback(() => {
     setShowNetwork((v) => {
@@ -125,10 +128,25 @@ const MainBlock: React.FC = () => {
           <Button name="Руководство по игре" size={380} onClick={() => navigate('/manual')} />
           <Button name="Редактор карт" size={380} onClick={() => navigate('/editor-map')} />
           {user && isCatalogEditorAdmin(user.username) && (
-            <Button name="Редактор объектов" size={380} onClick={() => navigate('/editor-unit')} />
+            <>
+              <Button name="Редактор объектов" size={380} onClick={() => navigate('/editor-unit')} />
+              <Button name="Белый список" size={380} onClick={() => setShowAllowlistModal(true)} />
+            </>
           )}
         </div>
       </div>
+      {user && isCatalogEditorAdmin(user.username) ? (
+        <Modal
+          isOpen={showAllowlistModal}
+          onClose={() => setShowAllowlistModal(false)}
+          title="Белый список"
+          subtitle="Технические работы и доступ игроков"
+          size="xl"
+          footer={<Button name="Закрыть" size={380} onClick={() => setShowAllowlistModal(false)} />}
+        >
+          <MaintenanceAdminPanel inModal />
+        </Modal>
+      ) : null}
       {showNetwork && (
         <div className={styles.serverZone}>
           <div

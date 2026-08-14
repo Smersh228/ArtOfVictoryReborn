@@ -1,10 +1,7 @@
-import { API_ORIGIN } from './editorCatalog'
+import { apiBaseUrl } from './editorCatalog'
 
 function mapsApiBase(): string {
-  const v = import.meta.env.VITE_API_ORIGIN as string | undefined
-  if (v != null && String(v).trim() !== '') return String(v).replace(/\/$/, '')
-  if (import.meta.env.DEV) return ''
-  return API_ORIGIN.replace(/\/$/, '')
+  return apiBaseUrl()
 }
 
 function mapsUrl(path: string): string {

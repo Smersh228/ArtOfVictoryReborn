@@ -24,10 +24,11 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
       : `Юнит ${id}: ${label}`
   }
   if (k === 'fire') {
+    const adj = spec.useFireAdjustment ? ', корректировка огня' : ''
     if (cid != null && Number.isFinite(Number(cid)) && (tid == null || !Number.isFinite(Number(tid)))) {
-      return `Юнит ${id}: огонь по площади → кл. ${cid}`
+      return `Юнит ${id}: огонь по площади → кл. ${cid}${adj}`
     }
-    return `Юнит ${id}: огонь → юнит ${tid}`
+    return `Юнит ${id}: огонь → юнит ${tid}${adj}`
   }
   if (k === 'fireHard') {
     if (cid != null && Number.isFinite(Number(cid)) && (tid == null || !Number.isFinite(Number(tid)))) {
@@ -40,7 +41,7 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
   if (k === 'moveWar') return `Юнит ${id}: боевое положение → клетка ${cid}`
   if (k === 'getSup') {
     const r = spec.transferAmmo
-    return `Юнит ${id}: передача БК → юнит ${tid}, до ${r} шт.`
+    return `Юнит ${id}: загрузка припасов (передача БК) → юнит ${tid}, до ${r} шт.`
   }
   if (k === 'loading') return `Юнит ${id}: погрузка пехоты → юнит ${tid}`
   if (k === 'unloading') return `Юнит ${id}: выгрузка юнит ${tid} → клетка ${cid}`
@@ -61,6 +62,22 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
       return `Юнит ${id}: смена сектора → напр. ${fid}, дист. ${dr}`
     }
     return `Юнит ${id}: смена сектора обстрела`
+  }
+  const AIR_HEX_LOG_KEYS = new Set([
+    'intelligenceAir',
+    'airSupply',
+    'accompaniment',
+    'attackAir',
+    'bombardment',
+    'desant',
+    'interception',
+    'patrol',
+  ])
+  if (AIR_HEX_LOG_KEYS.has(k)) {
+    const fp = spec.flightPathCellIds
+    const pathSuffix =
+      Array.isArray(fp) && fp.length ? `; траектория: ${fp.join(' → ')}` : ''
+    return `Юнит ${id}: «${k}» → клетка ${cid}${pathSuffix}`
   }
   return `Юнит ${id}: «${k || '?'}»`
 }
@@ -217,6 +234,26 @@ const SUBMITTABLE_ORDER_KEYS = new Set([
   'clotting',
   'deploy',
   'changeSector',
+  'accompaniment',
+  'airSupply',
+  'attackAir',
+  'bombardment',
+  'desant',
+  'intelligenceAir',
+  'interception',
+  'patrol',
+  'airRecall',
+  'hardMove',
+  'explomost',
+  'fireMove',
+  'razvedka',
+  'svzy',
+  'buildPonton',
+  'cutEj',
+  'cutWire',
+  'demining',
+  'mining',
+  'trenches',
 ])
 
 async function resolveMemberLabels(keys) {
@@ -294,6 +331,14 @@ async function roomDetailPayload(room, selfKey) {
     isYou: Boolean(selfKey && m.key === selfKey),
     isHost: m.key === hk,
   }))
+  if (
+    room.battleStartedAt != null &&
+    Array.isArray(room.battleCells) &&
+    (!room.battleReconByFaction || typeof room.battleReconByFaction !== 'object')
+  ) {
+    const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
+    syncBattleReconByFaction(room, room.battleCells)
+  }
   return {
     room: roomToPublic(room),
     members,
@@ -309,6 +354,10 @@ async function roomDetailPayload(room, selfKey) {
     battleTurnAckCount: ackCount,
     battleTurnAckNeed: needAck.length,
     battleCells: room.battleStartedAt != null && Array.isArray(room.battleCells) ? room.battleCells : undefined,
+    battleReconByFaction:
+      room.battleStartedAt != null && room.battleReconByFaction && typeof room.battleReconByFaction === 'object'
+        ? room.battleReconByFaction
+        : undefined,
     battleLog: room.battleStartedAt != null && Array.isArray(room.battleLog) ? room.battleLog.slice(-120) : undefined,
   }
 }

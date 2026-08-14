@@ -36,6 +36,7 @@ export function useBattleHudLayout(params: {
   battleUnitOrders: { clientX: number; clientY: number } | null;
   setBattleUnitOrders: React.Dispatch<React.SetStateAction<any>>;
   leftMenu: unknown;
+  airSupportOpen: boolean;
   centerModal: unknown;
   battleEndedOverlay: boolean;
   panelMarginLeft: number;
@@ -48,6 +49,7 @@ export function useBattleHudLayout(params: {
     battleUnitOrders,
     setBattleUnitOrders,
     leftMenu,
+    airSupportOpen,
     centerModal,
     battleEndedOverlay,
     panelMarginLeft,
@@ -132,12 +134,12 @@ export function useBattleHudLayout(params: {
   }, [battleRef, syncBattleChrome]);
 
   useEffect(() => {
-    if (leftMenu || centerModal || battleEndedOverlay) syncBattleChrome();
-  }, [leftMenu, centerModal, battleEndedOverlay, syncBattleChrome]);
+    if (leftMenu || airSupportOpen || centerModal || battleEndedOverlay) syncBattleChrome();
+  }, [leftMenu, airSupportOpen, centerModal, battleEndedOverlay, syncBattleChrome]);
 
   const rawSidePanelWidth = battleChrome ? battleChrome.left - panelMarginLeft - gapBeforeBattle : 0;
   const standardPanelStyle: React.CSSProperties | undefined =
-    battleChrome && leftMenu && rawSidePanelWidth >= minSidePanelWidth
+    battleChrome && (leftMenu || airSupportOpen) && rawSidePanelWidth >= minSidePanelWidth
       ? {
           left: panelMarginLeft,
           top: battleChrome.top,

@@ -11,7 +11,21 @@ import EditorMapExportModal from '../components/editorMap/EditorMapExportModal'
 import EditorMapObjectPalette from '../components/editorMap/EditorMapObjectPalette'
 import { ConditionsPanel, ScenarioPanel, UnitsFilters, type ScenarioPhotoSlot } from '../components/editorMap/EditorMapSidePanels'
 import { Cell } from './../../../server/src/game/gameLogic/cells/cell'
-import { generateEmptyGrid } from '../game/hexGrid'
+import { generateEmptyGrid, computeEdgeCellIds } from '../game/hexGrid'
+import { getCellCenter } from '../components/map/cellsInteraction'
+import {
+  edgeIndexFromPoint,
+  toggleWireEdgeOnBuilds,
+} from '../game/cellWireEdges'
+import { toggleTrenchEdgeOnBuilds } from '../game/cellTrenchEdges'
+import { toggleAntiTankEdgeOnBuilds } from '../game/cellAntiTankEdges'
+import { computeBombardmentDirectionPickCellIds } from '../game/battleAirSupport'
+import { patchUnitOrderEditorMeta, readArtilleryDeployMeta, readUnitOrderEditorMeta } from '../game/editorMapUnitOrderMeta'
+import {
+  ensureCellBuilds,
+  isCatalogFortification,
+  type CatalogFortification,
+} from '../game/editorMapFortifications'
 import { fetchEditorCatalog, uploadEditorImage } from '../api/editorCatalog'
 import {
   deleteSavedMap,
@@ -22,7 +36,7 @@ import {
   type SavedMapListItem,
 } from '../api/maps'
 
-type EditorTabId = 'units' | 'hexes' | 'conditions' | 'scenario'
+type EditorTabId = 'units' | 'hexes' | 'buildings' | 'conditions' | 'scenario'
 
 type FactionId = 'all' | 'germany' | 'ussr'
 
@@ -57,6 +71,17 @@ type CatalogHex = {
   defBonusInf?: number
   defBonusTech?: number
   visionBlock?: boolean
+  hexExtra?: Record<string, unknown>
+  /** Оверлей с поля боя (то же, что в ячейке mapBuilding): связка hex.id_cobj → build в каталоге */
+  mapBuilding?: { name: string; imagePath: string }
+}
+
+/** Запись из каталога сооружений (`/api/editor/client/catalog` → buildings). */
+type CatalogBuilding = {
+  id: string
+  dbId: number
+  name: string
+  imagePath: string
 }
 
 type PlacedUnit = CatalogUnit & {
@@ -65,10 +90,13 @@ type PlacedUnit = CatalogUnit & {
   def?: number
   mor?: number
   mines?: number
+  explosives?: number
+  smokeShells?: number
   ammoSupply?: string
   health?: number
   ammo?: number
   orders?: BattleUnitOrderRef[]
+  orderEditorMeta?: import('../game/editorMapUnitOrderMeta').EditorMapUnitOrderEditorMeta
 }
 
 
@@ -83,6 +111,8 @@ type UnitCombatStatsFromDb = {
   def: number
   mor: number
   mines: number
+  explosives: number
+  smokeShells: number
   ammoSupply: string
   orders: BattleUnitOrderRef[]
 }
@@ -123,6 +153,7 @@ type StruggleFactionId = 'wehrmacht' | 'rkka'
 const EDITOR_TABS: { id: EditorTabId; label: string }[] = [
   { id: 'units', label: 'Юниты' },
   { id: 'hexes', label: 'Гексы' },
+  { id: 'buildings', label: 'Сооружения' },
   { id: 'conditions', label: 'Условия игры' },
   { id: 'scenario', label: 'Сценарий' },
 ]
@@ -134,12 +165,23 @@ const MAP_BASE_WIDTH = 1400
 const MAP_BASE_HEIGHT = 835
 const MAP_BASE_CELL = 42
 
-function isCatalogUnit(item: CatalogUnit | CatalogHex | null): item is CatalogUnit {
+type PaletteItem = CatalogUnit | CatalogHex | CatalogBuilding | CatalogFortification
+
+function isCatalogBuilding(item: PaletteItem | null): item is CatalogBuilding {
+  return (
+    item != null &&
+    typeof item === 'object' &&
+    'dbId' in item &&
+    typeof (item as CatalogBuilding).dbId === 'number'
+  )
+}
+
+function isCatalogUnit(item: PaletteItem | null): item is CatalogUnit {
   return item != null && 'faction' in item
 }
 
-function isCatalogHex(item: CatalogUnit | CatalogHex | null): item is CatalogHex {
-  return item != null && !('faction' in item)
+function isCatalogHex(item: PaletteItem | null): item is CatalogHex {
+  return item != null && !isCatalogUnit(item) && !isCatalogBuilding(item) && !isCatalogFortification(item)
 }
 
 /** Гекс «равнина» из каталога для начальной заливки сетки (тип, картинка, стоимость хода). */
@@ -191,13 +233,18 @@ const EditorMap: React.FC = () => {
   const [activeTab, setActiveTab] = useState<EditorTabId>('units')
   const [selectedFaction, setSelectedFaction] = useState<FactionId>('all')
   const [selectedUnitType, setSelectedUnitType] = useState<UnitTypeId>('all')
-  const [selectedItem, setSelectedItem] = useState<CatalogUnit | CatalogHex | null>(null)
+  const [selectedItem, setSelectedItem] = useState<PaletteItem | null>(null)
   const [apiUnits, setApiUnits] = useState<CatalogUnit[]>([])
   const [apiHexes, setApiHexes] = useState<CatalogHex[]>([])
+  const [apiBuildings, setApiBuildings] = useState<CatalogBuilding[]>([])
   const [unitCombatStatsByCatalogId, setUnitCombatStatsByCatalogId] = useState<
     Map<number, UnitCombatStatsFromDb>
   >(() => new Map())
   const nextInstanceIdRef = useRef(1)
+  const [artilleryFacingPick, setArtilleryFacingPick] = useState<{
+    unitInstanceId: number
+    unitCellId: number
+  } | null>(null)
 
   useEffect(() => {
     fetchEditorCatalog()
@@ -210,6 +257,7 @@ const EditorMap: React.FC = () => {
           })),
         )
         setApiHexes(d.hexes || [])
+        setApiBuildings(d.buildings || [])
 
         const combatMap = new Map<number, UnitCombatStatsFromDb>()
         for (const row of d.unitsEditor || []) {
@@ -229,6 +277,8 @@ const EditorMap: React.FC = () => {
             def: toNum(r.def),
             mor: toNum(r.mor),
             mines: toNum(r.mines),
+            explosives: toNum(r.explosives),
+            smokeShells: toNum(r.smokeShells),
             ammoSupply,
             orders: parseOrdersFromUnitsEditorRow(r),
           })
@@ -241,6 +291,8 @@ const EditorMap: React.FC = () => {
   const catalogUnits = useMemo(() => apiUnits, [apiUnits])
 
   const catalogHexes = useMemo(() => apiHexes, [apiHexes])
+
+  const catalogBuildings = useMemo(() => apiBuildings, [apiBuildings])
 
   const [axisCapture, setAxisCapture] = useState<AxisCaptureState>({
     enabled: false,
@@ -267,6 +319,48 @@ const EditorMap: React.FC = () => {
     height: MAP_BASE_HEIGHT,
     cellSize: MAP_BASE_CELL,
   })
+
+  const editorMapEdgeCellIds = useMemo(() => computeEdgeCellIds(cells), [cells])
+
+  const editorFacingPickCellIds = useMemo(() => {
+    if (!artilleryFacingPick) return null
+    const center = cells.find((c) => c.id === artilleryFacingPick.unitCellId)
+    if (!center) return null
+    return computeBombardmentDirectionPickCellIds(center, cells)
+  }, [artilleryFacingPick, cells])
+
+  useEffect(() => {
+    if (!artilleryFacingPick) return
+    const pick = artilleryFacingPick
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setArtilleryFacingPick(null)
+      const hostCell = cells.find((c) => c.id === pick.unitCellId)
+      const hostUnit = hostCell?.units?.find(
+        (u) => (u as unknown as PlacedUnit).instanceId === pick.unitInstanceId,
+      )
+      if (!hostUnit) return
+      const dep = readArtilleryDeployMeta(readUnitOrderEditorMeta(hostUnit))
+      if (dep.deployed && dep.facingCellId == null) {
+        handleEditorUnitPatch(pick.unitCellId, pick.unitInstanceId, (u) =>
+          patchUnitOrderEditorMeta(u, (prev) => {
+            const copy = { ...prev }
+            delete copy.artilleryDeploy
+            delete copy.artilleryDeployed
+            return copy
+          }),
+        )
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [artilleryFacingPick, cells])
+
+  const editorAviationPlacementActive =
+    activeTab === 'units' &&
+    selectedItem != null &&
+    isCatalogUnit(selectedItem) &&
+    (selectedItem.type === 'lightAir' || selectedItem.type === 'heavyAir')
 
   useEffect(() => {
     if (!showExportModal) return
@@ -311,6 +405,7 @@ const EditorMap: React.FC = () => {
           (c) =>
             ({
               ...c,
+              builds: ensureCellBuilds(c.builds),
               type: plain.type,
               img: plain.imagePath,
               moveCost: legacy,
@@ -326,8 +421,71 @@ const EditorMap: React.FC = () => {
     setShowGridModal(false)
   }
 
-  function handleCellClick(cell: Cell) {
+  function handleCellClick(
+    cell: Cell,
+    _unitId?: number,
+    click?: { canvasX: number; canvasY: number },
+  ) {
     if (!selectedItem) return
+
+    if (activeTab === 'buildings' && isCatalogFortification(selectedItem)) {
+      if (
+        selectedItem.buildKey === 'wire' ||
+        selectedItem.buildKey === 'trench' ||
+        selectedItem.buildKey === 'antiTankBuild'
+      ) {
+        const center = getCellCenter(
+          cell.coor.x,
+          cell.coor.z,
+          mapLayout.cellSize,
+          mapLayout.width,
+          mapLayout.height,
+        )
+        const edgeDir = click
+          ? edgeIndexFromPoint(center.x, center.y, click.canvasX, click.canvasY)
+          : 0
+        setCells((prev) =>
+          prev.map((c) => {
+            if (c.id !== cell.id) return c
+            let nextBuilds
+            if (selectedItem.buildKey === 'wire') {
+              nextBuilds = toggleWireEdgeOnBuilds(c.builds, edgeDir)
+            } else if (selectedItem.buildKey === 'trench') {
+              nextBuilds = toggleTrenchEdgeOnBuilds(c.builds, edgeDir)
+            } else {
+              nextBuilds = toggleAntiTankEdgeOnBuilds(c.builds, edgeDir)
+            }
+            return { ...c, builds: nextBuilds } as Cell
+          }),
+        )
+        return
+      }
+      setCells((prev) =>
+        prev.map((c) => {
+          if (c.id !== cell.id) return c
+          const builds = ensureCellBuilds(c.builds)
+          const key = selectedItem.buildKey
+          const nextBuilds = { ...builds, [key]: builds[key] > 0 ? 0 : 1 }
+          return { ...c, builds: nextBuilds }
+        }),
+      )
+      return
+    }
+
+    if (activeTab === 'buildings' && isCatalogBuilding(selectedItem)) {
+      setCells((prev) =>
+        prev.map((c) => {
+          if (c.id !== cell.id) return c
+          const next = { ...c } as unknown as Cell & { mapBuilding?: { name: string; imagePath: string } }
+          next.mapBuilding = {
+            name: selectedItem.name || '',
+            imagePath: selectedItem.imagePath || '',
+          }
+          return next as Cell
+        }),
+      )
+      return
+    }
 
     if (activeTab === 'hexes' && isCatalogHex(selectedItem)) {
       const hexType = selectedItem.type
@@ -335,26 +493,59 @@ const EditorMap: React.FC = () => {
       const tech = selectedItem.moveCostTech ?? selectedItem.moveCost ?? 1
       const legacy = selectedItem.moveCost ?? inf
       setCells((prev) =>
-        prev.map((c) =>
-          c.id === cell.id
-            ? ({
-                ...c,
-                type: hexType,
-                img: selectedItem.imagePath,
-                moveCost: legacy,
-                moveCostInf: inf,
-                moveCostTech: tech,
-                visionBlock: Boolean(selectedItem.visionBlock),
-                defBonusInf: Math.max(0, Number(selectedItem.defBonusInf) || 0),
-                defBonusTech: Math.max(0, Number(selectedItem.defBonusTech) || 0),
-              } as Cell)
-            : c,
-        ),
+        prev.map((c) => {
+          if (c.id !== cell.id) return c
+          const prevEx =
+            (c as unknown as { hexExtra?: Record<string, unknown> }).hexExtra &&
+            typeof (c as unknown as { hexExtra?: unknown }).hexExtra === 'object'
+              ? {
+                  ...((c as unknown as { hexExtra: Record<string, unknown> }).hexExtra as Record<
+                    string,
+                    unknown
+                  >),
+                }
+              : {}
+          const catEx =
+            selectedItem.hexExtra && typeof selectedItem.hexExtra === 'object'
+              ? { ...(selectedItem.hexExtra as Record<string, unknown>) }
+              : {}
+          const mergedHex = { ...prevEx, ...catEx }
+          const hexExtraPayload =
+            Object.keys(mergedHex).length > 0 ? { hexExtra: mergedHex } : ({} as Record<string, never>)
+          const next = {
+            ...c,
+            type: hexType,
+            img: selectedItem.imagePath,
+            moveCost: legacy,
+            moveCostInf: inf,
+            moveCostTech: tech,
+            visionBlock: Boolean(selectedItem.visionBlock),
+            defBonusInf: Math.max(0, Number(selectedItem.defBonusInf) || 0),
+            defBonusTech: Math.max(0, Number(selectedItem.defBonusTech) || 0),
+            ...hexExtraPayload,
+          } as unknown as Cell & { mapBuilding?: { name: string; imagePath: string } }
+          if (selectedItem.mapBuilding && (selectedItem.mapBuilding.imagePath || selectedItem.mapBuilding.name)) {
+            next.mapBuilding = {
+              name: selectedItem.mapBuilding.name || '',
+              imagePath: selectedItem.mapBuilding.imagePath || '',
+            }
+          } else {
+            delete next.mapBuilding
+          }
+          return next as Cell
+        }),
       )
       return
     }
 
     if (activeTab === 'units' && isCatalogUnit(selectedItem)) {
+      if (
+        (selectedItem.type === 'lightAir' || selectedItem.type === 'heavyAir') &&
+        !editorMapEdgeCellIds.has(cell.id)
+      ) {
+        window.alert('Авиацию можно ставить только на край карты (подсвеченные красным гексы).')
+        return
+      }
       setCells((prev) =>
         prev.map((c) => {
           if (c.id !== cell.id) return c
@@ -374,6 +565,8 @@ const EditorMap: React.FC = () => {
                   def: st.def,
                   mor: st.mor,
                   mines: st.mines,
+                  explosives: st.explosives,
+                  smokeShells: st.smokeShells,
                   ...(st.ammoSupply ? { ammoSupply: st.ammoSupply } : {}),
                   ...(st.orders.length ? { orders: st.orders } : {}),
                 }
@@ -399,6 +592,38 @@ const EditorMap: React.FC = () => {
         return c
       }),
     )
+  }
+
+  function handleEditorUnitPatch(
+    cellId: number,
+    unitInstanceId: number,
+    patch: (unit: Record<string, unknown>) => Record<string, unknown>,
+  ) {
+    setCells((prev) =>
+      prev.map((c) => {
+        if (c.id !== cellId || !c.units?.length) return c
+        let changed = false
+        const units = c.units.map((u) => {
+          const pu = u as unknown as PlacedUnit
+          if (pu.instanceId !== unitInstanceId) return u
+          changed = true
+          return patch(u as unknown as Record<string, unknown>) as typeof u
+        })
+        return changed ? { ...c, units } : c
+      }),
+    )
+  }
+
+  function handleEditorFacingCellPick(cell: Cell) {
+    if (!artilleryFacingPick) return
+    if (!editorFacingPickCellIds?.includes(cell.id)) return
+    handleEditorUnitPatch(artilleryFacingPick.unitCellId, artilleryFacingPick.unitInstanceId, (u) =>
+      patchUnitOrderEditorMeta(u, (prev) => ({
+        ...prev,
+        artilleryDeploy: { deployed: true, facingCellId: cell.id },
+      })),
+    )
+    setArtilleryFacingPick(null)
   }
 
   async function handleScenarioPhotoUpload(slot: ScenarioPhotoSlot, file: File | null) {
@@ -445,6 +670,10 @@ const EditorMap: React.FC = () => {
       return false
     }
     const loadedCells = JSON.parse(JSON.stringify(rawCells)) as Cell[]
+    for (let i = 0; i < loadedCells.length; i++) {
+      const c = loadedCells[i]
+      loadedCells[i] = { ...c, builds: ensureCellBuilds(c.builds) }
+    }
 
     const cond =
       p.conditions != null && typeof p.conditions === 'object'
@@ -601,7 +830,7 @@ const EditorMap: React.FC = () => {
     setSelectedItem(null)
   }
 
-  const showObjectPalette = activeTab === 'units' || activeTab === 'hexes'
+  const showObjectPalette = activeTab === 'units' || activeTab === 'hexes' || activeTab === 'buildings'
 
   return (
     <div className={styles.editorMap}>
@@ -613,11 +842,27 @@ const EditorMap: React.FC = () => {
         onShowGuide={() => setShowGuideModal(true)}
       />
 
-      {selectedItem && (
+      {artilleryFacingPick ? (
         <div className={styles.selectionToast} role="status">
-          <span>Выбран: {selectedItem.name}</span>
+          <span>Выберите соседний гекс — направление орудия (Esc — отмена)</span>
         </div>
-      )}
+      ) : null}
+      {selectedItem && !artilleryFacingPick ? (
+        <div className={styles.selectionToast} role="status">
+          <span>
+            Выбран: {selectedItem.name}
+            {isCatalogFortification(selectedItem) &&
+            (selectedItem.buildKey === 'wire' ||
+              selectedItem.buildKey === 'trench' ||
+              selectedItem.buildKey === 'antiTankBuild')
+              ? ' — клик по стороне гекса'
+              : isCatalogFortification(selectedItem) &&
+                  (selectedItem.buildKey === 'dot' || selectedItem.buildKey === 'storage')
+                ? ' — клик по гексу'
+                : ''}
+          </span>
+        </div>
+      ) : null}
 
       <div className={styles.layoutRow}>
         <div className={styles.editorMainMap} ref={mapHostRef}>
@@ -630,6 +875,20 @@ const EditorMap: React.FC = () => {
             onCellClick={handleCellClick}
             onUnitDelete={handleUnitDelete}
             hideEditorCellHexMenu={selectedItem != null}
+            editorAviationEdgeHighlight={editorAviationPlacementActive}
+            editorAviationEdgeCellIds={editorMapEdgeCellIds}
+            editorCatalogUnits={catalogUnits}
+            onEditorUnitPatch={handleEditorUnitPatch}
+            editorFacingPickCellIds={editorFacingPickCellIds}
+            onEditorFacingCellPick={handleEditorFacingCellPick}
+            artilleryFacingPick={artilleryFacingPick}
+            onStartArtilleryFacingPick={(unitInstanceId, unitCellId) =>
+              setArtilleryFacingPick({ unitInstanceId, unitCellId })
+            }
+            onCancelArtilleryFacingPick={() => setArtilleryFacingPick(null)}
+            onEditorCellPatch={(cellId, patch) =>
+              setCells((prev) => prev.map((c) => (c.id === cellId ? patch(c) : c)))
+            }
           />
         </div>
 
@@ -685,7 +944,10 @@ const EditorMap: React.FC = () => {
               selectedItem={selectedItem}
               catalogUnits={catalogUnits}
               catalogHexes={catalogHexes}
-              onSelect={(item) => setSelectedItem(item as CatalogUnit | CatalogHex | null)}
+              catalogBuildings={catalogBuildings}
+              onSelect={(item) =>
+                setSelectedItem(item as CatalogUnit | CatalogHex | CatalogBuilding | null)
+              }
             />
           }
         />

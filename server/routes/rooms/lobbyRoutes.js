@@ -265,6 +265,7 @@ function registerLobbyRoutes(router) {
       }
     }
     room.battleCells = cells && cells.length ? cells : []
+    room.battleReconByFaction = { rkka: [], wehrmacht: [] }
     room.battleFieldRevision = 1
     room.battleLog = []
     room.battleOrdersDraft = {}

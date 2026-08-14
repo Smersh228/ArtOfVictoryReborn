@@ -14,6 +14,12 @@ interface EditorUnitSidebarProps {
   selectedUnitType: string;
   setSelectedFaction: (id: string) => void;
   setSelectedUnitType: (id: string) => void;
+  hexSidebarCategories: FilterItem[];
+  selectedHexCategory: string;
+  setSelectedHexCategory: (id: string) => void;
+  ruleChapterFilters: FilterItem[];
+  selectedRuleChapterFilter: string;
+  setSelectedRuleChapterFilter: (id: string) => void;
   onAddClick: () => void;
   units: any[];
   hexes: any[];
@@ -33,6 +39,12 @@ const EditorUnitSidebar: React.FC<EditorUnitSidebarProps> = ({
   selectedUnitType,
   setSelectedFaction,
   setSelectedUnitType,
+  hexSidebarCategories,
+  selectedHexCategory,
+  setSelectedHexCategory,
+  ruleChapterFilters,
+  selectedRuleChapterFilter,
+  setSelectedRuleChapterFilter,
   onAddClick,
   units,
   hexes,
@@ -89,6 +101,40 @@ const EditorUnitSidebar: React.FC<EditorUnitSidebarProps> = ({
             </div>
           </>
         )}
+
+        {activeTab === 'hexes' && (
+          <div className={styles.filterGroup}>
+            <div className={styles.filterGroupTitle}>Группа</div>
+            <div className={styles.filterRow}>
+              {hexSidebarCategories.map((c) => (
+                <div
+                  key={c.id}
+                  className={`${styles.filterItem} ${selectedHexCategory === c.id ? styles.active : ''}`}
+                  onClick={() => setSelectedHexCategory(c.id)}
+                >
+                  {c.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'rules' && (
+          <div className={styles.filterGroup}>
+            <div className={styles.filterGroupTitle}>Глава</div>
+            <div className={styles.unitTypeGrid}>
+              {ruleChapterFilters.map((c) => (
+                <div
+                  key={c.id}
+                  className={`${styles.filterItem} ${selectedRuleChapterFilter === c.id ? styles.active : ''}`}
+                  onClick={() => setSelectedRuleChapterFilter(c.id)}
+                >
+                  {c.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className={styles.editorUnitItems}>
@@ -112,7 +158,14 @@ const EditorUnitSidebar: React.FC<EditorUnitSidebarProps> = ({
             ))}
 
         {activeTab === 'hexes' &&
-          hexes.map((item) => (
+          hexes
+            .filter((h) => {
+              if (selectedHexCategory === 'all') return true;
+              const ex = h.hexExtra && typeof h.hexExtra === 'object' ? h.hexExtra : {};
+              const cat = typeof ex.category === 'string' && ex.category ? ex.category : 'nature';
+              return cat === selectedHexCategory;
+            })
+            .map((item) => (
             <div
               key={item.id}
               className={`${styles.unitItem} ${selectedUnit?.id === item.id ? styles.selected : ''}`}
@@ -124,7 +177,13 @@ const EditorUnitSidebar: React.FC<EditorUnitSidebarProps> = ({
           ))}
 
         {activeTab === 'rules' &&
-          rules.map((item) => (
+          rules
+            .filter((item) => {
+              if (selectedRuleChapterFilter === 'all') return true;
+              const ch = String(item.chapter ?? item.head ?? '').trim();
+              return ch === selectedRuleChapterFilter;
+            })
+            .map((item) => (
             <div
               key={item.id}
               className={`${styles.unitItem} ${selectedUnit?.id === item.id ? styles.selected : ''}`}

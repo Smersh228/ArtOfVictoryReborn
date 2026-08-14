@@ -1,13 +1,13 @@
 
 .editorUnit {
-  margin-left: 5px;
+  margin-left: 4px;
   margin-top: 8px;
-  width: 99%;
-  max-width: calc(100vw - 10px);
+  width: 100%;
+  max-width: calc(100vw - 8px);
   height: calc(100vh - 12px);
   max-height: calc(100dvh - 12px);
   box-sizing: border-box;
-  padding: 10px 12px 10px;
+  padding: 10px 8px 10px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -45,10 +45,10 @@
 }
 
 .editorUnitList {
-  flex: 0 1 clamp(260px, 34vw, 480px);
-  width: clamp(260px, 34vw, 480px);
-  min-width: 240px;
-  max-width: 480px;
+  flex: 0 1 clamp(240px, 26vw, 380px);
+  width: clamp(240px, 26vw, 380px);
+  min-width: 220px;
+  max-width: 380px;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -62,7 +62,7 @@
 }
 
 .rightWorkspace {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -72,7 +72,7 @@
 }
 
 .editorWorkspaceInner {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -83,14 +83,23 @@
 
 
 .editorWorkspaceInnerScroll {
-  flex: 1 1 auto;
-  min-height: min(78vh, 900px);
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: 6px;
+}
+
+.editorWorkspaceInnerScroll > .editorUnitParametrsTall {
+  flex: 1 1 0;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
 }
 
-.editorWorkspaceInnerScroll::-webkit-scrollbar {
+.editorWorkspaceInnerScroll > .editorUnitParametrsTall::-webkit-scrollbar {
   width: 6px;
 }
 
@@ -470,9 +479,9 @@
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.42);
   border: 1px solid rgba(255, 255, 255, 0.5);
-  color: #333;
+  color: #000;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 700;
   cursor: pointer;
   width: fit-content;
   max-width: 100%;
@@ -532,7 +541,8 @@
 
 .editorUnitParametrsTall {
   flex: 1 1 auto;
-  min-height: min(72vh, 820px);
+  width: 100%;
+  min-height: 0;
   max-height: none;
   overflow: visible;
   padding: 18px 22px 20px;
@@ -631,14 +641,94 @@
   align-items: center;
 }
 
-/* Второй заголовок («Свойства») — отступ от блока приказов, без наслоения */
-.editorUnitOrdersCompact > .sectionHeading:nth-child(3) {
+/* Заголовок «Свойства» — отступ от блока приказов */
+.editorUnitOrdersCompact .sectionHeadingProperties {
   margin-top: 14px;
 }
 
-/* Сетки чипов — по высоте контента; скролл у родителя .editorUnitOrders (не flex:1 пополам, иначе контент вылезает) */
-.editorUnitOrdersCompact > .ordersGrid:nth-child(2),
-.editorUnitOrdersCompact > .ordersGrid:nth-child(4) {
+.orderFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.orderFilterBtn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.45);
+  color: rgba(30, 30, 35, 0.92);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.orderFilterBtn:hover {
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.orderFilterBtnActive {
+  border-color: rgba(80, 120, 200, 0.55);
+  background: rgba(200, 220, 255, 0.55);
+  box-shadow: 0 0 0 1px rgba(80, 120, 200, 0.2);
+}
+
+/* Ряд: чипы приказов + редактор дальности разведки (при выборе «Авиационная разведка») */
+.ordersRowWithIntelAir {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.editorUnitOrdersCompact .ordersRowWithIntelAir .ordersGrid {
+  flex: 2 1 260px;
+  margin-bottom: 0;
+  max-width: 100%;
+}
+
+.ordersSpecialReconPanels {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 300px;
+  min-width: min(100%, 280px);
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.ordersSpecialReconPanels .intelligenceAirFireCard {
+  flex: 0 1 auto;
+  width: 100%;
+}
+
+.intelligenceAirFireCard {
+  flex: 1 1 300px;
+  min-width: min(100%, 280px);
+  max-width: 100%;
+  padding: 12px 14px;
+  box-sizing: border-box;
+}
+
+.intelligenceAirLegendLine {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(40, 45, 55, 0.88);
+}
+
+.intelligenceAirLegendLine:last-of-type {
+  margin-bottom: 10px;
+}
+
+.editorUnitOrdersCompact .ordersGrid {
   flex: 0 0 auto;
   min-height: 0;
   max-height: none;
@@ -649,12 +739,8 @@
   box-sizing: border-box;
 }
 
-.editorUnitOrdersCompact > .ordersGrid:nth-child(4) {
+.editorUnitOrdersCompact .ordersGridProperties {
   margin-bottom: 0;
-}
-
-.editorUnitOrdersCompact .ordersGrid {
-  gap: 6px;
 }
 
 .editorUnitOrdersCompact .orderChip,
@@ -690,10 +776,15 @@
   grid-template-columns: 1fr 1fr 2fr;
   gap: 18px;
   min-width: 0;
+  align-items: start;
 }
 
 .paramGrid3 > * {
   min-width: 0;
+}
+
+.paramGrid3 > .fireRangeSection {
+  grid-column: 1 / -1;
 }
 
 .paramGrid2 {
@@ -708,6 +799,441 @@
   gap: 18px;
   width: 100%;
   min-width: 0;
+}
+
+.editorUnitParametrsTall .hexEditorParamWrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.hexEditorLayout {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(240px, 1fr) minmax(240px, 1fr);
+  grid-template-rows: auto auto auto;
+  gap: 12px;
+  width: 100%;
+  align-items: stretch;
+}
+
+.hexEditorMainSpan {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  min-width: 0;
+}
+
+.hexEditorAmbushPlaceBand {
+  grid-column: 2 / -1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.hexEditorStretchCard {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.hexEditorStretchCard > .cardTitle {
+  flex-shrink: 0;
+}
+
+.hexEditorStretchCard .hexCheckboxGridTwoCol {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.hexEditorCostUnderAmbush {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.hexEditorDefenseUnderPlace {
+  grid-column: 3;
+  grid-row: 2;
+  min-width: 0;
+}
+
+.hexEditorCostUnderAmbush,
+.hexEditorDefenseUnderPlace {
+  padding: 16px 18px 18px;
+}
+
+.hexEditorCostUnderAmbush > .hexCombatMergeTitle,
+.hexEditorDefenseUnderPlace > .hexCombatMergeTitle {
+  margin: 0 0 12px;
+  font-size: 14px;
+  text-align: center;
+}
+
+.hexEditorCostUnderAmbush .hexEditorStatsCompact,
+.hexEditorDefenseUnderPlace .hexEditorStatsCompact {
+  gap: 8px 12px;
+}
+
+.hexEditorCostUnderAmbush .hexEditorStatsCompact .fieldLabelSm,
+.hexEditorDefenseUnderPlace .hexEditorStatsCompact .fieldLabelSm {
+  margin-bottom: 6px;
+}
+
+.hexEditorLayout .glassCard .fieldInput,
+.hexEditorLayout .glassCard .fieldSelect {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.hexEditorLayout .editorImageRow {
+  align-items: center;
+}
+
+.hexEditorLayout .editorImageRowLabel {
+  flex: 0 0 auto;
+  max-width: 200px;
+  width: auto;
+}
+
+.hexEditorCard {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.hexEditorCardWide {
+  min-width: 0;
+}
+
+.hexCheckboxGrid.hexCheckboxGridTwoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 14px;
+  align-items: start;
+}
+
+/* На всю ширину сетки hexEditorLayout (последняя строка). */
+.hexEditorCardFullRow {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  min-width: 0;
+}
+
+.hexCombatMergeInner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+}
+
+.hexCombatMergeMovement {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding-bottom: 0;
+}
+
+.hexCombatMergeMovement .hexCombatMergeTitle {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.hexCombatMergeMovement .hexCheckboxGrid {
+  flex: 1 1 240px;
+  margin: 0;
+}
+
+.hexCombatMergeTop {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 16px;
+  align-items: start;
+}
+
+.hexCombatMergeCol {
+  min-width: 0;
+}
+
+.hexCombatMergeBottom {
+  min-width: 0;
+  padding-top: 0;
+}
+
+.hexCombatMergeTitle {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(25, 25, 30, 0.92);
+  text-align: left;
+}
+
+.hexEditorStatsCompact {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.hexAccHint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: rgba(25, 25, 30, 0.62);
+}
+
+.hexAccEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hexAccEmpty {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(25, 25, 30, 0.55);
+}
+
+.hexAccList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hexAccListHeader,
+.hexAccListRow {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) minmax(72px, 0.7fr) auto minmax(130px, 1.2fr) 28px;
+  gap: 8px;
+  align-items: center;
+}
+
+.hexAccListHeader {
+  padding: 0 2px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(25, 25, 30, 0.55);
+  text-transform: uppercase;
+}
+
+.hexAccListRow .fieldSelect,
+.hexAccListRow .fieldInput {
+  padding: 5px 8px;
+  min-height: 30px;
+  font-size: 13px;
+}
+
+.hexAccMeleeCb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: rgba(25, 25, 30, 0.78);
+  cursor: pointer;
+  user-select: none;
+}
+
+.hexAccMeleeCb input {
+  margin: 0;
+}
+
+.hexAccRemoveBtn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(25, 25, 30, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.65);
+  color: rgba(25, 25, 30, 0.72);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.hexAccRemoveBtn:hover {
+  background: rgba(220, 60, 60, 0.12);
+  border-color: rgba(200, 50, 50, 0.35);
+  color: rgba(170, 30, 30, 0.95);
+}
+
+.hexAccAddBtn {
+  align-self: flex-start;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 8px;
+  border: 1px dashed rgba(25, 25, 30, 0.28);
+  background: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  color: rgba(25, 25, 30, 0.82);
+}
+
+.hexAccAddBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(25, 25, 30, 0.42);
+}
+
+.hexAccAddBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hexEditorLayout .hexEditorStatsCompact .fieldInput {
+  padding: 5px 8px;
+  min-height: 30px;
+  font-size: 13px;
+}
+
+.hexEditorLayout .hexEditorCostUnderAmbush .hexEditorStatsCompact .fieldInput,
+.hexEditorLayout .hexEditorDefenseUnderPlace .hexEditorStatsCompact .fieldInput {
+  padding: 8px 11px;
+  min-height: 34px;
+}
+
+.hexEditorCardTwoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 22px;
+  align-items: start;
+}
+
+.hexEditorCardCol {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hexEditorNumericWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.hexNumericTwoColTop {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+  align-items: start;
+}
+
+.hexNumericBlock {
+  min-width: 0;
+}
+
+.hexNumericBlockFull {
+  width: 100%;
+  min-width: 0;
+}
+
+.hexCheckboxGridDense {
+  gap: 6px 12px;
+}
+
+.hexCheckboxCol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+@media (max-width: 1320px) {
+  .hexEditorLayout {
+    grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+    grid-template-rows: auto;
+  }
+
+  .hexEditorMainSpan {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .hexEditorAmbushPlaceBand {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .hexEditorCostUnderAmbush {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .hexEditorDefenseUnderPlace {
+    grid-column: 2;
+    grid-row: auto;
+  }
+
+  .hexEditorCardFullRow {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .hexEditorCardWide {
+    grid-column: 1 / -1;
+  }
+
+}
+
+@media (max-width: 1150px) {
+  .hexEditorCardTwoCol,
+  .hexNumericTwoColTop {
+    grid-template-columns: 1fr;
+  }
+
+  .hexCombatMergeTop {
+    grid-template-columns: 1fr;
+  }
+
+  .hexEditorStatsCompact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 860px) {
+  .hexEditorLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .hexEditorMainSpan {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .hexEditorAmbushPlaceBand {
+    grid-template-columns: 1fr;
+    grid-column: 1 / -1;
+  }
+
+  .hexEditorCostUnderAmbush,
+  .hexEditorDefenseUnderPlace {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  .hexEditorCardWide {
+    grid-column: auto;
+  }
+
+  .hexEditorCardFullRow {
+    grid-column: auto;
+    grid-row: auto;
+  }
+
+  .hexCheckboxGrid.hexCheckboxGridTwoCol {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hexEditorMainCard {
@@ -803,6 +1329,134 @@
 .fieldStack .fieldSelect {
   width: 100%;
   max-width: 100%;
+}
+
+.fireRangeBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fireRangeMatrix {
+  padding: 10px 10px 12px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.035);
+  border: 1px solid rgba(25, 35, 55, 0.08);
+  overflow-x: auto;
+}
+
+.fireRangeMatrixColumns {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  min-width: min-content;
+}
+
+.fireRangeMatrixCol {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  flex: 0 0 auto;
+  width: 48px;
+  min-width: 40px;
+}
+
+.fireRangeMatrixDistCell,
+.fireRangeMatrixAccCell {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  padding: 5px 6px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 6px;
+  box-sizing: border-box;
+}
+
+.fireRangeMatrixDistCell {
+  background: rgba(70, 95, 140, 0.14);
+  color: rgba(28, 32, 42, 0.92);
+}
+
+.fireRangeMatrixAccCell {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(35, 45, 65, 0.12);
+  color: rgba(28, 32, 42, 0.95);
+}
+
+.fireRangeMatrixAccCellEmpty {
+  font-weight: 600;
+  color: rgba(110, 115, 125, 0.75);
+}
+
+.fireRangeMatrixAccInput {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  padding: 5px 6px;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.fireRangeMatrixAccInput.fireRangeMatrixAccCellEmpty::placeholder {
+  color: rgba(110, 115, 125, 0.72);
+  font-weight: 600;
+}
+
+.fireRangeQuickWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.fireRangeQuickHeading {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(45, 45, 50, 0.88);
+}
+
+.fireRangeQuickRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+}
+
+.fireRangeQuickField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(55, 55, 62, 0.88);
+}
+
+.fireRangeQuickField .fieldInput {
+  width: 76px;
+  min-height: 32px;
+}
+
+.fireRangeQuickBtn {
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid rgba(60, 70, 90, 0.28);
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+  color: rgba(30, 32, 38, 0.92);
+}
+
+.fireRangeQuickBtn:hover {
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .fieldStackLoose {
@@ -917,28 +1571,116 @@
 }
 
 .fireDamageGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  align-content: start;
+  padding: 8px 14px 11px;
+}
+
+.fireIntensityHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.fireIntensityFilterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.fireReactiveIntensityBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.fireIntensityModesStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fireIntensityTableWrap {
   display: grid;
-  grid-auto-rows: minmax(32px, auto);
   grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+  gap: 4px 8px;
+  align-items: start;
+}
+
+.fireIntensityGridTitle {
+  grid-column: 1 / -1;
+  margin: 0 0 6px;
+  padding: 0 2px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(40, 44, 52, 0.88);
+  line-height: 1.25;
+  text-align: center;
 }
 
 .fireDamageTitle {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   text-align: center;
   color: rgba(25, 25, 30, 0.92);
-  grid-column: 1 / -1;
-  margin: 0 0 8px;
-  padding-bottom: 0;
+  margin: 0;
+  padding: 0;
+  line-height: 1.2;
 }
 
 .fireCol {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 8px;
+  gap: 6px;
+  margin: 0 6px 6px;
   text-align: center;
+}
+
+.fireRowWithMelee {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.fireRowMeleeLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fireRowMeleeLine .fieldInput {
+  flex: 1;
+  min-width: 100px;
+}
+
+.fireMeleeCb {
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  color: rgba(35, 35, 40, 0.9);
+}
+
+.hexEditorSectionTitle {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 14px 0 8px;
+  color: rgba(25, 25, 30, 0.88);
+}
+
+.hexCheckboxGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
 }
 
 .footerActions {
@@ -954,6 +1696,29 @@
 
 .footerActions > div {
   margin: 0 !important;
+}
+
+.footerMapPublicBtn {
+  margin-right: auto;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  background: rgba(255, 255, 255, 0.55);
+  color: rgba(30, 30, 35, 0.85);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.footerMapPublicBtn:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.footerMapPublicBtnOn {
+  border-color: rgba(34, 120, 60, 0.45);
+  background: rgba(210, 245, 220, 0.85);
+  color: rgba(20, 90, 40, 0.95);
 }
 
 .sectionHeading {
@@ -1130,14 +1895,6 @@
 }
 
 @media (max-height: 800px) {
-  .editorWorkspaceInnerScroll {
-    min-height: min(58vh, 480px);
-  }
-
-  .editorUnitParametrs {
-    max-height: min(40vh, 400px);
-  }
-
   .editorUnitParametrsUnits {
     max-height: min(38vh, 440px);
   }
