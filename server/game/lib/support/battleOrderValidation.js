@@ -113,11 +113,15 @@ function validateBattleOrders(cells, orders, context) {
   }
   for (let i = 0; i < orders.length; i++) {
     const o = orders[i] || {}
-    if (o.orderKey != null) o.orderKey = normalizeOrderKey(o.orderKey)
+    const rawKey = o.orderKey ?? o.order_key ?? o.order ?? ''
+    const ok = normalizeOrderKey(String(rawKey).trim())
+    o.orderKey = ok
     const uid = Number(o.unitInstanceId)
     if (!Number.isFinite(uid)) return `Приказ ${i + 1}: нет unitInstanceId`
-    const ok = String(o.orderKey ?? '').trim()
-    if (!submittableOrderKeys.has(ok)) return `Приказ ${i + 1}: неизвестный orderKey`
+    if (!submittableOrderKeys.has(ok)) {
+      const shown = ok || String(rawKey).trim() || '(пусто)'
+      return `Приказ ${i + 1}: неизвестный orderKey «${shown}»`
+    }
     const found = findUnitOnField(cells, uid)
     if (!found) return `Приказ ${i + 1}: юнит не на поле`
     if (!ownsUnit(found.unit)) return `Приказ ${i + 1}: нельзя отдавать приказ чужому юниту`
@@ -176,8 +180,14 @@ function validateBattleOrders(cells, orders, context) {
       }
       if (ok === 'fire' || ok === 'fireHard') {
         const needAmmo = ok === 'fireHard' ? 3 : 1
-        if (getAmmoForValidate(found.unit) < needAmmo) {
-          return `Приказ ${i + 1}: недостаточно БК (${ok === 'fireHard' ? 'огонь на подавление — 3' : 'огонь — 1'})`
+        const dotMod = require('../map/battleDot')
+        let haveAmmo = getAmmoForValidate(found.unit)
+        if (dotMod.dotShooterUsesDotAmmo(found.unit)) {
+          haveAmmo = dotMod.getDotAmmo(found.cell.builds)
+        }
+        if (haveAmmo < needAmmo) {
+          const src = dotMod.dotShooterUsesDotAmmo(found.unit) ? 'БК ДОТ' : 'БК'
+          return `Приказ ${i + 1}: недостаточно ${src} (${ok === 'fireHard' ? 'огонь на подавление — 3' : 'огонь — 1'})`
         }
         const dFire = hexDistCells(found.cell, tgt.cell)
         const effDFire = desantCombat.effectiveFireDistanceForAccuracy(found.unit, tgt.unit, dFire)
@@ -194,11 +204,14 @@ function validateBattleOrders(cells, orders, context) {
         }
       }
       if ((ok === 'fire' || ok === 'fireHard') && isArtilleryUnit(found.unit)) {
-        if (!isArtilleryDeployedForBattle(found.unit)) {
-          return `Приказ ${i + 1}: артиллерия свёрнута — приказ «Развёртывание»`
-        }
-        if (!isArtilleryFireTargetCellAllowed(found.unit, tgt.cell.id)) {
-          return `Приказ ${i + 1}: цель вне сектора обстрела артиллерии`
+        const dotMod = require('../map/battleDot')
+        if (!dotMod.unitInDot(found.unit)) {
+          if (!isArtilleryDeployedForBattle(found.unit)) {
+            return `Приказ ${i + 1}: артиллерия свёрнута — приказ «Развёртывание»`
+          }
+          if (!isArtilleryFireTargetCellAllowed(found.unit, tgt.cell.id)) {
+            return `Приказ ${i + 1}: цель вне сектора обстрела артиллерии`
+          }
         }
       }
       if (
@@ -358,6 +371,33 @@ function validateBattleOrders(cells, orders, context) {
     }
     if (ok === 'clotting') {
       if (!isArtilleryUnit(found.unit)) return `Приказ ${i + 1}: только артиллерия`
+      continue
+    }
+    if (ok === 'enterDot') {
+      const dotMod = require('../map/battleDot')
+      if (!dotMod.canEnterDotUnitType(found.unit, isInfantryUnit, isArtilleryUnit)) {
+        return `Приказ ${i + 1}: занять ДОТ могут только пехота и артиллерия`
+      }
+      if (dotMod.unitInDot(found.unit)) return `Приказ ${i + 1}: юнит уже в ДОТ`
+      const cid = Number(o.targetCellId)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: укажите клетку с ДОТ (targetCellId)`
+      const dotCell = cells.find((c) => Number(c.id) === cid)
+      if (!dotCell) return `Приказ ${i + 1}: клетка с ДОТ не найдена`
+      if (!dotMod.hasDotOnCell(dotCell.builds)) return `Приказ ${i + 1}: на клетке нет ДОТ`
+      if (!dotMod.isDotEmpty(dotCell.builds, dotCell, cells, getStr, findUnitOnField)) {
+        return `Приказ ${i + 1}: ДОТ уже занят`
+      }
+      const dist = hexDistCells(found.cell, dotCell)
+      if (dist > 1) return `Приказ ${i + 1}: ДОТ должен быть на соседнем гексе или на гексе юнита`
+      if (dist === 1 && !dotMod.canUnitOccupySurfaceOnCell(dotCell, getStr)) {
+        return `Приказ ${i + 1}: на гексе с ДОТ нет места (макс. 2 юнита на поверхности)`
+      }
+      continue
+    }
+    if (ok === 'exitDot') {
+      const dotMod = require('../map/battleDot')
+      if (!dotMod.unitInDot(found.unit)) return `Приказ ${i + 1}: юнит не в ДОТ`
+      if (dotMod.unitDotExiting(found.unit)) return `Приказ ${i + 1}: юнит уже выходит из ДОТ`
       continue
     }
     if (ok === 'deploy') {

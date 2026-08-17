@@ -214,8 +214,12 @@ function memberOwnsUnit(mem, unit) {
 function normalizeSubmittedOrderKey(raw) {
   const s = String(raw ?? '').trim()
   if (!s) return s
-  const compact = s.replace(/_/g, '').toLowerCase()
+  const compact = s.replace(/[_\-\s]/g, '').toLowerCase()
   if (compact === 'changesector') return 'changeSector'
+  if (compact === 'enterdot' || compact === 'занятьдот') return 'enterDot'
+  if (compact === 'exitdot' || compact === 'покинутьдот' || compact === 'выйтидот') return 'exitDot'
+  if (compact === 'firehard') return 'fireHard'
+  if (compact === 'movewar') return 'moveWar'
   return s
 }
 
@@ -251,6 +255,8 @@ const SUBMITTABLE_ORDER_KEYS = new Set([
   'buildPonton',
   'cutEj',
   'cutWire',
+  'enterDot',
+  'exitDot',
   'demining',
   'mining',
   'trenches',

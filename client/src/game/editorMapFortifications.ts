@@ -73,10 +73,17 @@ export function ensureCellBuilds(builds: IBuildCell | undefined | null): IBuildC
   if (builds == null || typeof builds !== 'object') {
     return { ...EMPTY_CELL_BUILDS };
   }
-  return {
+  const merged = {
     ...EMPTY_CELL_BUILDS,
     ...builds,
   };
+  if (Number(merged.dot) > 0) {
+    const def = Number(merged.dotDef);
+    if (!Number.isFinite(def) || def <= 0) merged.dotDef = 4;
+    const ammo = Number(merged.dotAmmo);
+    if (!Number.isFinite(ammo)) merged.dotAmmo = 15;
+  }
+  return merged;
 }
 
 export function isCatalogFortification(

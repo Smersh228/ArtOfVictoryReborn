@@ -8,6 +8,8 @@ import { findUnitCellByInstanceId, findGroundBattleUnitByInstanceId, battleInsta
 import { airOrderNeedsHexTarget, computeBombardmentAreaCellIds, isAirUnitAirborneForInterception, isBattleAirUnitType, readAirFlightPositionCellId, readBattleVisionRange } from '../../game/battleAirSupport';
 import { battleUnitHasPropKey, hexDistCells, maxAirMissionHexStepsForUnit, maxShootRangeStepsForUnit } from '../../game/battleFirePreview';
 import { adjacentCellsWithWire } from '../../game/cellWireEdges';
+import { buildDotHoverTip, hasDotOnCell, shouldShowDotTipForUnitHover } from '../../game/cellDot';
+import type { DotHoverTip } from '../../game/cellDot';
 import { computeHexFlightPathCellIds, computeInterceptionMeetingCell } from '../../game/battleFlightPath';
 import { maxAmmoTransferFromTruckTo } from '../../game/battleLogisticsUi';
 import type { BattleOrderPayload } from '../../api/rooms';
@@ -27,6 +29,7 @@ type BattleMapStageProps = {
   battleUnitOrders: { unit: { [key: string]: any }; cell: Cell; clientX: number; clientY: number } | null;
   turn: number;
   setBattleUnitTip: (tip: { unit: { [key: string]: any }; cell: Cell; clientX: number; clientY: number; capturedAtTurn: number } | null) => void;
+  setBattleDotTip: (tip: { cell: Cell; clientX: number; clientY: number; tip: DotHoverTip } | null) => void;
   setBattleHoverCellId: React.Dispatch<React.SetStateAction<number | null>>;
   moveReachableCellIds: number[] | null;
   defendPickHighlightCellIds: number[] | null;
@@ -86,6 +89,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   battleUnitOrders,
   turn,
   setBattleUnitTip,
+  setBattleDotTip,
   setBattleHoverCellId,
   moveReachableCellIds,
   defendPickHighlightCellIds,
@@ -295,7 +299,18 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             viewerBattleFaction={viewerBattleFaction}
             onUnitHover={(unit, cell, e) => {
               if (battleUnitOrders) return;
-              const u = unit as { [key: string]: any };
+              const u = unit as Record<string, unknown>;
+              if (shouldShowDotTipForUnitHover(cell, u)) {
+                setBattleUnitTip(null);
+                setBattleDotTip({
+                  cell,
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  tip: buildDotHoverTip(cell, cells, viewerBattleFaction),
+                });
+                return;
+              }
+              setBattleDotTip(null);
               setBattleUnitTip({
                 unit: u,
                 cell,
@@ -307,11 +322,22 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             onUnitLeave={() => {
               setBattleUnitTip(null);
             }}
-            onCellHover={(cell) => {
+            onCellHover={(cell, e) => {
               setBattleHoverCellId(cell?.id ?? null);
+              if (cell && hasDotOnCell(cell.builds) && !battleUnitOrders) {
+                setBattleDotTip({
+                  cell,
+                  clientX: e.clientX,
+                  clientY: e.clientY,
+                  tip: buildDotHoverTip(cell, cells, viewerBattleFaction),
+                });
+              } else {
+                setBattleDotTip(null);
+              }
             }}
             onCellLeave={() => {
               setBattleHoverCellId(null);
+              setBattleDotTip(null);
             }}
             moveReachableCellIds={moveReachableCellIds}
             defendFacingPickCellIds={defendPickHighlightCellIds}
@@ -459,6 +485,9 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 return;
               }
               if (pick && pick.orderKey === 'unloading') {
+                return;
+              }
+              if (pick && (pick.orderKey === 'enterDot' || pick.orderKey === 'cutWire')) {
                 return;
               }
               if (pick && pick.orderKey === 'bombardment' && pick.bombardmentStep === 'direction') {
@@ -716,6 +745,33 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   return upsertOrder(prev, parseId(pick.unit.instanceId), {
                     unitInstanceId: parseId(pick.unit.instanceId),
                     orderKey: 'cutWire',
+                    targetCellId: cell.id,
+                  });
+                });
+                dismissOrderPicking();
+                return;
+              }
+              if (pick && pick.orderKey === 'enterDot') {
+                if (apiRoomId == null || !isFinite(apiRoomId)) {
+                  dismissOrderPicking();
+                  return;
+                }
+                const live = findUnitCellByInstanceId(cells, Number(pick.unit.instanceId));
+                const getStr = (u: Record<string, unknown>) => {
+                  const n = Number(u.str ?? u.strength);
+                  return Number.isFinite(n) ? n : 0;
+                };
+                if (
+                  !live ||
+                  !cellsEligibleForEnterDot(live.cell, cells, getStr).some((c) => c.id === cell.id)
+                ) {
+                  dismissOrderPicking();
+                  return;
+                }
+                setPendingOrders((prev) => {
+                  return upsertOrder(prev, parseId(pick.unit.instanceId), {
+                    unitInstanceId: parseId(pick.unit.instanceId),
+                    orderKey: 'enterDot',
                     targetCellId: cell.id,
                   });
                 });

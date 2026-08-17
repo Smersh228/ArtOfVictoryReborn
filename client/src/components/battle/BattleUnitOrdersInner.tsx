@@ -22,6 +22,13 @@ import {
   canTruckAcceptLoading,
   canTruckAcceptTow,
 } from '../../game/battleLogisticsUi';
+import {
+  canEnterDotUnitType,
+  cellsEligibleForEnterDot,
+  getDotAmmo,
+  unitDotExiting,
+  unitInDot,
+} from '../../game/cellDot';
 
 export interface BattleUnitOrdersInnerUnit {
   instanceId?: number | string;
@@ -35,6 +42,8 @@ export interface BattleUnitOrdersInnerUnit {
     desantEquipping?: boolean;
     desantEquipScheduled?: boolean;
     desantOnlyBattleMoveTurnsLeft?: number;
+    dotExitTurnsLeft?: number;
+    inDot?: boolean;
   };
   [key: string]: unknown;
 }
@@ -184,6 +193,53 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
         const tacOrd = uOrd.tactical;
         let desantOrderBlocked = false;
         let desantOrderBlockTitle = '';
+        let dotOrderBlocked = false;
+        let dotOrderTitle = '';
+        const inDotOrd = unitInDot(uOrd);
+        const dotExitingOrd = unitDotExiting(uOrd);
+        if (dotExitingOrd) {
+          dotOrderBlocked = true;
+          dotOrderTitle = 'Выход из ДОТ — другие приказы недоступны';
+        } else if (inDotOrd && key !== 'fire' && key !== 'fireHard' && key !== 'exitDot') {
+          dotOrderBlocked = true;
+          dotOrderTitle = 'В ДОТ доступны только «Огонь», «Огонь на подавление» и «Покинуть ДОТ»';
+        }
+        if (can && key === 'enterDot') {
+          if (!canEnterDotUnitType(uOrd)) {
+            can = false;
+            dotOrderTitle = 'Занять ДОТ могут только пехота и артиллерия';
+          } else if (inDotOrd) {
+            can = false;
+            dotOrderTitle = 'Юнит уже в ДОТ';
+          } else {
+            const liveCell = resolveBattleCellOnField(cell, cells) ?? cell;
+            const getStr = (u: Record<string, unknown>) => {
+              const n = Number(u.str ?? u.strength);
+              return Number.isFinite(n) ? n : 0;
+            };
+            if (!cellsEligibleForEnterDot(liveCell, cells, getStr).length) {
+              can = false;
+              dotOrderTitle = 'Рядом нет свободного ДОТ';
+            }
+          }
+        }
+        if (can && key === 'exitDot') {
+          if (!inDotOrd) {
+            can = false;
+            dotOrderTitle = 'Юнит не в ДОТ';
+          } else if (dotExitingOrd) {
+            can = false;
+            dotOrderTitle = 'Уже выходит из ДОТ';
+          }
+        }
+        if (can && inDotOrd && (key === 'fire' || key === 'fireHard')) {
+          const need = key === 'fireHard' ? 3 : 1;
+          const liveCell = resolveBattleCellOnField(cell, cells) ?? cell;
+          if (getDotAmmo(liveCell.builds) < need) {
+            can = false;
+            dotOrderTitle = `Недостаточно БК в ДОТ (нужно ${need})`;
+          }
+        }
         if (tacOrd?.desantEquipping || tacOrd?.desantEquipScheduled) {
           desantOrderBlocked = true;
           desantOrderBlockTitle = 'Снаряжение после десантирования — приказы недоступны';
@@ -207,7 +263,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           if (key === 'ambush') {
             artOrderBlocked = true;
             artOrderTitle = 'Засада недоступна для артиллерии';
-          } else if ((key === 'fire' || key === 'fireHard') && !artDeployedOrd) {
+          } else if ((key === 'fire' || key === 'fireHard') && !artDeployedOrd && !inDotOrd) {
             artOrderBlocked = true;
             artOrderTitle = 'Сначала «Развёртывание», затем сектор («Оборона») и огонь';
           } else if (key === 'attack' && artDeployedOrd) {
@@ -236,8 +292,9 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
             key={`${o.id}-${o.name}`}
             type="button"
             className={styles.battleUnitOrderBtn}
-            disabled={!can || ambushBlocked || artOrderBlocked || desantOrderBlocked || meleeOnlyFire}
+            disabled={!can || ambushBlocked || artOrderBlocked || desantOrderBlocked || meleeOnlyFire || dotOrderBlocked}
             title={
+              dotOrderTitle ||
               artOrderTitle ||
               desantOrderTitle ||
               desantOrderBlockTitle ||
@@ -336,6 +393,25 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                 setPendingOrders((prev) => {
                   const next = prev.filter((x) => x.unitInstanceId !== iid);
                   next.push({ unitInstanceId: iid, orderKey: 'clotting' });
+                  return next;
+                });
+                setBattleUnitOrders(null);
+                return;
+              }
+              if (key === 'enterDot') {
+                setOrderPick({
+                  unit,
+                  cell,
+                  orderKey: 'enterDot',
+                  orderLabel: o.name,
+                });
+                setBattleUnitOrders(null);
+                return;
+              }
+              if (key === 'exitDot') {
+                setPendingOrders((prev) => {
+                  const next = prev.filter((x) => x.unitInstanceId !== iid);
+                  next.push({ unitInstanceId: iid, orderKey: 'exitDot' });
                   return next;
                 });
                 setBattleUnitOrders(null);

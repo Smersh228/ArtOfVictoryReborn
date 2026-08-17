@@ -3,6 +3,7 @@
 const { getNeighbor, findCellByCoor, hexDistCells } = require('./battleHexGeometry')
 const { wireBlocksGroundMove, applyWireBreakthroughOnStep } = require('./battleWireEdges')
 const { antiTankBlocksGroundMove } = require('./battleAntiTankEdges')
+const { hasDotOnCell, unitInDot } = require('./battleDot')
 const { unitHasPropKey } = require('../../core/battleUnitType')
 const { getStr, unitFaction, opposing, findUnitOnField } = require('../unit/battleUnitField')
 const { terrainEntryCost } = require('./battleTerrain')
@@ -64,9 +65,12 @@ function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counte
   const us = cell.units || []
   let liveOnHex = 0
   for (let i = 0; i < us.length; i++) {
-    if (getStr(us[i]) > 0) liveOnHex++
+    if (getStr(us[i]) <= 0) continue
+    if (unitInDot(us[i])) continue
+    liveOnHex++
   }
-  if (liveOnHex >= 3) return false
+  const cap = hasDotOnCell(cell.builds) ? 2 : 3
+  if (liveOnHex >= cap) return false
   for (let i = 0; i < us.length; i++) {
     if (unitFaction(us[i]) !== unitFaction(unit) && getStr(us[i]) > 0) {
       if (fogRevealedCellIds != null && !fogRevealedCellIds.has(cell.id)) continue
@@ -177,6 +181,16 @@ module.exports = {
   findReachable,
   findPath,
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

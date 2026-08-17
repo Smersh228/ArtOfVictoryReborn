@@ -83,6 +83,8 @@ export const EDITOR_BATTLE_ORDER_DEFS: EditorBattleOrderDef[] = [
   { order_key: 'demining', name: 'Разминирование', icon: deminingOrderImg, editorCategory: 'sapper' },
   { order_key: 'mining', name: 'Минирование', icon: miningOrderImg, editorCategory: 'sapper' },
   { order_key: 'trenches', name: 'Окопаться', icon: trenchesOrderImg, editorCategory: 'sapper' },
+  { order_key: 'enterDot', name: 'Занять ДОТ', icon: deployOrderImg, editorCategory: 'special' },
+  { order_key: 'exitDot', name: 'Покинуть ДОТ', icon: landingOrderImg, editorCategory: 'special' },
   { order_key: 'accompaniment', name: 'Сопровождение дружественной авиации', icon: accompanimentOrderImg, editorCategory: 'aviation' },
   { order_key: 'airSupply', name: 'Сброс припасов', icon: airSupplyOrderImg, editorCategory: 'aviation' },
   { order_key: 'attackAir', name: 'Штурмовка', icon: attackAirOrderImg, editorCategory: 'aviation' },

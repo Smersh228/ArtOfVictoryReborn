@@ -568,6 +568,7 @@ const Cells: React.FC<CellsProps> = ({
       antiTankImg: antiTankImgRef.current,
       dotImg: dotImgRef.current,
       storageImg: storageImgRef.current,
+      viewerBattleFaction,
     })
   }
 

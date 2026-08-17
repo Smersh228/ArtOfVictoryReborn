@@ -1,6 +1,7 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import type { BattlePlayerId } from '../game/battleSync';
 import { ensureCellBuilds } from '../game/editorMapFortifications';
+import { appendDefaultDotOrders } from '../game/cellDot';
 import { generateEmptyGrid } from '../game/hexGrid';
 import { placeUnitsOnGrid } from '../game/battleUnits';
 import { getCarriedUnitsFromTruck } from '../game/battleLogisticsUi';
@@ -85,7 +86,7 @@ export function readBattleUnitOrdersFromPayload(unit: Record<string, unknown>): 
   order_key?: string;
 }[] {
   const raw = unit.orders ?? unit.allowedOrders;
-  if (!Array.isArray(raw)) return [];
+  if (!Array.isArray(raw)) return appendDefaultDotOrders([], unit);
   const out: { id: number; name: string; order_key?: string }[] = [];
   for (const item of raw) {
     if (item != null && typeof item === 'object' && 'id' in item) {
@@ -108,7 +109,7 @@ export function readBattleUnitOrdersFromPayload(unit: Record<string, unknown>): 
       out.push({ id: item, name: `Приказ ${item}` });
     }
   }
-  return out;
+  return appendDefaultDotOrders(out, unit);
 }
 
 export function inferOrderKey(o: { name: string; order_key?: string }): string | null {
@@ -140,6 +141,10 @@ export function inferOrderKey(o: { name: string; order_key?: string }): string |
   if (n.includes('десант')) return 'desant';
   if (n.includes('перехват')) return 'interception';
   if (n.includes('патрулир')) return 'patrol';
+  if (n.includes('занять') && n.includes('дот')) return 'enterDot';
+  if (n.includes('покинуть') && n.includes('дот')) return 'exitDot';
+  if (n.includes('войти') && n.includes('дот')) return 'enterDot';
+  if (n.includes('выйти') && n.includes('дот')) return 'exitDot';
   return null;
 }
 

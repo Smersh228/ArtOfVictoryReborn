@@ -151,6 +151,34 @@ function enrichUnitFromCatalogRow(u, row) {
   }
 }
 
+function appendDefaultDotOrdersForUnit(u) {
+  if (!u) return
+  const t = String(u.type || '').toLowerCase()
+  if (t !== 'infantry' && t !== 'artillery') return
+  const orders = Array.isArray(u.orders) ? u.orders.slice() : []
+  const keys = new Set(
+    orders.map((o) => (o && o.order_key != null ? String(o.order_key).trim() : '')).filter(Boolean),
+  )
+  const inDot = !!(u.tactical && u.tactical.inDot)
+  const exiting = !!(u.tactical && Number(u.tactical.dotExitTurnsLeft) > 0)
+  if (!inDot && !keys.has('enterDot')) {
+    orders.push({ id: -9001, name: 'Занять ДОТ', order_key: 'enterDot' })
+  }
+  if (inDot && !exiting && !keys.has('exitDot')) {
+    orders.push({ id: -9002, name: 'Покинуть ДОТ', order_key: 'exitDot' })
+  }
+  u.orders = orders
+}
+
+function appendDefaultDotOrdersOnField(cells) {
+  if (!Array.isArray(cells)) return
+  for (const c of cells) {
+    for (const u of c.units || []) {
+      appendDefaultDotOrdersForUnit(u)
+    }
+  }
+}
+
 async function enrichBattleCells(pool, cells) {
   const ids = new Set()
   for (const c of cells) {
@@ -164,6 +192,7 @@ async function enrichBattleCells(pool, cells) {
   if (ids.size === 0) {
     applyMapEditorMetaToBattleUnits(cells)
     finalizeDeployedArtillerySectors(cells)
+    appendDefaultDotOrdersOnField(cells)
     return
   }
   const arr = [...ids]
@@ -231,6 +260,7 @@ async function enrichBattleCells(pool, cells) {
     console.error('enrichBattleCells:', e.message)
     applyMapEditorMetaToBattleUnits(cells)
     finalizeDeployedArtillerySectors(cells)
+    appendDefaultDotOrdersOnField(cells)
     return
   }
   const byId = new Map(r.rows.map((row) => [row.id_unit, row]))
@@ -247,6 +277,7 @@ async function enrichBattleCells(pool, cells) {
   spawnMapEditorTruckCargo(cells, byId, enrichUnitFromCatalogRow)
   applyMapEditorMetaToBattleUnits(cells)
   finalizeDeployedArtillerySectors(cells)
+  appendDefaultDotOrdersOnField(cells)
 }
 
 async function loadBattleCellsFromMapId(pool, mapId) {

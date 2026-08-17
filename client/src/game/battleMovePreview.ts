@@ -12,6 +12,7 @@ import {
 } from './battleTerrain';
 import { wireBlocksGroundMove } from './cellWireEdges';
 import { antiTankBlocksGroundMove } from './cellAntiTankEdges';
+import { hasDotOnCell, unitInDot } from './cellDot';
 
 /** Совпадает с сервером: для авиации ОД не ограничивают дальность превью хода. */
 const AIR_BATTLE_EFFECTIVE_MOVE_POINTS = 99999999;
@@ -145,9 +146,12 @@ function canEnterCell(
   let liveOnHex = 0;
   for (let i = 0; i < us.length; i++) {
     const occ0 = us[i] as { str?: unknown; strength?: unknown };
-    if (getStr(occ0) > 0) liveOnHex++;
+    if (getStr(occ0) <= 0) continue;
+    if (unitInDot(occ0 as Record<string, unknown>)) continue;
+    liveOnHex++;
   }
-  if (liveOnHex >= 3) return false;
+  const cap = hasDotOnCell(cell.builds) ? 2 : 3;
+  if (liveOnHex >= cap) return false;
   const mine = unitFaction(unit);
   for (let i = 0; i < us.length; i++) {
     const occ = us[i] as { faction?: string; str?: unknown; strength?: unknown };
@@ -400,6 +404,16 @@ export function findBattleUnitByInstanceId(
   }
   return null;
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

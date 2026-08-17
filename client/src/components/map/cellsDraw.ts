@@ -24,6 +24,8 @@ import {
   TRENCH_SPRITE_URL,
   ensureCellBuilds,
 } from '../../game/editorMapFortifications'
+import { dotOccupancySide, hasDotOnCell } from '../../game/cellDot'
+import type { LobbyFaction } from '../../api/rooms'
 import { getTrenchEdgesMask } from '../../game/cellTrenchEdges'
 import { getAntiTankEdgesMask } from '../../game/cellAntiTankEdges'
 
@@ -401,6 +403,29 @@ function drawCenterBuildFortifications(
   }
 }
 
+function drawDotHoverHighlight(
+  ctx: CanvasRenderingContext2D,
+  center: { x: number; y: number },
+  cellSize: number,
+  side: 'friendly' | 'enemy' | 'empty',
+) {
+  const r = cellSize * 0.36
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(center.x, center.y, r, 0, Math.PI * 2)
+  if (side === 'enemy') {
+    ctx.fillStyle = 'rgba(220, 38, 38, 0.32)'
+    ctx.strokeStyle = 'rgba(220, 38, 38, 0.98)'
+  } else {
+    ctx.fillStyle = 'rgba(234, 179, 0, 0.28)'
+    ctx.strokeStyle = 'rgba(234, 179, 0, 0.98)'
+  }
+  ctx.lineWidth = 3
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
 function drawMapBuilding(
   ctx: CanvasRenderingContext2D,
   params: {
@@ -501,6 +526,7 @@ export function drawCellsCanvas(params: {
   antiTankImg?: HTMLImageElement | null
   dotImg?: HTMLImageElement | null
   storageImg?: HTMLImageElement | null
+  viewerBattleFaction?: LobbyFaction
 }) {
   const {
     canvas,
@@ -551,6 +577,7 @@ export function drawCellsCanvas(params: {
     storageImg = null,
     airDepartureDecalImg = null,
     fireAirGunDecalImg = null,
+    viewerBattleFaction = 'none',
   } = params
 
   if (!canvas) return
@@ -709,6 +736,7 @@ export function drawCellsCanvas(params: {
       const showBattleHexHoverRing =
         hoverCell?.id === cell.id &&
         !hoveredUnit &&
+        !hasDotOnCell(cell.builds) &&
         !cell.highlight &&
         !(mode === 'battle' && moveReachableCellIds && moveReachableCellIds.length > 0) &&
         !(mode === 'battle' && defendFacingPickCellIds && defendFacingPickCellIds.length > 0) &&
@@ -1181,6 +1209,18 @@ export function drawCellsCanvas(params: {
       storageImg,
       resolveEditorCachedImage,
     })
+    if (
+      mode === 'battle' &&
+      hoverCell?.id === cell.id &&
+      hasDotOnCell(cell.builds)
+    ) {
+      drawDotHoverHighlight(
+        ctx,
+        center,
+        cellSize,
+        dotOccupancySide(cell, cells, viewerBattleFaction),
+      )
+    }
   }
 
   drawPath(ctx)

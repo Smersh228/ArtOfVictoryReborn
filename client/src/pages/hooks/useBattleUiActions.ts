@@ -3,6 +3,7 @@ import type React from 'react';
 import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
 import type { BattleOrderPayload } from '../../api/rooms';
 import { buildAccompanimentOrderPayload } from '../../game/battleAirSupport';
+import { sanitizeDotOrdersBeforeSubmit } from '../../game/cellDot';
 
 type BattleLeftPanelId = 'report' | 'tasks';
 type BattleCenterModalId = 'surrender' | 'nextTurn' | null;
@@ -113,14 +114,14 @@ export function useBattleUiActions(params: {
 
   const onConfirmNextTurn = useCallback(() => {
     closeCenterModal();
-    const snapshot = [...pendingOrders];
+    const snapshot = sanitizeDotOrdersBeforeSubmit([...pendingOrders], cells);
     void confirmNextTurn(snapshot).then((ok) => {
       if (ok) {
         setPendingOrders([]);
         dismissOrderPicking();
       }
     });
-  }, [closeCenterModal, pendingOrders, confirmNextTurn, setPendingOrders, dismissOrderPicking]);
+  }, [closeCenterModal, pendingOrders, cells, confirmNextTurn, setPendingOrders, dismissOrderPicking]);
 
   const onExitAfterScenario = useCallback(async () => {
     dismissScenarioOutcome();

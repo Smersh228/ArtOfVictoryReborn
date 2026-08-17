@@ -8,6 +8,7 @@ const {
 const desantCombat = require('../lib/air/battleDesantCombat')
 const { isInfantryUnit, isArmoredVehicleTarget } = require('../core/battleUnitType')
 const { tryDestroyBarbedWireFromFire } = require('../lib/map/battleWireEdges')
+const dotMod = require('../lib/map/battleDot')
 
 function infantryAreaFireTargetsOrSkip(atk, targetsAll, le, ph) {
   if (!isInfantryUnit(atk.unit)) return targetsAll
@@ -98,9 +99,30 @@ function processFirePhase(
     artilleryAreaClosedIgnoresTerrainLos,
     isHexVisible,
   }
+  const dotFireDeps = {
+    intensityArrayFor,
+    rangeArrayForAtCell,
+    computeShoot,
+    cells,
+    findUnitOnField,
+    ensureTacticalBattle: deps.ensureTacticalBattle,
+  }
+  function shooterHasAmmo(atk, cost) {
+    return dotMod.shooterHasAmmoForFire(atk, cost, getAmmo)
+  }
+  function deductShooterAmmo(atk, cost) {
+    dotMod.deductShooterAmmoForFire(atk, cost, isSup, getAmmo, setAmmo)
+  }
+  function tryDotFireDamage(targetCell, attacker, shooterCell, distance) {
+    dotMod.tryDamageDotFromFire(targetCell, attacker, shooterCell, distance, dotFireDeps, le, ph)
+  }
   for (const o of list) {
     const atk = findUnitOnField(cells, o.unitId)
     if (!atk) continue
+    if (!dotMod.dotShooterCanFire(atk.unit)) {
+      le(ph, `Юнит ${atk.unit.instanceId}: выход из ДОТ — огонь недоступен`)
+      continue
+    }
     const tidRaw = o.targetUnitInstanceId
     const tcidRaw = o.targetCellId
     const tidHas = tidRaw != null && Number.isFinite(Number(tidRaw))
@@ -118,8 +140,17 @@ function processFirePhase(
       if (!tcOnly) continue
       const nOpp = countOpposingHostilesOnCell(tcOnly, atk.unit)
       if (nOpp === 0) {
-        setAmmo(atk.unit, getAmmo(atk.unit) - ammoCost)
+        deductShooterAmmo(atk, ammoCost)
         tryDestroyBarbedWireFromFire(tcOnly, atk.unit, unitHasPropKey, le, ph)
+        const dDot0 = hexDist(
+          atk.cell.coor.x,
+          atk.cell.coor.y,
+          atk.cell.coor.z,
+          tcOnly.coor.x,
+          tcOnly.coor.y,
+          tcOnly.coor.z,
+        )
+        tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDot0)
         le(
           ph,
           `Огонь по площади: юнит ${atk.unit.instanceId} → кл. ${tcOnly.id} (−${ammoCost} БК)`,
@@ -145,8 +176,17 @@ function processFirePhase(
       }
       let targetsAll = collectOpposingHostilesOnCell(tcOnly, atk.unit)
       if (!targetsAll.length) {
-        setAmmo(atk.unit, getAmmo(atk.unit) - ammoCost)
+        deductShooterAmmo(atk, ammoCost)
         tryDestroyBarbedWireFromFire(tcOnly, atk.unit, unitHasPropKey, le, ph)
+        const dDot0 = hexDist(
+          atk.cell.coor.x,
+          atk.cell.coor.y,
+          atk.cell.coor.z,
+          tcOnly.coor.x,
+          tcOnly.coor.y,
+          tcOnly.coor.z,
+        )
+        tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDot0)
         le(
           ph,
           `Огонь по площади: юнит ${atk.unit.instanceId} → кл. ${tcOnly.id} (−${ammoCost} БК)`,
@@ -207,7 +247,7 @@ function processFirePhase(
         le(ph, `Юнит ${atk.unit.instanceId}: цель вне дальности (${dAf})`)
         continue
       }
-      if (getAmmo(atk.unit) < ammoCost) {
+      if (!shooterHasAmmo(atk, ammoCost)) {
         le(
           ph,
           isSup
@@ -263,8 +303,17 @@ function processFirePhase(
           ambushCleared: true,
         })
       }
-      setAmmo(atk.unit, getAmmo(atk.unit) - ammoCost)
+      deductShooterAmmo(atk, ammoCost)
       tryDestroyBarbedWireFromFire(tcOnly, atk.unit, unitHasPropKey, le, ph)
+      const dDotAf = hexDist(
+        atk.cell.coor.x,
+        atk.cell.coor.y,
+        atk.cell.coor.z,
+        tcOnly.coor.x,
+        tcOnly.coor.y,
+        tcOnly.coor.z,
+      )
+      tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDotAf)
       const atkIdAf = Number(atk.unit.instanceId)
       const areaKey = Number(tcOnly.id)
       const areaGrouped = ensureGroupedAreaFireBucket(
@@ -339,7 +388,7 @@ function processFirePhase(
       le(ph, `Юнит ${atk.unit.instanceId}: цель вне дальности (${d})`)
       continue
     }
-    if (getAmmo(atk.unit) < ammoCost) {
+    if (!shooterHasAmmo(atk, ammoCost)) {
       le(
         ph,
         isSup
@@ -417,7 +466,7 @@ function processFirePhase(
           ambushCleared: true,
         })
       }
-      setAmmo(atk.unit, getAmmo(atk.unit) - ammoCost)
+      deductShooterAmmo(atk, ammoCost)
       tryDestroyBarbedWireFromFire(def.cell, atk.unit, unitHasPropKey, le, ph)
       const atkIdArea = Number(atk.unit.instanceId)
       const areaKeyDir = Number(def.cell.id)
@@ -482,7 +531,7 @@ function processFirePhase(
         ph,
         `Огонь: ${atk.unit.instanceId} → ${def.unit.instanceId}, попаданий ${res.hits} (выпало: ${res.rollResults.join(',')})${tag}`,
       )
-      setAmmo(atk.unit, getAmmo(atk.unit) - ammoCost)
+      deductShooterAmmo(atk, ammoCost)
       tryDestroyBarbedWireFromFire(def.cell, atk.unit, unitHasPropKey, le, ph)
       const defId = Number(tid)
       const grouped = groupedDirectFire.get(defId) || {

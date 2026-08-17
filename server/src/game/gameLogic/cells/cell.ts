@@ -28,6 +28,14 @@ storage:number;
 mine:number;
 trenchTank:number;
 dot:number;
+/** Защита ДОТ в бою (старт 4, только уменьшается). */
+dotDef?:number;
+/** БК внутри ДОТ (старт 15). */
+dotAmmo?:number;
+/** Направление сектора ДОТ (0–5). */
+dotFacing?:number;
+/** instanceId юнита внутри ДОТ. */
+dotOccupantId?:number;
 pontonBridge:number;
 }
 

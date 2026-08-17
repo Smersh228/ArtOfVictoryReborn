@@ -122,6 +122,7 @@ function applyCargoDamageFromTruckHit(cells, truckUnit, dmg, deps) {
 
 function canUnloadToCell(cell, faction, passengerInstanceId, deps) {
   const { terrainEntryCost, getStr, isTruckUnit, opposing, unitFaction } = deps
+  const { hasDotOnCell, unitInDot } = require('../lib/map/battleDot')
   if (!cell) return false
   if (terrainEntryCost(cell, { type: 'infantry' }) === 0) return false
   const us = cell.units || []
@@ -131,9 +132,11 @@ function canUnloadToCell(cell, faction, passengerInstanceId, deps) {
     if (Number(u.instanceId) === Number(passengerInstanceId)) continue
     if (getStr(u) <= 0) continue
     if (isTruckUnit(u)) return false
+    if (unitInDot(u)) continue
     liveOnHex++
   }
-  if (liveOnHex >= 3) return false
+  const cap = hasDotOnCell(cell.builds) ? 2 : 3
+  if (liveOnHex >= cap) return false
   for (let i = 0; i < us.length; i++) {
     const u = us[i]
     if (Number(u.instanceId) === Number(passengerInstanceId)) continue

@@ -33,6 +33,7 @@ function clampFixedPopup(
 export function useBattleHudLayout(params: {
   battleRef: React.RefObject<HTMLDivElement | null>;
   battleUnitTip: { clientX: number; clientY: number } | null;
+  battleDotTip: { clientX: number; clientY: number } | null;
   battleUnitOrders: { clientX: number; clientY: number } | null;
   setBattleUnitOrders: React.Dispatch<React.SetStateAction<any>>;
   leftMenu: unknown;
@@ -46,6 +47,7 @@ export function useBattleHudLayout(params: {
   const {
     battleRef,
     battleUnitTip,
+    battleDotTip,
     battleUnitOrders,
     setBattleUnitOrders,
     leftMenu,
@@ -63,6 +65,8 @@ export function useBattleHudLayout(params: {
   const [battleOrdersPos, setBattleOrdersPos] = useState({ left: 0, top: 0 });
   const [battleChrome, setBattleChrome] = useState<{ top: number; left: number; height: number } | null>(null);
 
+  const activeHoverTip = battleUnitTip ?? battleDotTip;
+
   useEffect(() => {
     if (!battleUnitOrders) return;
     const onDocMouseDown = (e: MouseEvent) => {
@@ -75,9 +79,9 @@ export function useBattleHudLayout(params: {
   }, [battleUnitOrders, setBattleUnitOrders]);
 
   useLayoutEffect(() => {
-    if (!battleUnitTip || battleUnitOrders) return;
-    setBattleTipPos(clampFixedPopup(battleUnitTip.clientX, battleUnitTip.clientY, battleTipRef.current, 14, 14));
-  }, [battleUnitTip, battleUnitOrders]);
+    if (!activeHoverTip || battleUnitOrders) return;
+    setBattleTipPos(clampFixedPopup(activeHoverTip.clientX, activeHoverTip.clientY, battleTipRef.current, 14, 14));
+  }, [activeHoverTip, battleUnitOrders]);
 
   useLayoutEffect(() => {
     if (!battleUnitOrders) return;
@@ -93,13 +97,13 @@ export function useBattleHudLayout(params: {
   }, [battleUnitOrders]);
 
   useEffect(() => {
-    if (!battleUnitTip || battleUnitOrders) return;
+    if (!activeHoverTip || battleUnitOrders) return;
     const onResize = () => {
-      setBattleTipPos(clampFixedPopup(battleUnitTip.clientX, battleUnitTip.clientY, battleTipRef.current, 14, 14));
+      setBattleTipPos(clampFixedPopup(activeHoverTip.clientX, activeHoverTip.clientY, battleTipRef.current, 14, 14));
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [battleUnitTip, battleUnitOrders]);
+  }, [activeHoverTip, battleUnitOrders]);
 
   useEffect(() => {
     if (!battleUnitOrders) return;

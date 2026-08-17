@@ -24,6 +24,7 @@ import {
 import { computeHexFlightPathCellIds } from '../../game/battleFlightPath';
 import { computeDefendSectorCells, findFacingNeighborCells, getArtillerySectorCellIdSet, artilleryUsesFireSectorProperty } from '../../game/battleDefendSector';
 import { adjacentCellsWithWire } from '../../game/cellWireEdges';
+import { cellsEligibleForEnterDot } from '../../game/cellDot';
 import {
   computeGetSupTargetInstanceIds,
   computeLoadingTargetInstanceIds,
@@ -170,6 +171,19 @@ export function useBattleDerivedState(params: {
     const live = findUnitCellByInstanceId(cells, iid);
     if (!live) return null;
     return new Set(adjacentCellsWithWire(live.cell, cells).map((c) => c.id));
+  }, [orderPick, cells]);
+
+  const enterDotTargetCellIds = useMemo(() => {
+    if (!orderPick || orderPick.orderKey !== 'enterDot') return null;
+    const iid = Number(orderPick.unit?.instanceId);
+    if (!Number.isFinite(iid)) return null;
+    const live = findUnitCellByInstanceId(cells, iid);
+    if (!live) return null;
+    const getStr = (u: Record<string, unknown>) => {
+      const n = Number(u.str ?? u.strength);
+      return Number.isFinite(n) ? n : 0;
+    };
+    return new Set(cellsEligibleForEnterDot(live.cell, cells, getStr).map((c) => c.id));
   }, [orderPick, cells]);
 
   const defendFacingPickCellIds = useMemo(() => {
@@ -885,6 +899,7 @@ export function useBattleDerivedState(params: {
     battleFogRevealedCellIds,
     moveReachableCellIds,
     cutWireTargetCellIds,
+    enterDotTargetCellIds,
     defendFacingPickCellIds,
     defendRangePickCellIds,
     defendPickHighlightCellIds,

@@ -14,6 +14,8 @@ import { formatBattleAirDesantLine, type AccompanimentEscortCandidate } from '..
 import BattleToolbar from '../components/battle/BattleToolbar';
 import BattleUnitOrdersPanel from '../components/battle/BattleUnitOrdersPanel';
 import BattleUnitTipCard from '../components/battle/BattleUnitTipCard';
+import BattleDotTipCard from '../components/battle/BattleDotTipCard';
+import type { DotHoverTip } from '../game/cellDot';
 import { useBattleDerivedState } from './hooks/useBattleDerivedState';
 import { useBattleHudLayout } from './hooks/useBattleHudLayout';
 import { useBattleReportRows } from './hooks/useBattleReportRows';
@@ -80,6 +82,13 @@ type BattleUnitTipState = {
   clientX: number;
   clientY: number;
   capturedAtTurn: number;
+};
+
+type BattleDotTipState = {
+  cell: Cell;
+  clientX: number;
+  clientY: number;
+  tip: DotHoverTip;
 };
 
 type BattleUnitOrdersState = {
@@ -207,9 +216,11 @@ const Battle: React.FC = () => {
   const mapWrapRef = useRef<HTMLDivElement>(null);
   const hasGrid = cells.length > 0;
   const [battleUnitTip, setBattleUnitTip] = useState<BattleUnitTipState | null>(null);
+  const [battleDotTip, setBattleDotTip] = useState<BattleDotTipState | null>(null);
 
   useEffect(() => {
     setBattleUnitTip(null);
+    setBattleDotTip(null);
   }, [turn]);
  
   const [battleHoverCellId, setBattleHoverCellId] = useState<number | null>(null);
@@ -246,6 +257,7 @@ const Battle: React.FC = () => {
     setOrderPick(null);
     setBattleUnitOrders(null);
     setBattleHoverCellId(null);
+    setBattleDotTip(null);
     setBattleAmmoModal(null);
     setUnloadCargoPickModal(null);
     setAccompanimentPickModal(null);
@@ -356,6 +368,7 @@ const Battle: React.FC = () => {
     battleFogRevealedCellIds,
     moveReachableCellIds,
     cutWireTargetCellIds,
+    enterDotTargetCellIds,
     defendFacingPickCellIds,
     defendRangePickCellIds,
     defendPickHighlightCellIds,
@@ -580,6 +593,7 @@ const Battle: React.FC = () => {
   const { battleOrdersRef, battleTipRef, battleTipPos, battleOrdersPos, standardPanelStyle } = useBattleHudLayout({
     battleRef,
     battleUnitTip,
+    battleDotTip,
     battleUnitOrders,
     setBattleUnitOrders,
     leftMenu,
@@ -686,7 +700,7 @@ const Battle: React.FC = () => {
   const battleControlsDisabled = toolbarBusy || readonlyBattle;
 
   const unitHudPortal =
-    (battleUnitTip || battleUnitOrders) &&
+    (battleUnitTip || battleDotTip || battleUnitOrders) &&
     createPortal(
       <>
         {battleUnitTip && !battleUnitOrders && (
@@ -707,6 +721,14 @@ const Battle: React.FC = () => {
             )}
             cargoLine={formatBattleTechCargoLine(battleUnitTip.unit as unknown as Record<string, unknown>)}
             desantLine={formatBattleAirDesantLine(battleUnitTip.unit as unknown as Record<string, unknown>)}
+          />
+        )}
+        {battleDotTip && !battleUnitTip && !battleUnitOrders && (
+          <BattleDotTipCard
+            battleTipRef={battleTipRef}
+            left={battleTipPos.left}
+            top={battleTipPos.top}
+            tip={battleDotTip.tip}
           />
         )}
         {battleUnitOrders && (
@@ -802,13 +824,16 @@ const Battle: React.FC = () => {
           battleUnitOrders={battleUnitOrders}
           turn={turn}
           setBattleUnitTip={setBattleUnitTip}
+          setBattleDotTip={setBattleDotTip}
           setBattleHoverCellId={setBattleHoverCellId}
           moveReachableCellIds={
             cutWireTargetCellIds
               ? Array.from(cutWireTargetCellIds)
-              : moveReachableCellIds
-                ? Array.from(moveReachableCellIds)
-                : null
+              : enterDotTargetCellIds
+                ? Array.from(enterDotTargetCellIds)
+                : moveReachableCellIds
+                  ? Array.from(moveReachableCellIds)
+                  : null
           }
           defendPickHighlightCellIds={defendPickHighlightCellIds ? Array.from(defendPickHighlightCellIds) : null}
           defendRangeOrderPreview={defendRangeOrderPreview}

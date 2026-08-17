@@ -1,4 +1,5 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
+import { hasDotOnCell, unitInDot } from './cellDot';
 import { findUnitCellByInstanceId } from './battleMovePreview';
 
 export function hexDistCells(a: Cell, b: Cell): number {
@@ -192,11 +193,12 @@ export function canUnloadToCellClient(
     const u = raw as unknown as Record<string, unknown>;
     if (Number(u.instanceId) === Number(passengerInstanceId)) continue;
     if (unitStr(u) <= 0) continue;
+    if (unitInDot(u)) continue;
     liveOnHex++;
     if (isTruckUnitBattle(u)) return false;
     if (!factionsAlliedOnMap(String(u.faction || ''), passengerFaction)) return false;
   }
-  if (liveOnHex >= 3) return false;
+  if (liveOnHex >= (hasDotOnCell(cell.builds) ? 2 : 3)) return false;
   return true;
 }
 

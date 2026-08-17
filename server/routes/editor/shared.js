@@ -34,6 +34,8 @@ const DEFAULT_BATTLE_ORDERS = [
   ['Разминирование', 'demining'],
   ['Минирование', 'mining'],
   ['Окопаться', 'trenches'],
+  ['Занять ДОТ', 'enterDot'],
+  ['Покинуть ДОТ', 'exitDot'],
 ]
 
 const DEFAULT_UNIT_PROPERTIES = [

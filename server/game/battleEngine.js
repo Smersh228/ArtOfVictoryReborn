@@ -95,6 +95,9 @@ const airSortieModule = require('./lib/air/battleAirSortie')
 const artilleryAirSector = require('./lib/fire/battleArtilleryAirSector')
 
 function intensityArrayFor(attacker, target, fireTables) {
+  const dotMod = require('./lib/map/battleDot')
+  const dotArr = dotMod.dotIntensityArrayFor(attacker, target, isInfantryUnit, isArtilleryUnit)
+  if (dotArr) return dotArr
   const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
   const key = targetTypeToFireKey(target.type)
   const arr = ft[key] && ft[key].length ? ft[key] : ft.inf
@@ -102,6 +105,9 @@ function intensityArrayFor(attacker, target, fireTables) {
 }
 
 function rangeArrayFor(attacker, fireTables) {
+  const dotMod = require('./lib/map/battleDot')
+  const dotRa = dotMod.dotRangeArrayForUnit(attacker, isInfantryUnit, isArtilleryUnit)
+  if (dotRa) return dotRa
   const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
   return ft.range && ft.range.length ? ft.range.slice() : [3, 2, 1]
 }
@@ -529,6 +535,7 @@ function resolveSpecialPhaseOrder(cells, o, le, ph) {
     isValidDefendFacing,
     maxShootRangeStepsForUnit,
     computeDefendSectorIds,
+    clearDefendOnUnit,
   })
 }
 
@@ -1024,6 +1031,10 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
     unitFaction,
   }
   resolveSuppressionRecovery(cells, le)
+  require('./lib/map/battleDot').tickDotExitStates(cells, le, turnIndex, {
+    getStr,
+    ensureTacticalBattle,
+  })
   airSortieModule.tickAirSorties(cells, le, turnIndex, {
     beginAirCooldown: (unit, dep, path, fromId, fired, le2, ph2) =>
       artilleryAirSector.beginAirCooldownWithSector(
@@ -1230,6 +1241,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
           resolveGroupedDirectFire,
           terrainDefenseBonusFromCell,
           getDef,
+          ensureTacticalBattle,
         },
       )
       continue

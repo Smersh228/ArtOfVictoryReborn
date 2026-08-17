@@ -39,7 +39,7 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     le(ph, `Спецприказ: юнит ${o.unitId} не на поле`)
     return
   }
-  const stBlock = validateUnitOrdersAllowed(cur.unit)
+  const stBlock = validateUnitOrdersAllowed(cur.unit, k)
   if (stBlock) {
     le(ph, `Спецприказ: юнит ${o.unitId} — ${stBlock}`)
     return
@@ -323,6 +323,33 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
       defendMaxRangeSteps: Math.floor(rcapA),
       defendSectorCellIds: sectorIdsA,
       unitInstanceId: Number(cur.unit.instanceId),
+    })
+    return
+  }
+
+  if (k === 'enterDot') {
+    const dotMod = require('../lib/map/battleDot')
+    dotMod.resolveEnterDot(cells, cur, o, le, ph, {
+      hexDistCells,
+      isInfantryUnit,
+      isArtilleryUnit,
+      getStr,
+      removeUnitFromCell,
+      addUnitToCell,
+      syncUnitCoor,
+      ensureTacticalBattle,
+      clearDefendOnUnit: deps.clearDefendOnUnit,
+      findUnitOnField,
+    })
+    return
+  }
+
+  if (k === 'exitDot') {
+    const dotMod = require('../lib/map/battleDot')
+    dotMod.resolveExitDot(cur, le, ph, {
+      isInfantryUnit,
+      isArtilleryUnit,
+      ensureTacticalBattle,
     })
     return
   }

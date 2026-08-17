@@ -130,6 +130,14 @@ function validateUnitOrdersAllowed(unit, deps, orderKey) {
     return 'снаряжение после десантирования'
   }
   const ok = String(orderKey || '').trim()
+  if (unit.tactical?.dotExitTurnsLeft > 0) {
+    return 'выход из ДОТ'
+  }
+  if (unit.tactical?.inDot) {
+    if (ok !== 'fire' && ok !== 'fireHard' && ok !== 'exitDot') {
+      return 'юнит в ДОТ'
+    }
+  }
   if (getMeleeOpponentId(unit)) {
     if (ok !== 'fire' && ok !== 'fireHard') {
       return 'юнит в ближнем бою'

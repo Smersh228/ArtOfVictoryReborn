@@ -245,8 +245,10 @@ export function useBattleSync(
         await postBattleOrders(apiRoomId, turnRef.current, ordersPayload ?? []);
         await postBattleTurnReady(apiRoomId, turnRef.current);
         return true;
-      } catch {
+      } catch (err) {
         setWaitingNextTurn(false);
+        const msg = err instanceof Error ? err.message : 'Не удалось отправить приказы';
+        window.alert(msg);
         return false;
       }
     }

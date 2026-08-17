@@ -11,6 +11,7 @@ import {
 } from './battleDesantCombat';
 import { isInfantryUnitType } from './battleTerrain';
 import { isCellInArtillerySector, getArtillerySectorCellIdSet } from './battleDefendSector';
+import { dotRangeArrayForUnit } from './cellDot';
 
 export { isArmoredVehicleTarget } from './battleDesantCombat';
 
@@ -180,6 +181,8 @@ function rawFireFromUnit(u: Record<string, unknown>): Record<string, unknown> | 
 }
 
 export function rangeArrayForUnit(attacker: Record<string, unknown>): number[] {
+  const dotRa = dotRangeArrayForUnit(attacker);
+  if (dotRa) return dotRa;
   const ft = normalizeFireObject(rawFireFromUnit(attacker));
   return ft.range && ft.range.length ? ft.range : [3, 2, 1];
 }
