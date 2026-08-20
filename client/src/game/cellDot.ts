@@ -123,15 +123,23 @@ export function cellsEligibleForEnterDot(
   getStr: (u: Record<string, unknown>) => number,
 ): Cell[] {
   const out: Cell[] = [];
+  const sameId = (a: Cell, b: Cell) => Number(a.id) === Number(b.id);
+  const dist = (a: Cell, b: Cell) => {
+    const d = hexDistCells(a, b);
+    if (Number.isFinite(d)) return d;
+    const dq = Number(a.coor?.x) - Number(b.coor?.x);
+    const dr = Number(a.coor?.z) - Number(b.coor?.z);
+    return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+  };
   const tryPush = (c: Cell) => {
     if (!isDotCellVacant(c, cells)) return;
-    if (c.id !== unitCell.id && !canUnitOccupySurfaceOnCell(c, getStr)) return;
-    if (!out.some((x) => x.id === c.id)) out.push(c);
+    if (!sameId(c, unitCell) && !canUnitOccupySurfaceOnCell(c, getStr)) return;
+    if (!out.some((x) => sameId(x, c))) out.push(c);
   };
   tryPush(unitCell);
   for (const c of cells) {
-    if (c.id === unitCell.id) continue;
-    if (hexDistCells(unitCell, c) === 1) tryPush(c);
+    if (sameId(c, unitCell)) continue;
+    if (dist(unitCell, c) === 1) tryPush(c);
   }
   return out;
 }

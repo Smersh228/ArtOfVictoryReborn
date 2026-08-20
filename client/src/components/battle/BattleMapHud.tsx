@@ -69,6 +69,12 @@ function getOrderMetaText(
   if (orderPick.orderKey === 'interception') {
     return ' — клик по красному гексу: вражеская авиация в небе';
   }
+  if (orderPick.orderKey === 'enterDot') {
+    return ' — клик по гексу с ДОТ (свой или соседний, серая подсветка)';
+  }
+  if (orderPick.orderKey === 'cutWire') {
+    return ' — клик по соседнему гексу с проволокой';
+  }
   if (orderPick.orderKey === 'fire' && fireAdjustmentToggleAvailable) {
     return orderPick.useFireAdjustment
       ? ' — корректировка огня: вкл (закрытые цели, видимые наземным союзникам)'

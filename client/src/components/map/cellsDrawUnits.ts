@@ -117,6 +117,7 @@ export function drawUnitsOnCell(
     fireSupIconImgRef: React.MutableRefObject<HTMLImageElement | null>
     resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
     isEnemyUnitHiddenByFog: (unit: { faction?: string }, cell: Cell) => boolean
+    extraHiddenInstanceIds?: ReadonlySet<number> | null
   },
 ) {
   const {
@@ -127,7 +128,7 @@ export function drawUnitsOnCell(
     mode,
     viewerBattleFaction,
     hoveredUnit,
-    battleFireTargetInstanceIds,
+      battleFireTargetInstanceIds,
     battleLogisticsPickInstanceIds,
     battlePendingLogisticsPreview,
     battleReportReplayHighlight,
@@ -141,9 +142,10 @@ export function drawUnitsOnCell(
     fireSupIconImgRef,
     resolveEditorCachedImage,
     isEnemyUnitHiddenByFog,
+    extraHiddenInstanceIds,
   } = params
 
-  const rowUnits = battleUnitsVisibleOnMap(cell, mode)
+  const rowUnits = battleUnitsVisibleOnMap(cell, mode, extraHiddenInstanceIds)
   if (!rowUnits.length) return
 
   const size = unitDrawSize(rowUnits.length, lobbyPreview, mode, cellSize)

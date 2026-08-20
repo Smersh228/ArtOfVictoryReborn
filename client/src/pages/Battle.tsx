@@ -228,6 +228,15 @@ const Battle: React.FC = () => {
   const [battleMapPayload, setBattleMapPayload] = useState<EditorMapPayloadLobby | null>(null);
   const lastBattleFieldRevisionRef = useRef<number>(0);
   const [pendingOrders, setPendingOrders] = useState<BattleOrderPayload[]>([]);
+  const hiddenDotInstanceIds = useMemo(() => {
+    const ids: number[] = [];
+    for (const o of pendingOrders) {
+      if (String(o.orderKey ?? '').trim() !== 'enterDot') continue;
+      const n = Number(o.unitInstanceId);
+      if (Number.isFinite(n)) ids.push(n);
+    }
+    return ids;
+  }, [pendingOrders]);
   const [orderPick, setOrderPick] = useState<OrderPickState | null>(null);
   const orderPickRef = useRef<OrderPickState | null>(null);
   orderPickRef.current = orderPick;
@@ -862,6 +871,7 @@ const Battle: React.FC = () => {
           defendFacingPickCellIds={defendFacingPickCellIds ? Array.from(defendFacingPickCellIds) : null}
           setOrderPick={setOrderPick}
           setBattleAmmoModal={setBattleAmmoModal}
+          hiddenBattleInstanceIds={hiddenDotInstanceIds}
           showResolvingOverlay={showResolvingOverlay}
           battleAirDepartureHoverCellId={airSupportPanelHover?.cellId ?? null}
           battleAirDeparturePickCellId={battleAirDeparturePickCellId}

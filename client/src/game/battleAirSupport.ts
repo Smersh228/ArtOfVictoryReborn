@@ -470,12 +470,23 @@ export function buildAccompanimentOrderPayload(
   }
 }
 
-/** Юниты, которые рисуются на гексе в режиме боя (без авиации). */
-export function battleUnitsVisibleOnMap(cell: Cell, mode: 'editor' | 'battle'): NonNullable<Cell['units']> {
+/** Юниты, которые рисуются на гексе в режиме боя (без авиации и без гарнизона ДОТ). */
+export function battleUnitsVisibleOnMap(
+  cell: Cell,
+  mode: 'editor' | 'battle',
+  extraHiddenInstanceIds?: ReadonlySet<number> | null,
+): NonNullable<Cell['units']> {
   const raw = cell.units
   if (!raw?.length) return [] as unknown as NonNullable<Cell['units']>
   if (mode !== 'battle') return raw
-  return raw.filter((u) => !isBattleAirUnitType((u as { type?: unknown }).type)) as NonNullable<Cell['units']>
+  return raw.filter((u) => {
+    const rec = u as { type?: unknown; instanceId?: unknown; tactical?: { inDot?: boolean } }
+    if (isBattleAirUnitType(rec.type)) return false
+    if (rec.tactical?.inDot === true) return false
+    const iid = Number(rec.instanceId)
+    if (extraHiddenInstanceIds && Number.isFinite(iid) && extraHiddenInstanceIds.has(iid)) return false
+    return true
+  }) as NonNullable<Cell['units']>
 }
 
 export type BattleAirSupportUnitRow = {

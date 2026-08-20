@@ -76,11 +76,12 @@ export function findUnitAtPosition(
     width: number
     height: number
     isEnemyUnitHiddenByFog: (unit: { faction?: string }, cell: Cell) => boolean
+    extraHiddenInstanceIds?: ReadonlySet<number> | null
   },
 ): { cell: Cell; unit: any; index: number } | null {
-  const { lobbyPreview, mode, cellSize, width, height, isEnemyUnitHiddenByFog } = params
+  const { lobbyPreview, mode, cellSize, width, height, isEnemyUnitHiddenByFog, extraHiddenInstanceIds } = params
   for (const cell of cells) {
-    const rowUnits = battleUnitsVisibleOnMap(cell, mode)
+    const rowUnits = battleUnitsVisibleOnMap(cell, mode, extraHiddenInstanceIds)
     if (!rowUnits.length) continue
 
     const center = getCellCenter(cell.coor.x, cell.coor.z, cellSize, width, height)

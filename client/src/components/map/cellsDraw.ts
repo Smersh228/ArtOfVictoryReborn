@@ -777,7 +777,7 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (moveReachableCellIds?.includes(cell.id)) {
+      if (moveReachableCellIds?.some((id) => Number(id) === Number(cell.id))) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.5)'

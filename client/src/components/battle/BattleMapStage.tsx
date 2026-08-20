@@ -8,7 +8,13 @@ import { findUnitCellByInstanceId, findGroundBattleUnitByInstanceId, battleInsta
 import { airOrderNeedsHexTarget, computeBombardmentAreaCellIds, isAirUnitAirborneForInterception, isBattleAirUnitType, readAirFlightPositionCellId, readBattleVisionRange } from '../../game/battleAirSupport';
 import { battleUnitHasPropKey, hexDistCells, maxAirMissionHexStepsForUnit, maxShootRangeStepsForUnit } from '../../game/battleFirePreview';
 import { adjacentCellsWithWire } from '../../game/cellWireEdges';
-import { buildDotHoverTip, hasDotOnCell, shouldShowDotTipForUnitHover } from '../../game/cellDot';
+import {
+  buildDotHoverTip,
+  cellsEligibleForEnterDot,
+  hasDotOnCell,
+  resolveDotOccupantUnit,
+  shouldShowDotTipForUnitHover,
+} from '../../game/cellDot';
 import type { DotHoverTip } from '../../game/cellDot';
 import { computeHexFlightPathCellIds, computeInterceptionMeetingCell } from '../../game/battleFlightPath';
 import { maxAmmoTransferFromTruckTo } from '../../game/battleLogisticsUi';
@@ -72,6 +78,7 @@ type BattleMapStageProps = {
   setOrderPick: (value: any) => void;
   setBattleAmmoModal: (value: any) => void;
   showResolvingOverlay: boolean;
+  hiddenBattleInstanceIds?: number[] | null;
 };
 
 const BattleMapStage: React.FC<BattleMapStageProps> = ({
@@ -132,9 +139,33 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   setOrderPick,
   setBattleAmmoModal,
   showResolvingOverlay,
+  hiddenBattleInstanceIds = null,
 }) => {
   const parseId = (value: string | number | null | undefined): number => parseInt(`${value ?? ''}`, 10);
   const isValidId = (value: number): boolean => isFinite(value);
+  const sameCellId = (a: unknown, b: unknown): boolean => {
+    const na = Number(a);
+    const nb = Number(b);
+    return Number.isFinite(na) && Number.isFinite(nb) && na === nb;
+  };
+  const cellIdInList = (ids: number[] | null | undefined, cellId: unknown): boolean => {
+    if (!ids?.length) return false;
+    return ids.some((id) => sameCellId(id, cellId));
+  };
+  const hexTargetOrderKeys = new Set([
+    'enterDot',
+    'cutWire',
+    'move',
+    'moveWar',
+    'unloading',
+    'defend',
+    'ambush',
+    'deploy',
+    'changeSector',
+    'bombardment',
+    'patrol',
+  ]);
+  const ignoreUnitClicks = Boolean(orderPick?.orderKey && hexTargetOrderKeys.has(String(orderPick.orderKey)));
   const fireOrderExtras = (pick: { orderKey?: string; useFireAdjustment?: boolean }) =>
     pick.orderKey === 'fire' && pick.useFireAdjustment ? { useFireAdjustment: true as const } : {};
   const upsertOrder = (
@@ -297,6 +328,8 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             wrapClassName={styles.battleCellsRoot}
             battleHoverCursor={battlePointerCursor}
             viewerBattleFaction={viewerBattleFaction}
+            ignoreUnitClicks={ignoreUnitClicks}
+            hiddenBattleInstanceIds={hiddenBattleInstanceIds}
             onUnitHover={(unit, cell, e) => {
               if (battleUnitOrders) return;
               const u = unit as Record<string, unknown>;
@@ -519,7 +552,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 clientY: e.clientY,
               });
             }}
-            onCellClick={(cell, unitId) => {
+            onCellClick={(cell, unitId, clickPos) => {
               const pick = orderPickRef.current;
 
               if (trySubmitAirHexOrderPick(cell)) return;
@@ -737,15 +770,17 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   return;
                 }
                 const live = findUnitCellByInstanceId(cells, Number(pick.unit.instanceId));
-                if (!live || !adjacentCellsWithWire(live.cell, cells).some((c) => c.id === cell.id)) {
-                  dismissOrderPicking();
+                const wireOk =
+                  live &&
+                  adjacentCellsWithWire(live.cell, cells).some((c) => sameCellId(c.id, cell.id));
+                if (!wireOk) {
                   return;
                 }
                 setPendingOrders((prev) => {
                   return upsertOrder(prev, parseId(pick.unit.instanceId), {
                     unitInstanceId: parseId(pick.unit.instanceId),
                     orderKey: 'cutWire',
-                    targetCellId: cell.id,
+                    targetCellId: Number(cell.id),
                   });
                 });
                 dismissOrderPicking();
@@ -761,18 +796,18 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   const n = Number(u.str ?? u.strength);
                   return Number.isFinite(n) ? n : 0;
                 };
-                if (
-                  !live ||
-                  !cellsEligibleForEnterDot(live.cell, cells, getStr).some((c) => c.id === cell.id)
-                ) {
-                  dismissOrderPicking();
+                const highlighted = cellIdInList(moveReachableCellIds, cell.id);
+                const eligible =
+                  live &&
+                  cellsEligibleForEnterDot(live.cell, cells, getStr).some((c) => sameCellId(c.id, cell.id));
+                if (!live || !(highlighted || eligible)) {
                   return;
                 }
                 setPendingOrders((prev) => {
                   return upsertOrder(prev, parseId(pick.unit.instanceId), {
                     unitInstanceId: parseId(pick.unit.instanceId),
                     orderKey: 'enterDot',
-                    targetCellId: cell.id,
+                    targetCellId: Number(cell.id),
                   });
                 });
                 dismissOrderPicking();
@@ -822,12 +857,62 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   dismissOrderPicking();
                   return;
                 }
+                const occ = resolveDotOccupantUnit(cell, cells);
+                if (occ) {
+                  const tgt = occ.unit as { [key: string]: any };
+                  const iid = parseId(tgt.instanceId);
+                  const af = `${uAtk.faction ?? ''}`;
+                  const tf = `${tgt.faction ?? ''}`;
+                  if (
+                    isValidId(iid) &&
+                    factionsOpposedOnMap(af, tf) &&
+                    parseId(uAtk.instanceId) !== iid &&
+                    battleInstanceIdInList(battleFireTargetInstanceIds, iid)
+                  ) {
+                    setPendingOrders((prev) => {
+                      return upsertOrder(prev, parseId(pick.unit.instanceId), {
+                        unitInstanceId: parseId(pick.unit.instanceId),
+                        orderKey: pick.orderKey,
+                        targetUnitInstanceId: iid,
+                        ...fireOrderExtras(pick),
+                      });
+                    });
+                    dismissOrderPicking();
+                    return;
+                  }
+                }
                 dismissOrderPicking();
                 return;
               }
               if (pick) {
                 dismissOrderPicking();
                 return;
+              }
+              if (hasDotOnCell(cell.builds)) {
+                const occ = resolveDotOccupantUnit(cell, cells);
+                if (occ && !readonlyBattle && unitIsMineOnMap(occ.unit as { [key: string]: any }, myBattleFaction)) {
+                  const u = occ.unit as { [key: string]: any };
+                  const cx = clickPos?.clientX ?? 0;
+                  const cy = clickPos?.clientY ?? 0;
+                  if (readBattleUnitOrdersFromPayload(u).length === 0) {
+                    setBattleUnitTip({
+                      unit: u,
+                      cell: occ.cell,
+                      clientX: cx,
+                      clientY: cy,
+                      capturedAtTurn: turn,
+                    });
+                    return;
+                  }
+                  setBattleUnitTip(null);
+                  setBattleUnitOrders({
+                    unit: u,
+                    cell: occ.cell,
+                    clientX: cx,
+                    clientY: cy,
+                  });
+                  return;
+                }
               }
               if (unitId === undefined) setBattleUnitOrders(null);
             }}

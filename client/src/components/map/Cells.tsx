@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react'
+import React, { useRef, useEffect, useState, useMemo } from 'react'
 import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
 import type { LobbyFaction } from '../../api/rooms'
 import type { AirInterceptionTarget, AirUnitInFlight } from '../../game/battleAirSupport'
@@ -82,8 +82,12 @@ interface CellsProps {
   viewerBattleFaction?: LobbyFaction
   battleHoverCursor?: string
   wrapClassName?: string
-  onCellClick?: (cell: Cell, unitId?: number, click?: { canvasX: number; canvasY: number }) => void  
+  onCellClick?: (cell: Cell, unitId?: number, click?: { canvasX: number; canvasY: number; clientX?: number; clientY?: number }) => void  
   onUnitClick?: (unit: any, cell: Cell, event: React.MouseEvent) => void
+  /** Приказы с целью-гексом (ДОТ, ход, сектор): клик идёт в клетку, даже если сверху юнит. */
+  ignoreUnitClicks?: boolean
+  /** Скрыть спрайты (гарнизон ДОТ / приказ «Занять ДОТ»). */
+  hiddenBattleInstanceIds?: number[] | null
   onUnitHover?: (unit: any, cell: Cell, event: React.MouseEvent) => void
   onUnitLeave?: () => void
   onUnitDelete?: (unitInstanceId: number, cell: Cell) => void
@@ -176,6 +180,8 @@ const Cells: React.FC<CellsProps> = ({
   battleHoverCursor,
   onCellClick,
   onUnitClick,
+  ignoreUnitClicks = false,
+  hiddenBattleInstanceIds = null,
   onUnitHover,
   onUnitLeave,
   onUnitDelete,
@@ -218,6 +224,15 @@ const Cells: React.FC<CellsProps> = ({
   onStartArtilleryFacingPick,
   onCancelArtilleryFacingPick,
 }) => {
+  const hiddenBattleInstanceIdSet = useMemo(() => {
+    if (!hiddenBattleInstanceIds?.length) return null
+    const s = new Set<number>()
+    for (const id of hiddenBattleInstanceIds) {
+      const n = Number(id)
+      if (Number.isFinite(n)) s.add(n)
+    }
+    return s.size ? s : null
+  }, [hiddenBattleInstanceIds])
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const assets = useCellsAssets()
@@ -277,6 +292,7 @@ const Cells: React.FC<CellsProps> = ({
       width,
       height,
       isEnemyUnitHiddenByFog,
+      extraHiddenInstanceIds: hiddenBattleInstanceIdSet,
     })
     if (ground) return ground
     if (!battleAirInterceptionTargets?.length) return null
@@ -300,7 +316,8 @@ const Cells: React.FC<CellsProps> = ({
     const x = point.x
     const y = point.y
 
-    const unitUnderMouse = findUnitAtPosition(x, y)
+    const cellAtPointer = findCellAtPosition(x, y)
+    const unitUnderMouse = ignoreUnitClicks ? null : findUnitAtPosition(x, y)
 
     const hoverCursor = battleHoverCursor || 'pointer'
     const editorHoverCursor = `url(${cursorPointer}), pointer`
@@ -326,7 +343,7 @@ const Cells: React.FC<CellsProps> = ({
         onUnitLeave()
       }
       
-      const cellUnderMouse = findCellAtPosition(x, y)
+      const cellUnderMouse = cellAtPointer
       setHoverCell(cellUnderMouse)
 
       if (onCellHover) {
@@ -374,7 +391,8 @@ const Cells: React.FC<CellsProps> = ({
   const x = point.x
   const y = point.y
 
-  const unitUnderMouse = findUnitAtPosition(x, y)
+  const cellAtPointer = findCellAtPosition(x, y)
+  const unitUnderMouse = ignoreUnitClicks ? null : findUnitAtPosition(x, y)
   
   if (unitUnderMouse) {
     e.stopPropagation()
@@ -399,14 +417,14 @@ const Cells: React.FC<CellsProps> = ({
       if (onCellClick) {
         const canvasPt = toCanvasPoint(e.clientX, e.clientY, rect, canvasRef.current)
         onCellClick(
-          unitUnderMouse.cell,
-          unitUnderMouse.unit.id || unitUnderMouse.unit.instanceId,
-          { canvasX: canvasPt.x, canvasY: canvasPt.y },
+          cellAtPointer ?? unitUnderMouse.cell,
+          unitUnderMouse.unit.instanceId || unitUnderMouse.unit.id,
+          { canvasX: canvasPt.x, canvasY: canvasPt.y, clientX: e.clientX, clientY: e.clientY },
         )
       }
     }
   } else {
-    const cell = findCellAtPosition(x, y)
+    const cell = cellAtPointer
     const facingPick =
       mode === 'editor' &&
       cell &&
@@ -435,7 +453,12 @@ const Cells: React.FC<CellsProps> = ({
     if (onCellClick && cell) {
       e.stopPropagation()
       const canvasPt = toCanvasPoint(e.clientX, e.clientY, rect, canvasRef.current)
-      onCellClick(cell, undefined, { canvasX: canvasPt.x, canvasY: canvasPt.y })
+      onCellClick(cell, undefined, {
+        canvasX: canvasPt.x,
+        canvasY: canvasPt.y,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      })
     }
   }
   }
@@ -480,6 +503,7 @@ const Cells: React.FC<CellsProps> = ({
       fireSupIconImgRef,
       resolveEditorCachedImage,
       isEnemyUnitHiddenByFog,
+      extraHiddenInstanceIds: hiddenBattleInstanceIdSet,
     })
 
     drawAirUnitsInFlightOnCell(ctx, {
@@ -633,6 +657,7 @@ const Cells: React.FC<CellsProps> = ({
     height,
     cellSize,
     textureVersion,
+    hiddenBattleInstanceIdSet,
   ])
 
   return (
