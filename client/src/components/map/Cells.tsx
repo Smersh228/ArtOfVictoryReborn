@@ -102,6 +102,8 @@ interface CellsProps {
   battleDefendHover?: BattleDefendHoverState | null
   battleFireTargetInstanceIds?: number[] | null
   battleAreaFireCellIds?: number[] | null
+  battleDotSectorCellIds?: number[] | null
+  enterDotGlowCellIds?: number[] | null
   battlePendingShootPreview?: BattlePendingShootPreview | null
   battleFogRevealedCellIds?: number[] | null
   battleReportReplayHighlight?: BattleReportReplayHighlight | null
@@ -137,6 +139,7 @@ interface CellsProps {
   /** Обновление данных ячейки из контекстного меню (hexExtra и т.д.) */
   onEditorCellPatch?: (cellId: number, patch: (cell: Cell) => Cell) => void
   editorCatalogUnits?: EditorMapCatalogUnitPick[]
+  editorTeamLimit?: 2 | 4 | 6
   onEditorUnitPatch?: (
     cellId: number,
     unitInstanceId: number,
@@ -147,6 +150,8 @@ interface CellsProps {
   artilleryFacingPick?: { unitInstanceId: number; unitCellId: number } | null
   onStartArtilleryFacingPick?: (unitInstanceId: number, unitCellId: number) => void
   onCancelArtilleryFacingPick?: () => void
+  dotFacingPick?: { cellId: number } | null
+  onStartDotFacingPick?: (cellId: number) => void
 }
 
 interface HoveredUnitState {
@@ -194,6 +199,8 @@ const Cells: React.FC<CellsProps> = ({
   battleDefendHover = null,
   battleFireTargetInstanceIds = null,
   battleAreaFireCellIds = null,
+  battleDotSectorCellIds = null,
+  enterDotGlowCellIds = null,
   battlePendingShootPreview = null,
   battleFogRevealedCellIds = null,
   battleReportReplayHighlight = null,
@@ -217,10 +224,13 @@ const Cells: React.FC<CellsProps> = ({
   wrapClassName,
   onEditorCellPatch,
   editorCatalogUnits,
+  editorTeamLimit = 2,
   onEditorUnitPatch,
   editorFacingPickCellIds = null,
   onEditorFacingCellPick,
   artilleryFacingPick = null,
+  dotFacingPick = null,
+  onStartDotFacingPick,
   onStartArtilleryFacingPick,
   onCancelArtilleryFacingPick,
 }) => {
@@ -397,7 +407,7 @@ const Cells: React.FC<CellsProps> = ({
   if (unitUnderMouse) {
     e.stopPropagation()
     if (mode === 'editor') {
-      if (artilleryFacingPick) return
+      if (artilleryFacingPick || dotFacingPick) return
       setCellMenu(null)
     
       const wrapRect = wrapRef.current?.getBoundingClientRect()
@@ -436,11 +446,16 @@ const Cells: React.FC<CellsProps> = ({
       onEditorFacingCellPick(cell)
       return
     }
-    if (!artilleryFacingPick) {
+    if (!artilleryFacingPick && !dotFacingPick) {
       setUnitMenu(null)
     }
     const showCellIdMenu =
-      mode === 'editor' && cell && cellHasEditorPlacement(cell) && !hideEditorCellHexMenu
+      mode === 'editor' &&
+      cell &&
+      cellHasEditorPlacement(cell) &&
+      !hideEditorCellHexMenu &&
+      !dotFacingPick &&
+      !artilleryFacingPick
     if (showCellIdMenu) {
       e.stopPropagation()
       const wrapRect = wrapRef.current?.getBoundingClientRect()
@@ -556,6 +571,8 @@ const Cells: React.FC<CellsProps> = ({
           : defendFacingPickCellIds,
       battleDefendHover,
       battleAreaFireCellIds,
+      battleDotSectorCellIds,
+      enterDotGlowCellIds,
       battleReportReplayHighlight,
       battleUnloadCellIds,
       battleAirDepartureHoverCellId,
@@ -593,12 +610,13 @@ const Cells: React.FC<CellsProps> = ({
       dotImg: dotImgRef.current,
       storageImg: storageImgRef.current,
       viewerBattleFaction,
+      battleFogRevealedCellIds,
     })
   }
 
   useEffect(() => {
     const handleClickOutside = () => {
-      if (artilleryFacingPick) return
+      if (artilleryFacingPick || dotFacingPick) return
       if (unitMenu) {
         setUnitMenu(null)
       }
@@ -611,7 +629,7 @@ const Cells: React.FC<CellsProps> = ({
       document.addEventListener('click', handleClickOutside)
       return () => document.removeEventListener('click', handleClickOutside)
     }
-  }, [unitMenu, cellMenu, mode, lobbyPreview, artilleryFacingPick])
+  }, [unitMenu, cellMenu, mode, lobbyPreview, artilleryFacingPick, dotFacingPick])
 
   useEffect(() => {
     draw()
@@ -630,6 +648,8 @@ const Cells: React.FC<CellsProps> = ({
     battleDefendHover,
     battleFireTargetInstanceIds,
     battleAreaFireCellIds,
+    battleDotSectorCellIds,
+    enterDotGlowCellIds,
     battlePendingShootPreview,
     battleFogRevealedCellIds,
     battleReportReplayHighlight,
@@ -653,6 +673,7 @@ const Cells: React.FC<CellsProps> = ({
     editorAviationEdgeCellIds,
     editorFacingPickCellIds,
     artilleryFacingPick,
+    dotFacingPick,
     width,
     height,
     cellSize,
@@ -696,11 +717,14 @@ const Cells: React.FC<CellsProps> = ({
         onDeleteUnit={handleDeleteUnit}
         onEditorCellPatch={onEditorCellPatch}
         editorCatalogUnits={editorCatalogUnits}
+        editorTeamLimit={editorTeamLimit}
         onEditorUnitPatch={onEditorUnitPatch}
         artilleryFacingPick={artilleryFacingPick}
         onStartArtilleryFacingPick={onStartArtilleryFacingPick}
         onCancelArtilleryFacingPick={onCancelArtilleryFacingPick}
+        onStartDotFacingPick={onStartDotFacingPick}
         onCloseUnitMenu={() => setUnitMenu(null)}
+        onCloseCellMenu={() => setCellMenu(null)}
       />
     </div>
   )

@@ -6,7 +6,7 @@ export type ModalSize = 'md' | 'lg' | 'xl'
 export interface ModalProps {
   isOpen: boolean
   onClose: () => void
-  title: string
+  title: React.ReactNode
   subtitle?: string
   size?: ModalSize
   children: React.ReactNode

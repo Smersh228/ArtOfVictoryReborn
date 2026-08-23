@@ -11,8 +11,70 @@ type UnitFogFields = {
   vis?: number;
   visible?: number;
   visibleRange?: number;
-  tactical?: { fireSuppression?: boolean };
+  tactical?: { fireSuppression?: boolean; inDot?: boolean };
 };
+
+const DOT_VISION_DIRS = [
+  { x: 1, y: -1, z: 0 },
+  { x: 1, y: 0, z: -1 },
+  { x: 0, y: 1, z: -1 },
+  { x: -1, y: 1, z: 0 },
+  { x: -1, y: 0, z: 1 },
+  { x: 0, y: -1, z: 1 },
+] as const;
+
+function cellHasDot(cell: Cell): boolean {
+  const b = (cell as Cell & { builds?: { dot?: unknown } }).builds;
+  return b != null && Number(b.dot) > 0;
+}
+
+function resolveDotFacingForVision(dotCell: Cell, cells: Cell[]): number {
+  const b = (dotCell as Cell & { builds?: { dotFacing?: unknown; dotFacingCellId?: unknown } }).builds;
+  const facingCellId = Number(b?.dotFacingCellId);
+  if (Number.isFinite(facingCellId)) {
+    const nb = cells.find((c) => Number(c.id) === facingCellId);
+    if (nb) {
+      const dx = Number(nb.coor.x) - Number(dotCell.coor.x);
+      const dz = Number(nb.coor.z) - Number(dotCell.coor.z);
+      for (let i = 0; i < DOT_VISION_DIRS.length; i++) {
+        if (DOT_VISION_DIRS[i].x === dx && DOT_VISION_DIRS[i].z === dz) return i;
+      }
+    }
+  }
+  const n = Number(b?.dotFacing);
+  if (Number.isFinite(n) && n >= 0 && n <= 5) return Math.floor(n);
+  return 0;
+}
+
+function dotOccupantVisionCellIds(
+  observer: Cell,
+  unit: UnitFogFields,
+  cells: Cell[],
+): Set<number> | null {
+  if (!unit.tactical?.inDot || !cellHasDot(observer)) return null;
+  const maxSteps = String(unit.type || '').toLowerCase() === 'artillery' ? 4 : 3;
+  const facingDir = resolveDotFacingForVision(observer, cells);
+  const d0 = DOT_VISION_DIRS[facingDir];
+  const dLeft = DOT_VISION_DIRS[(facingDir + 1) % 6];
+  const dRight = DOT_VISION_DIRS[(facingDir + 5) % 6];
+  const ox = Number(observer.coor.x);
+  const oz = Number(observer.coor.z);
+  const out = new Set<number>();
+  out.add(observer.id);
+  for (const d1 of [dLeft, dRight]) {
+    for (let s = 1; s <= maxSteps; s++) {
+      for (let i = 0; i <= s; i++) {
+        const j = s - i;
+        const wantX = ox + i * d0.x + j * d1.x;
+        const wantZ = oz + i * d0.z + j * d1.z;
+        const cell = cells.find((c) => Number(c.coor.x) === wantX && Number(c.coor.z) === wantZ);
+        if (!cell || Number(cell.id) === Number(observer.id)) continue;
+        out.add(Number(cell.id));
+      }
+    }
+  }
+  return out;
+}
 
 function effectiveElevationLevel(cell: Cell | null | undefined): number {
   if (!cell) return 0;
@@ -324,10 +386,12 @@ export class VisibleLogic {
       for (const u of us) {
         if (unitFaction(u) !== faction) continue;
         if (getUnitStrength(u) <= 0) continue;
-        const r = readVisionRange(u);
-        const ids = visibleCellIdsInRange(cell, r, cells, {
-          airObserver: isBattleAirUnitType(u),
-        });
+        const fromDot = dotOccupantVisionCellIds(cell, u, cells);
+        const ids =
+          fromDot ??
+          visibleCellIdsInRange(cell, readVisionRange(u), cells, {
+            airObserver: isBattleAirUnitType(u),
+          });
         ids.forEach((id) => revealed.add(id));
       }
     }
@@ -352,6 +416,11 @@ export function isCellSeenByAnyHostileUnit(
     for (const u of us) {
       if (getUnitStrength(u) <= 0) continue;
       if (!factionsOpposedSides(mySide, unitFaction(u))) continue;
+      const fromDot = dotOccupantVisionCellIds(cell, u, cells);
+      if (fromDot) {
+        if (fromDot.has(targetCell.id)) return true;
+        continue;
+      }
       const seen = visibleCellIdsInRange(cell, readVisionRange(u), cells, {
         airObserver: isBattleAirUnitType(u),
       });

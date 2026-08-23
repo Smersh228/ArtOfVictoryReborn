@@ -1,5 +1,11 @@
 const { verifyToken, pool } = require('../../db')
 const { getTokenFromRequest } = require('../../cookieAuth')
+const { applyRoomOutcomeIfNeeded } = require('../../playerStats')
+const { isMuted } = require('../../playerModeration')
+
+const ROOM_CHAT_MAX = 80
+const ROOM_CHAT_MAX_TEXT = 240
+const ROOM_CHAT_COOLDOWN_MS = 1500
 
 const FACTIONS = ['none', 'rkka', 'wehrmacht']
 
@@ -165,14 +171,17 @@ function maybeForfeitDisconnectedBattleFighter(room) {
   room.battleLog.push(battleLogMeta(turnIdx, 'Противник покинул поле боя — засчитана сдача.'))
   if (room.battleLog.length > 300) room.battleLog = room.battleLog.slice(-300)
   room.battleFieldRevision = (room.battleFieldRevision || 0) + 1
+  void applyRoomOutcomeIfNeeded(room).catch((e) => console.error('player outcome:', e.message))
 }
 
 function validateBattleStart(room) {
   ensureMemberSlots(room)
   syncHostReady(room)
   const { members, hostKey } = room
-  if (members.length < 2) {
-    return { ok: false, error: 'Для начала боя нужно минимум два игрока в комнате' }
+  const cap = room.maxPlayers === 4 || room.maxPlayers === 6 ? room.maxPlayers : 2
+  const perTeam = cap / 2
+  if (members.length !== cap) {
+    return { ok: false, error: `Для начала боя нужно ${cap} игроков` }
   }
   for (const m of members) {
     if (m.faction === 'none') {
@@ -183,9 +192,10 @@ function validateBattleStart(room) {
       return { ok: false, error: 'Все игроки должны быть готовы' }
     }
   }
-  const facs = members.map((m) => m.faction)
-  if (new Set(facs).size !== facs.length) {
-    return { ok: false, error: 'Нельзя начать бой: совпадают фракции игроков' }
+  const rkka = members.filter((m) => m.faction === 'rkka').length
+  const wehr = members.filter((m) => m.faction === 'wehrmacht').length
+  if (rkka !== perTeam || wehr !== perTeam) {
+    return { ok: false, error: `Нужно по ${perTeam} игрока на команду` }
   }
   return { ok: true }
 }
@@ -205,10 +215,32 @@ function roomToPublic(r) {
 function memberOwnsUnit(mem, unit) {
   if (!mem || !unit) return false
   if (mem.faction === 'none') return true
+  const unitTeam = Number(unit.team)
+  const memTeam = Number(mem.team)
+  if (Number.isFinite(unitTeam) && unitTeam > 0 && Number.isFinite(memTeam) && memTeam > 0) {
+    return unitTeam === memTeam
+  }
   const f = String(unit.faction || '').toLowerCase()
   if (mem.faction === 'rkka') return f === 'ussr' || f === 'rkka'
   if (mem.faction === 'wehrmacht') return f === 'germany' || f === 'wehrmacht'
   return false
+}
+
+function assignMemberTeam(room, mem, faction) {
+  const cap = room.maxPlayers === 4 || room.maxPlayers === 6 ? room.maxPlayers : 2
+  const slots = []
+  for (let t = 1; t <= cap; t++) {
+    if (faction === 'rkka' && t % 2 === 1) slots.push(t)
+    if (faction === 'wehrmacht' && t % 2 === 0) slots.push(t)
+  }
+  const taken = new Set(
+    (room.members || [])
+      .filter((m) => m.key !== mem.key && m.faction === faction)
+      .map((m) => Number(m.team))
+      .filter((n) => Number.isFinite(n) && n > 0),
+  )
+  mem.team = slots.find((t) => !taken.has(t)) || slots[0] || null
+  if (faction === 'none') mem.team = null
 }
 
 function normalizeSubmittedOrderKey(raw) {
@@ -323,6 +355,101 @@ async function memberKeyForRoom(req, room) {
   return uKey || cKey
 }
 
+function sanitizeRoomChatText(raw) {
+  const text = String(raw ?? '')
+    .replace(/[\u0000-\u001F\u007F]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!text) return ''
+  return text.length > ROOM_CHAT_MAX_TEXT ? text.slice(0, ROOM_CHAT_MAX_TEXT) : text
+}
+
+function ensureRoomChat(room) {
+  if (!room.lobbyChat || typeof room.lobbyChat !== 'object') {
+    room.lobbyChat = { nextId: 1, messages: [], lastAt: new Map() }
+  }
+  if (!Array.isArray(room.lobbyChat.messages)) room.lobbyChat.messages = []
+  if (!(room.lobbyChat.lastAt instanceof Map)) room.lobbyChat.lastAt = new Map()
+  if (!Number.isFinite(Number(room.lobbyChat.nextId)) || Number(room.lobbyChat.nextId) < 1) {
+    room.lobbyChat.nextId = 1
+  }
+}
+
+function memberChatTeam(mem) {
+  if (!mem) return null
+  if (mem.faction === 'rkka' || mem.faction === 'wehrmacht') return mem.faction
+  return null
+}
+
+function isBattleSpectator(room, selfMem) {
+  if (!selfMem) return Boolean(room && room.battleStartedAt != null)
+  if (room.battleStartedAt == null) return false
+  return selfMem.faction !== 'rkka' && selfMem.faction !== 'wehrmacht'
+}
+
+function publicRoomChat(room, selfMem) {
+  ensureRoomChat(room)
+  const spectator = isBattleSpectator(room, selfMem)
+  const selfTeam = memberChatTeam(selfMem)
+  return room.lobbyChat.messages
+    .filter((m) => {
+      const channel = m.channel === 'team' ? 'team' : 'all'
+      if (channel === 'all') return true
+      if (spectator) return true
+      return Boolean(selfTeam && m.teamKey === selfTeam)
+    })
+    .slice(-ROOM_CHAT_MAX)
+    .map((m) => ({
+      id: Number(m.id),
+      userId: Number(m.userId) || 0,
+      username: String(m.username || 'Игрок'),
+      text: String(m.text || ''),
+      ts: Number(m.ts) || Date.now(),
+      channel: m.channel === 'team' ? 'team' : 'all',
+      teamKey: m.channel === 'team' && (m.teamKey === 'rkka' || m.teamKey === 'wehrmacht') ? m.teamKey : null,
+    }))
+}
+
+async function addRoomChatMessage(room, mem, memKey, rawText, rawChannel) {
+  ensureRoomChat(room)
+  const text = sanitizeRoomChatText(rawText)
+  if (!text) return { ok: false, error: 'Пустое сообщение' }
+  if (isBattleSpectator(room, mem)) {
+    return { ok: false, error: 'Наблюдатель не может писать в чат' }
+  }
+  const channel = rawChannel === 'team' ? 'team' : 'all'
+  const teamKey = memberChatTeam(mem)
+  if (channel === 'team' && !teamKey) {
+    return { ok: false, error: 'Сначала выберите фракцию' }
+  }
+  const userId = String(memKey || '').startsWith('u:') ? Number(String(memKey).slice(2)) : 0
+  if (userId > 0 && isMuted(userId)) {
+    return { ok: false, error: 'Вы получили системный мут' }
+  }
+  const now = Date.now()
+  const prev = Number(room.lobbyChat.lastAt.get(memKey) || 0)
+  if (now - prev < ROOM_CHAT_COOLDOWN_MS) {
+    return { ok: false, error: 'Подождите секунду' }
+  }
+  const labels = await resolveMemberLabels([memKey])
+  const username = labels[0] || 'Игрок'
+  room.lobbyChat.lastAt.set(memKey, now)
+  const msg = {
+    id: room.lobbyChat.nextId++,
+    userId: Number.isFinite(userId) ? userId : 0,
+    username,
+    text,
+    ts: now,
+    channel,
+    teamKey: channel === 'team' ? teamKey : null,
+  }
+  room.lobbyChat.messages.push(msg)
+  if (room.lobbyChat.messages.length > ROOM_CHAT_MAX) {
+    room.lobbyChat.messages.splice(0, room.lobbyChat.messages.length - ROOM_CHAT_MAX)
+  }
+  return { ok: true, message: msg }
+}
+
 async function roomDetailPayload(room, selfKey) {
   ensureMemberSlots(room)
   const needAck = battleMembersNeedingTurnAck(room)
@@ -333,6 +460,7 @@ async function roomDetailPayload(room, selfKey) {
     key: m.key,
     label: labels[i],
     faction: m.faction,
+    team: Number.isFinite(Number(m.team)) && Number(m.team) > 0 ? Number(m.team) : null,
     ready: m.key === hk ? true : m.ready,
     isYou: Boolean(selfKey && m.key === selfKey),
     isHost: m.key === hk,
@@ -365,6 +493,10 @@ async function roomDetailPayload(room, selfKey) {
         ? room.battleReconByFaction
         : undefined,
     battleLog: room.battleStartedAt != null && Array.isArray(room.battleLog) ? room.battleLog.slice(-120) : undefined,
+    lobbyChat: publicRoomChat(
+      room,
+      room.members.find((m) => selfKey && m.key === selfKey) || null,
+    ),
   }
 }
 
@@ -391,10 +523,12 @@ module.exports = {
   validateBattleStart,
   roomToPublic,
   memberOwnsUnit,
+  assignMemberTeam,
   normalizeSubmittedOrderKey,
   SUBMITTABLE_ORDER_KEYS,
   memberKeyFromRequest,
   memberKeyForRoom,
   roomDetailPayload,
   sendRoomDetailOr500,
+  addRoomChatMessage,
 }

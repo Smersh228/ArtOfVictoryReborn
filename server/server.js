@@ -11,8 +11,11 @@ const editorUploadRoutes = require('./routes/editorUpload/router')
 const roomsRoutes = require('./routes/rooms')
 const mapsRoutes = require('./routes/maps/router')
 const adminMaintenanceRoutes = require('./routes/admin/maintenanceRoutes')
+const lobbyHubRoutes = require('./routes/lobbyHub')
 const { maintenanceApiGate } = require('./maintenanceMiddleware')
 const { ensureMaintenanceSchema } = require('./maintenance')
+const { ensureChatMuteSchema } = require('./lobbyHub')
+const { ensurePlayerStatsSchema } = require('./playerStats')
 const { ensureUnitCatalogColumns } = require('./routes/editor/shared')
 
 const app = express()
@@ -56,6 +59,7 @@ app.use('/api/editor', editorRoutes)
 app.use('/api/editor', editorUploadRoutes)
 app.use('/api/rooms', roomsRoutes)
 app.use('/api/maps', mapsRoutes)
+app.use('/api/lobby', lobbyHubRoutes)
 
 /** Продакшен: раздача SPA из aov/dist (если каталог есть). Nginx может отдавать dist сам — тогда SERVE_CLIENT=0. */
 const DIST_DIR = path.join(__dirname, '..', 'dist')
@@ -71,6 +75,14 @@ if (SERVE_CLIENT) {
 
 ensureMaintenanceSchema().catch((e) => {
   console.error('maintenance schema:', e.message)
+})
+
+ensureChatMuteSchema().catch((e) => {
+  console.error('chat mute schema:', e.message)
+})
+
+ensurePlayerStatsSchema().catch((e) => {
+  console.error('player stats schema:', e.message)
 })
 
 ensureUnitCatalogColumns().catch((e) => {

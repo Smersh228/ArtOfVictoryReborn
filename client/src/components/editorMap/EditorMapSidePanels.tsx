@@ -44,10 +44,27 @@ const unitTypes: { id: UnitTypeId; label: string }[] = [
 export const UnitsFilters: React.FC<{
   selectedFaction: FactionId;
   selectedUnitType: UnitTypeId;
+  selectedTeam: number;
+  teamLimit: 2 | 4 | 6;
   onFaction: (id: FactionId) => void;
   onUnitType: (id: UnitTypeId) => void;
-}> = ({ selectedFaction, selectedUnitType, onFaction, onUnitType }) => (
+  onTeam: (team: number) => void;
+}> = ({ selectedFaction, selectedUnitType, selectedTeam, teamLimit, onFaction, onUnitType, onTeam }) => (
   <>
+    <div className={styles.filterGroup}>
+      <div className={styles.filterGroupTitle}>Команда</div>
+      <div className={styles.filterRow}>
+        {Array.from({ length: teamLimit }, (_, i) => i + 1).map((team) => (
+          <div
+            key={team}
+            className={`${styles.filterItem} ${selectedTeam === team ? styles.active : ''}`}
+            onClick={() => onTeam(team)}
+          >
+            {team} {team % 2 === 1 ? 'СССР' : 'Вермахт'}
+          </div>
+        ))}
+      </div>
+    </div>
     <div className={styles.filterGroup}>
       <div className={styles.filterGroupTitle}>Фракция</div>
       <div className={styles.filterRow}>
@@ -228,6 +245,8 @@ export const ScenarioPanel: React.FC<{
   setMissionBrief: (v: string) => void;
   historyText: string;
   setHistoryText: (v: string) => void;
+  teamLimit: 2 | 4 | 6;
+  setTeamLimit: (v: 2 | 4 | 6) => void;
   scenarioPhotos: readonly [string, string];
   onScenarioPhotoUpload: (slot: ScenarioPhotoSlot, file: File | null) => void;
   onScenarioPhotoClear: (slot: ScenarioPhotoSlot) => void;
@@ -236,11 +255,28 @@ export const ScenarioPanel: React.FC<{
   setMissionBrief,
   historyText,
   setHistoryText,
+  teamLimit,
+  setTeamLimit,
   scenarioPhotos,
   onScenarioPhotoUpload,
   onScenarioPhotoClear,
 }) => (
   <>
+    <div className={styles.filterGroup}>
+      <div className={styles.filterGroupTitle}>Лимит команд</div>
+      <select
+        className={`${styles.panelInput} ${styles.fullWidth} ${styles.marginTopSm}`}
+        value={teamLimit}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (n === 2 || n === 4 || n === 6) setTeamLimit(n);
+        }}
+      >
+        <option value={2}>2</option>
+        <option value={4}>4</option>
+        <option value={6}>6</option>
+      </select>
+    </div>
     <div className={styles.filterGroup}>
       <div className={styles.filterGroupTitle}>Название миссии</div>
       <input type="text" value={missionBrief} onChange={(e) => setMissionBrief(e.target.value)} placeholder="Например: Битва за Прохоровку" className={`${styles.panelInput} ${styles.fullWidth} ${styles.marginTopSm}`} />

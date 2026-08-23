@@ -185,7 +185,7 @@ export function drawUnitsOnCell(
     const isReportShooterGlow =
       mode === 'battle' && battleInstanceIdInList(reportGlowIds, unitId)
 
-    if (isHighlighted) {
+    if (isHighlighted || isFirePickTarget) {
       ctx.shadowColor = 'red'
       ctx.shadowBlur = 20
       ctx.beginPath()

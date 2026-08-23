@@ -1,6 +1,13 @@
 const { register, login, verifyToken } = require('../../db')
 const { setAuthCookie, clearAuthCookie, getTokenFromRequest } = require('../../cookieAuth')
 const { isMapAdminUser } = require('../../mapsPolicy')
+const { getActiveBan } = require('../../playerModeration')
+
+function banMessage(ban) {
+  if (!ban) return 'Аккаунт заблокирован'
+  if (ban.until == null) return 'Аккаунт заблокирован навсегда'
+  return `Аккаунт заблокирован до ${new Date(ban.until).toLocaleString('ru-RU')}`
+}
 const {
   MAINTENANCE_MESSAGE,
   isMaintenanceEnabled,
@@ -54,6 +61,10 @@ async function loginHandler(req, res) {
     const result = await login(usernameOrEmail, password)
 
     if (result.success) {
+      const ban = await getActiveBan(result.user.id)
+      if (ban) {
+        return res.status(403).json({ success: false, message: banMessage(ban) })
+      }
       if (await isMaintenanceBlockedForUser(result.user)) {
         return res.status(503).json({
           success: false,
@@ -87,6 +98,11 @@ async function verifyHandler(req, res) {
     const user = await verifyToken(token)
 
     if (user) {
+      const ban = await getActiveBan(user.id)
+      if (ban) {
+        clearAuthCookie(res)
+        return res.status(403).json({ success: false, message: banMessage(ban) })
+      }
       if (await isMaintenanceBlockedForUser(user)) {
         clearAuthCookie(res)
         return res.status(503).json({

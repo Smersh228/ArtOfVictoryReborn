@@ -161,7 +161,8 @@ function appendDefaultDotOrdersForUnit(u) {
   )
   const inDot = !!(u.tactical && u.tactical.inDot)
   const exiting = !!(u.tactical && Number(u.tactical.dotExitTurnsLeft) > 0)
-  if (!inDot && !keys.has('enterDot')) {
+  const entering = !!(u.tactical && Number(u.tactical.dotEnterTurnsLeft) > 0)
+  if (!inDot && !entering && !keys.has('enterDot')) {
     orders.push({ id: -9001, name: 'Занять ДОТ', order_key: 'enterDot' })
   }
   if (inDot && !exiting && !keys.has('exitDot')) {

@@ -12,6 +12,8 @@ import BattleSidePanel from '../components/battle/BattleSidePanel';
 import BattleAirSupportPanel from '../components/battle/BattleAirSupportPanel';
 import { formatBattleAirDesantLine, type AccompanimentEscortCandidate } from '../game/battleAirSupport';
 import BattleToolbar from '../components/battle/BattleToolbar';
+import LobbyRoomChat, { type LobbyChatView } from '../components/lobby/LobbyRoomChat';
+import { useAuth } from '../context/AuthContext';
 import BattleUnitOrdersPanel from '../components/battle/BattleUnitOrdersPanel';
 import BattleUnitTipCard from '../components/battle/BattleUnitTipCard';
 import BattleDotTipCard from '../components/battle/BattleDotTipCard';
@@ -29,6 +31,7 @@ import {
   formatBattleTechCargoLine,
   formatBattleUnitFactionLabel,
   formatBattleUnitPlayerLabel,
+  formatBattleUnitTeamLabel,
   inferOrderKey,
   readBattleUnitOrdersFromPayload,
   resolveBattleCellOnField,
@@ -56,8 +59,11 @@ import {
   fetchRoomDetail,
   fetchRoomLobbyMap,
   leaveRoom,
+  postRoomChat,
   type BattleOrderPayload,
   type LobbyFaction,
+  type LobbyRoomChatChannel,
+  type LobbyRoomChatMessage,
 } from '../api/rooms';
 import type { EditorMapPayloadLobby } from '../api/maps';
 import { getBattleOrderIconUrl } from '../game/battleOrderIcons';
@@ -151,6 +157,7 @@ const Battle: React.FC = () => {
     confirmNextTurn,
     myBattleFaction,
     roomDetail,
+    setRoomDetail,
   } = useBattleSync(roomIdForSync, playerId, solo, apiRoomId);
 
   const battleEndedOverlay = opponentVictory || scenarioBattleOutcome != null;
@@ -213,6 +220,52 @@ const Battle: React.FC = () => {
     null,
   );
   const [centerModal, setCenterModal] = useState<BattleCenterModalId | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatSeen, setChatSeen] = useState({ all: 0, team: 0, rkka: 0, wehrmacht: 0 });
+  const { user } = useAuth();
+
+  useEffect(() => {
+    setChatSeen({ all: 0, team: 0, rkka: 0, wehrmacht: 0 });
+    setChatOpen(false);
+    setChatError(null);
+  }, [apiRoomId]);
+
+  const chatMessages: LobbyRoomChatMessage[] = Array.isArray(roomDetail?.lobbyChat)
+    ? roomDetail.lobbyChat
+    : [];
+  const unreadAll = chatMessages.filter((m) => (m.channel === 'team' ? false : m.id > chatSeen.all)).length;
+  const unreadTeam = chatMessages.filter((m) => m.channel === 'team' && m.id > chatSeen.team).length;
+  const unreadRkka = chatMessages.filter((m) => m.channel === 'team' && m.teamKey === 'rkka' && m.id > chatSeen.rkka).length;
+  const unreadWehrmacht = chatMessages.filter(
+    (m) => m.channel === 'team' && m.teamKey === 'wehrmacht' && m.id > chatSeen.wehrmacht,
+  ).length;
+  const chatUnreadCount = readonlyBattle
+    ? unreadAll + unreadRkka + unreadWehrmacht
+    : unreadAll + unreadTeam;
+
+  const markChatSeen = useCallback((channel: LobbyChatView, lastId: number) => {
+    if (!lastId) return;
+    setChatSeen((prev) => (prev[channel] >= lastId ? prev : { ...prev, [channel]: lastId }));
+  }, []);
+
+  const runSendChat = useCallback(
+    async (text: string, channel: LobbyRoomChatChannel) => {
+      if (readonlyBattle || apiRoomId == null || !Number.isFinite(apiRoomId)) return;
+      setChatSending(true);
+      setChatError(null);
+      try {
+        const data = await postRoomChat(apiRoomId, text, channel);
+        setRoomDetail(data);
+      } catch (e) {
+        setChatError(e instanceof Error ? e.message : 'Не удалось отправить');
+      } finally {
+        setChatSending(false);
+      }
+    },
+    [apiRoomId, setRoomDetail, readonlyBattle],
+  );
   const mapWrapRef = useRef<HTMLDivElement>(null);
   const hasGrid = cells.length > 0;
   const [battleUnitTip, setBattleUnitTip] = useState<BattleUnitTipState | null>(null);
@@ -228,15 +281,6 @@ const Battle: React.FC = () => {
   const [battleMapPayload, setBattleMapPayload] = useState<EditorMapPayloadLobby | null>(null);
   const lastBattleFieldRevisionRef = useRef<number>(0);
   const [pendingOrders, setPendingOrders] = useState<BattleOrderPayload[]>([]);
-  const hiddenDotInstanceIds = useMemo(() => {
-    const ids: number[] = [];
-    for (const o of pendingOrders) {
-      if (String(o.orderKey ?? '').trim() !== 'enterDot') continue;
-      const n = Number(o.unitInstanceId);
-      if (Number.isFinite(n)) ids.push(n);
-    }
-    return ids;
-  }, [pendingOrders]);
   const [orderPick, setOrderPick] = useState<OrderPickState | null>(null);
   const orderPickRef = useRef<OrderPickState | null>(null);
   orderPickRef.current = orderPick;
@@ -378,6 +422,7 @@ const Battle: React.FC = () => {
     moveReachableCellIds,
     cutWireTargetCellIds,
     enterDotTargetCellIds,
+    exitDotTargetCellIds,
     defendFacingPickCellIds,
     defendRangePickCellIds,
     defendPickHighlightCellIds,
@@ -388,6 +433,7 @@ const Battle: React.FC = () => {
     battleUnloadCellIds,
     battleFireTargetInstanceIds,
     battleAreaFireCellIds,
+    battleDotSectorCellIds,
     battlePendingShootPreview,
     battlePendingLogisticsPreview,
     battleDefendHover,
@@ -722,6 +768,7 @@ const Battle: React.FC = () => {
             cells={cells}
             pendingOrderKey={battleTipPendingOrderKey}
             factionLabel={formatBattleUnitFactionLabel(battleUnitTip.unit)}
+            teamLabel={formatBattleUnitTeamLabel(battleUnitTip.unit)}
             playerLabel={formatBattleUnitPlayerLabel(
               battleUnitTip.unit,
               viewerBattleFaction,
@@ -814,8 +861,10 @@ const Battle: React.FC = () => {
           onLeaveOrSurrender={onLeaveOrSurrender}
           onShowReport={onShowReport}
           onShowTasks={onShowTasks}
+          onOpenChat={() => setChatOpen(true)}
           onNextTurn={onNextTurn}
           reportBadgeCount={reportBadgeCount}
+          chatUnreadCount={chatUnreadCount}
         />
 
         <BattleMapStage
@@ -825,6 +874,8 @@ const Battle: React.FC = () => {
           battleHoverCellId={battleHoverCellId}
           orderPick={orderPick}
           battleAreaFireCellIds={battleAreaFireCellIds ? Array.from(battleAreaFireCellIds) : null}
+          battleDotSectorCellIds={battleDotSectorCellIds}
+          enterDotGlowCellIds={enterDotTargetCellIds ? Array.from(enterDotTargetCellIds) : null}
           cells={cells}
           mapViewport={mapViewport}
           battleCellSize={battleCellSize}
@@ -838,8 +889,8 @@ const Battle: React.FC = () => {
           moveReachableCellIds={
             cutWireTargetCellIds
               ? Array.from(cutWireTargetCellIds)
-              : enterDotTargetCellIds
-                ? Array.from(enterDotTargetCellIds)
+              : exitDotTargetCellIds
+                ? Array.from(exitDotTargetCellIds)
                 : moveReachableCellIds
                   ? Array.from(moveReachableCellIds)
                   : null
@@ -871,7 +922,6 @@ const Battle: React.FC = () => {
           defendFacingPickCellIds={defendFacingPickCellIds ? Array.from(defendFacingPickCellIds) : null}
           setOrderPick={setOrderPick}
           setBattleAmmoModal={setBattleAmmoModal}
-          hiddenBattleInstanceIds={hiddenDotInstanceIds}
           showResolvingOverlay={showResolvingOverlay}
           battleAirDepartureHoverCellId={airSupportPanelHover?.cellId ?? null}
           battleAirDeparturePickCellId={battleAirDeparturePickCellId}
@@ -895,6 +945,24 @@ const Battle: React.FC = () => {
           fireAdjustmentToggleAvailable={fireAdjustmentToggleAvailable}
         />
       </div>
+      <LobbyRoomChat
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        messages={chatMessages}
+        selfLabel={selfMember?.label || ''}
+        selfUserId={user?.id}
+        selfFaction={selfMember?.faction ?? myBattleFaction}
+        sending={chatSending}
+        error={chatError}
+        onSend={runSendChat}
+        onViewChannel={markChatSeen}
+        unreadAll={unreadAll}
+        unreadTeam={unreadTeam}
+        unreadRkka={unreadRkka}
+        unreadWehrmacht={unreadWehrmacht}
+        readOnly={readonlyBattle}
+        spectator={readonlyBattle}
+      />
     </>
   );
 };

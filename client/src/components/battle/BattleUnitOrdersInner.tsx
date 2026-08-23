@@ -25,7 +25,9 @@ import {
 import {
   canEnterDotUnitType,
   cellsEligibleForEnterDot,
+  cellsEligibleForExitDot,
   getDotAmmo,
+  unitDotEntering,
   unitDotExiting,
   unitInDot,
 } from '../../game/cellDot';
@@ -43,6 +45,7 @@ export interface BattleUnitOrdersInnerUnit {
     desantEquipScheduled?: boolean;
     desantOnlyBattleMoveTurnsLeft?: number;
     dotExitTurnsLeft?: number;
+    dotEnterTurnsLeft?: number;
     inDot?: boolean;
   };
   [key: string]: unknown;
@@ -197,7 +200,15 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
         let dotOrderTitle = '';
         const inDotOrd = unitInDot(uOrd);
         const dotExitingOrd = unitDotExiting(uOrd);
-        if (dotExitingOrd) {
+        const dotEnteringOrd = unitDotEntering(uOrd);
+        const getStr = (u: Record<string, unknown>) => {
+          const n = Number(u.str ?? u.strength);
+          return Number.isFinite(n) ? n : 0;
+        };
+        if (dotEnteringOrd) {
+          dotOrderBlocked = true;
+          dotOrderTitle = 'Занимает ДОТ — приказы недоступны до следующего хода';
+        } else if (dotExitingOrd) {
           dotOrderBlocked = true;
           dotOrderTitle = 'Выход из ДОТ — другие приказы недоступны';
         } else if (inDotOrd && key !== 'fire' && key !== 'fireHard' && key !== 'exitDot') {
@@ -213,10 +224,6 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
             dotOrderTitle = 'Юнит уже в ДОТ';
           } else {
             const liveCell = resolveBattleCellOnField(cell, cells) ?? cell;
-            const getStr = (u: Record<string, unknown>) => {
-              const n = Number(u.str ?? u.strength);
-              return Number.isFinite(n) ? n : 0;
-            };
             if (!cellsEligibleForEnterDot(liveCell, cells, getStr).length) {
               can = false;
               dotOrderTitle = 'Рядом нет свободного ДОТ';
@@ -230,6 +237,12 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           } else if (dotExitingOrd) {
             can = false;
             dotOrderTitle = 'Уже выходит из ДОТ';
+          } else {
+            const liveCell = resolveBattleCellOnField(cell, cells) ?? cell;
+            if (!cellsEligibleForExitDot(liveCell, cells, getStr).length) {
+              can = false;
+              dotOrderTitle = 'Нет свободной клетки для выхода';
+            }
           }
         }
         if (can && inDotOrd && (key === 'fire' || key === 'fireHard')) {
@@ -237,7 +250,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           const liveCell = resolveBattleCellOnField(cell, cells) ?? cell;
           if (getDotAmmo(liveCell.builds) < need) {
             can = false;
-            dotOrderTitle = `Недостаточно БК в ДОТ (нужно ${need})`;
+            dotOrderTitle = `Недостаточно боезапаса в ДОТ (нужно ${need})`;
           }
         }
         if (tacOrd?.desantEquipping || tacOrd?.desantEquipScheduled) {
@@ -409,10 +422,11 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                 return;
               }
               if (key === 'exitDot') {
-                setPendingOrders((prev) => {
-                  const next = prev.filter((x) => x.unitInstanceId !== iid);
-                  next.push({ unitInstanceId: iid, orderKey: 'exitDot' });
-                  return next;
+                setOrderPick({
+                  unit,
+                  cell,
+                  orderKey: 'exitDot',
+                  orderLabel: o.name,
                 });
                 setBattleUnitOrders(null);
                 return;
@@ -457,13 +471,18 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                   return;
                 }
                 const liveUnit = liveForFire.unit as BattleUnitOrdersInnerUnit;
-                const ammoNow = readAmmoCountUi(liveUnit);
                 const needAmmo = key === 'fireHard' ? 3 : 1;
+                const ammoNow = unitInDot(liveUnit)
+                  ? getDotAmmo(liveForFire.cell.builds)
+                  : readAmmoCountUi(liveUnit);
                 if (ammoNow < needAmmo) {
+                  const fromDot = unitInDot(liveUnit);
                   window.alert(
                     key === 'fireHard'
-                      ? `Недостаточно БК для огня на подавление: нужно ${needAmmo}, сейчас ${ammoNow}.`
-                      : 'Нет боеприпасов для стрельбы.',
+                      ? `Недостаточно ${fromDot ? 'боезапаса ДОТ' : 'БК'} для огня на подавление: нужно ${needAmmo}, сейчас ${ammoNow}.`
+                      : fromDot
+                        ? 'Нет боезапаса в ДОТ для стрельбы.'
+                        : 'Нет боеприпасов для стрельбы.',
                   );
                   return;
                 }

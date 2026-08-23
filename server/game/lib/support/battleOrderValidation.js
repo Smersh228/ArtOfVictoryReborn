@@ -186,7 +186,7 @@ function validateBattleOrders(cells, orders, context) {
           haveAmmo = dotMod.getDotAmmo(found.cell.builds)
         }
         if (haveAmmo < needAmmo) {
-          const src = dotMod.dotShooterUsesDotAmmo(found.unit) ? 'БК ДОТ' : 'БК'
+          const src = dotMod.dotShooterUsesDotAmmo(found.unit) ? 'боезапас ДОТ' : 'БК'
           return `Приказ ${i + 1}: недостаточно ${src} (${ok === 'fireHard' ? 'огонь на подавление — 3' : 'огонь — 1'})`
         }
         const dFire = hexDistCells(found.cell, tgt.cell)
@@ -212,6 +212,12 @@ function validateBattleOrders(cells, orders, context) {
           if (!isArtilleryFireTargetCellAllowed(found.unit, tgt.cell.id)) {
             return `Приказ ${i + 1}: цель вне сектора обстрела артиллерии`
           }
+        }
+      }
+      if (ok === 'fire' || ok === 'fireHard') {
+        const dotMod = require('../map/battleDot')
+        if (!dotMod.isDotFireTargetCellAllowed(found.unit, found.cell, tgt.cell.id, cells)) {
+          return `Приказ ${i + 1}: цель вне сектора стрельбы ДОТ`
         }
       }
       if (
@@ -379,6 +385,7 @@ function validateBattleOrders(cells, orders, context) {
         return `Приказ ${i + 1}: занять ДОТ могут только пехота и артиллерия`
       }
       if (dotMod.unitInDot(found.unit)) return `Приказ ${i + 1}: юнит уже в ДОТ`
+      if (dotMod.unitDotEntering(found.unit)) return `Приказ ${i + 1}: юнит уже занимает ДОТ`
       const cid = Number(o.targetCellId)
       if (!Number.isFinite(cid)) return `Приказ ${i + 1}: укажите клетку с ДОТ (targetCellId)`
       const dotCell = cells.find((c) => Number(c.id) === cid)
@@ -398,6 +405,16 @@ function validateBattleOrders(cells, orders, context) {
       const dotMod = require('../map/battleDot')
       if (!dotMod.unitInDot(found.unit)) return `Приказ ${i + 1}: юнит не в ДОТ`
       if (dotMod.unitDotExiting(found.unit)) return `Приказ ${i + 1}: юнит уже выходит из ДОТ`
+      const cid = Number(o.targetCellId)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: укажите клетку выхода (targetCellId)`
+      const dest = cells.find((c) => Number(c.id) === cid)
+      if (!dest) return `Приказ ${i + 1}: клетка выхода не найдена`
+      if (!dotMod.isAxialNeighbor(found.cell, dest)) {
+        return `Приказ ${i + 1}: выйти можно только на соседний гекс`
+      }
+      if (!dotMod.canUnitOccupySurfaceOnCell(dest, getStr)) {
+        return `Приказ ${i + 1}: на клетке выхода нет места`
+      }
       continue
     }
     if (ok === 'deploy') {

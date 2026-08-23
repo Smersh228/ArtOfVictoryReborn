@@ -130,6 +130,143 @@
   max-width: 100%;
 }
 
+.lobbyChat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 280px;
+}
+
+.lobbyChatTabs {
+  display: flex;
+  gap: 8px;
+}
+
+.lobbyChatTab {
+  position: relative;
+  flex: 1;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.42);
+  color: rgba(28, 30, 38, 0.88);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.lobbyChatTabActive {
+  background: rgba(53, 49, 49, 0.55);
+  border-color: rgba(40, 40, 40, 0.2);
+  color: #fff;
+}
+
+.lobbyChatTabBadge {
+  position: absolute;
+  top: -5px;
+  right: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: #d93030;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 16px;
+}
+
+.lobbyChatList {
+  height: 280px;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 4px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.lobbyChatEmpty {
+  padding: 16px 8px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(60, 60, 65, 0.7);
+}
+
+.lobbyChatRow {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.lobbyChatMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lobbyChatName {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(28, 30, 38, 0.88);
+}
+
+.lobbyChatRowMine .lobbyChatName {
+  color: #1565c0;
+}
+
+.lobbyChatTime {
+  font-size: 11px;
+  color: rgba(70, 70, 75, 0.7);
+}
+
+.lobbyChatText {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #111;
+  word-break: break-word;
+}
+
+.lobbyChatError {
+  font-size: 12px;
+  color: #b71c1c;
+}
+
+.lobbyChatForm {
+  display: flex;
+  gap: 8px;
+}
+
+.lobbyChatInput {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  font-size: 13px;
+  color: #000;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.lobbyChatSend {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  background: rgba(255, 255, 255, 0.85);
+  color: #000;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.lobbyChatSend:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .lobbyPlayers {
   flex: 1;
   min-height: 120px;

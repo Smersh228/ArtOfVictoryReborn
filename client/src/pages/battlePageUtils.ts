@@ -5,6 +5,8 @@ import { appendDefaultDotOrders } from '../game/cellDot';
 import { generateEmptyGrid } from '../game/hexGrid';
 import { placeUnitsOnGrid } from '../game/battleUnits';
 import { getCarriedUnitsFromTruck } from '../game/battleLogisticsUi';
+import { teamFromUnit, teamSideLabel } from '../game/editorMapTeam';
+import type { LobbyFaction } from '../api/rooms';
 
 const BATTLE_GRID_W = 10;
 const BATTLE_GRID_H = 10;
@@ -31,6 +33,11 @@ export function formatBattleTechCargoLine(unit: Record<string, unknown>): string
       return `${String(c.name ?? '—')} (${kind})`;
     })
     .join('; ');
+}
+
+export function formatBattleUnitTeamLabel(unit: Record<string, unknown>): string {
+  const team = teamFromUnit(unit, 6)
+  return `${team} · ${teamSideLabel(team)}`
 }
 
 export function formatBattleUnitFactionLabel(unit: Record<string, unknown>): string {

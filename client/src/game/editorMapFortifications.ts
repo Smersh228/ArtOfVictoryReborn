@@ -1,3 +1,4 @@
+import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import type { IBuildCell } from '../../../server/src/game/gameLogic/cells/cell';
 import dotImg from '../img/build/dot.png';
 import minesImg from '../img/build/mines.png';
@@ -55,6 +56,39 @@ export const STORAGE_SPRITE_URL = storageImg;
 export const ANTITANK_SPRITE_URL = tankHedgehogImg;
 export const TRENCH_SPRITE_URL = trenchImg;
 
+export const STORAGE_DEFAULT_AMMO = 40;
+export const STORAGE_DEFAULT_SMOKE = 2;
+export const STORAGE_DEFAULT_EXPLOSIVES = 2;
+export const STORAGE_DEFAULT_MINES = 4;
+
+export function hasStorageOnCell(builds: IBuildCell | undefined | null): boolean {
+  return Number(builds?.storage) > 0;
+}
+
+function readSupplyCount(raw: unknown, fallback: number, max: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(max, Math.floor(n)));
+}
+
+export function applyStorageSupplyDefaults(builds: IBuildCell): IBuildCell {
+  const out = { ...builds, storage: 1 };
+  out.storageAmmo = readSupplyCount(out.storageAmmo, STORAGE_DEFAULT_AMMO, STORAGE_DEFAULT_AMMO);
+  out.storageSmoke = readSupplyCount(out.storageSmoke, STORAGE_DEFAULT_SMOKE, STORAGE_DEFAULT_SMOKE);
+  out.storageExplosives = readSupplyCount(out.storageExplosives, STORAGE_DEFAULT_EXPLOSIVES, STORAGE_DEFAULT_EXPLOSIVES);
+  out.storageMines = readSupplyCount(out.storageMines, STORAGE_DEFAULT_MINES, STORAGE_DEFAULT_MINES);
+  return out;
+}
+
+export function clearStorageSupplyFields(builds: IBuildCell): IBuildCell {
+  const next = { ...builds, storage: 0 };
+  delete next.storageAmmo;
+  delete next.storageSmoke;
+  delete next.storageExplosives;
+  delete next.storageMines;
+  return next;
+}
+
 export const EMPTY_CELL_BUILDS: IBuildCell = {
   trench: 0,
   trenchEdges: 0,
@@ -83,7 +117,42 @@ export function ensureCellBuilds(builds: IBuildCell | undefined | null): IBuildC
     const ammo = Number(merged.dotAmmo);
     if (!Number.isFinite(ammo)) merged.dotAmmo = 15;
   }
+  if (Number(merged.storage) > 0) {
+    return applyStorageSupplyDefaults(merged);
+  }
   return merged;
+}
+
+const STRUCTURE_COUNT_KEYS = [
+  'dot',
+  'wire',
+  'antiTankBuild',
+  'trench',
+  'storage',
+  'mine',
+  'pontonBridge',
+  'trenchTank',
+] as const;
+
+const STRUCTURE_EDGE_KEYS = ['trenchEdges', 'wireEdges', 'antiTankEdges'] as const;
+
+export function cellHasEditorStructure(cell: Cell): boolean {
+  const extra = cell as Cell & { mapBuilding?: unknown };
+  if (extra.mapBuilding != null) return true;
+  const b = ensureCellBuilds(cell.builds);
+  for (const key of STRUCTURE_COUNT_KEYS) {
+    if (Number(b[key]) > 0) return true;
+  }
+  for (const key of STRUCTURE_EDGE_KEYS) {
+    if (Number(b[key]) > 0) return true;
+  }
+  return false;
+}
+
+export function clearCellEditorStructures(cell: Cell): Cell {
+  const next = { ...cell, builds: { ...EMPTY_CELL_BUILDS } } as Cell & { mapBuilding?: unknown };
+  delete next.mapBuilding;
+  return next;
 }
 
 export function isCatalogFortification(

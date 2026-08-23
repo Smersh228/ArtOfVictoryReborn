@@ -267,6 +267,31 @@
   margin: 0;
 }
 
+.battleReportFilters,
+.battleReportTeamFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.battleReportFilter {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.battleReportFilterActive {
+  background: rgba(255, 255, 255, 0.32);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+
 .leftMenuPanelStandard .battleReportList {
   list-style: none;
   margin: 0;

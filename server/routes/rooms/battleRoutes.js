@@ -9,6 +9,7 @@ const {
   memberKeyForRoom,
 } = require('./shared')
 const { rooms } = require('./state')
+const { creditKillsFromLog, applyRoomOutcomeIfNeeded } = require('../../playerStats')
 
 function registerBattleRoutes(router, { validateSubmittedOrders }) {
   router.post('/:id/battle/orders', express.json(), async (req, res) => {
@@ -106,6 +107,8 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
         turnMeta: room.battleTurnIndex - 1,
         makeLogMeta: battleLogMeta,
       })
+      void creditKillsFromLog(room, log).catch((e) => console.error('player kills:', e.message))
+      void applyRoomOutcomeIfNeeded(room).catch((e) => console.error('player outcome:', e.message))
     }
     res.json({
       ok: true,
@@ -132,6 +135,7 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
     if (room.battleSurrenderSeq == null) room.battleSurrenderSeq = 0
     room.battleSurrenderSeq += 1
     room.battleSurrenderBy = key
+    void applyRoomOutcomeIfNeeded(room).catch((e) => console.error('player outcome:', e.message))
     res.json({
       ok: true,
       battleSurrenderSeq: room.battleSurrenderSeq,

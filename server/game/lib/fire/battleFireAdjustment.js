@@ -1,9 +1,8 @@
 'use strict'
 
 const { getStr, unitFaction } = require('../unit/battleUnitField')
-const { readVisionRange } = require('../unit/battleUnitVision')
 const { isBattleAirUnitType } = require('../map/battleElevation')
-const { visibleCellIdsInRange } = require('../map/battleFogVisibility')
+const { observerVisionCellIds } = require('../map/battleFogVisibility')
 
 function isUnitInTransport(u) {
   const id = Number(u?.tactical?.embarkedTransportInstanceId)
@@ -47,8 +46,7 @@ function isCellVisibleToAnyFriendly(cells, faction, targetCell) {
       if (getStr(u) <= 0) continue
       if (unitFaction(u) !== faction) continue
       if (isBattleAirUnitType(u)) continue
-      const airObs = false
-      const seen = visibleCellIdsInRange(cell, readVisionRange(u), cells, { airObserver: airObs })
+      const seen = observerVisionCellIds(cell, u, cells)
       if (seen.has(targetCell.id)) return true
     }
   }

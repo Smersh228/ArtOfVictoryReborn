@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
 import { effectiveElevationLevel } from '../../game/cellElevation'
 import {
@@ -7,12 +7,77 @@ import {
   TILE_ROTATION_STEPS,
 } from '../../game/cellTileTransform'
 import EditorMapUnitOrderMenu, { type EditorMapCatalogUnitPick } from './EditorMapUnitOrderMenu'
+import { hasDotOnCell } from '../../game/cellDot'
+import {
+  applyStorageSupplyDefaults,
+  cellHasEditorStructure,
+  clearCellEditorStructures,
+  ensureCellBuilds,
+  hasStorageOnCell,
+  STORAGE_DEFAULT_AMMO,
+  STORAGE_DEFAULT_EXPLOSIVES,
+  STORAGE_DEFAULT_MINES,
+  STORAGE_DEFAULT_SMOKE,
+} from '../../game/editorMapFortifications'
 import {
   type EditorMapUnitOrderEditorMeta,
   patchUnitOrderEditorMeta,
 } from '../../game/editorMapUnitOrderMeta'
+import { factionForTeam, teamFromUnit, teamSideLabel, teamsForFaction } from '../../game/editorMapTeam'
 
 const ELEVATION_LEVELS = [-1, 0, 1, 2, 3] as const
+
+const STORAGE_SUPPLY_FIELDS = [
+  { key: 'storageAmmo', label: 'Боезапас', max: STORAGE_DEFAULT_AMMO },
+  { key: 'storageSmoke', label: 'Дымовые снаряды', max: STORAGE_DEFAULT_SMOKE },
+  { key: 'storageExplosives', label: 'Взрывчатка', max: STORAGE_DEFAULT_EXPLOSIVES },
+  { key: 'storageMines', label: 'Мины', max: STORAGE_DEFAULT_MINES },
+] as const
+
+function parseStorageSupplyDraft(raw: string, max: number): { text: string; value: number | null } {
+  const digits = raw.replace(/\D/g, '')
+  if (digits === '') return { text: '', value: null }
+  const n = Math.min(max, parseInt(digits, 10))
+  if (!Number.isFinite(n) || n < 0) return { text: '', value: null }
+  return { text: String(n), value: n }
+}
+
+function StorageSupplyInput(props: {
+  value: number
+  max: number
+  onCommit: (next: number) => void
+}) {
+  const { value, max, onCommit } = props
+  const [draft, setDraft] = useState<string | null>(null)
+  const shown = draft ?? String(value)
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      autoComplete="off"
+      value={shown}
+      onFocus={() => setDraft(String(value))}
+      onChange={(e) => {
+        const parsed = parseStorageSupplyDraft(e.target.value, max)
+        setDraft(parsed.text)
+        if (parsed.value != null) onCommit(parsed.value)
+      }}
+      onBlur={() => {
+        const parsed = parseStorageSupplyDraft(draft ?? String(value), max)
+        onCommit(parsed.value ?? 0)
+        setDraft(null)
+      }}
+      style={{
+        width: 52,
+        padding: '2px 4px',
+        borderRadius: 4,
+        border: '1px solid #ccc',
+        fontSize: '11px',
+        textAlign: 'right',
+      }}
+    />
+  )
+}
 
 interface UnitMenuUnit {
   name?: string
@@ -40,6 +105,7 @@ interface CellContextMenusProps {
   onDeleteUnit: () => void
   /** Правка ячейки в редакторе карты (например hexExtra.heightLevel). */
   onEditorCellPatch?: (cellId: number, patch: (cell: Cell) => Cell) => void
+  editorTeamLimit?: 2 | 4 | 6
   /** Каталог юнитов для выбора груза в меню экземпляра. */
   editorCatalogUnits?: EditorMapCatalogUnitPick[]
   /** Правка orderEditorMeta экземпляра юнита на карте. */
@@ -51,7 +117,9 @@ interface CellContextMenusProps {
   artilleryFacingPick?: { unitInstanceId: number; unitCellId: number } | null
   onStartArtilleryFacingPick?: (unitInstanceId: number, unitCellId: number) => void
   onCancelArtilleryFacingPick?: () => void
+  onStartDotFacingPick?: (cellId: number) => void
   onCloseUnitMenu?: () => void
+  onCloseCellMenu?: () => void
 }
 
 function cellHexExtraRecord(cell: Cell): Record<string, unknown> {
@@ -59,8 +127,10 @@ function cellHexExtraRecord(cell: Cell): Record<string, unknown> {
   return ex && typeof ex === 'object' && !Array.isArray(ex) ? { ...(ex as Record<string, unknown>) } : {}
 }
 
-function formatUnitMeta(unit: UnitMenuUnit) {
-  return `ID юнит: ${unit.instanceId ?? '—'}`
+function formatUnitMeta(unit: UnitMenuUnit & { team?: unknown }) {
+  const team = Number(unit.team)
+  const teamBit = Number.isFinite(team) && team > 0 ? ` · Команда ${team}` : ''
+  return `ID юнит: ${unit.instanceId ?? '—'}${teamBit}`
 }
 
 const menuActionStyle: React.CSSProperties = {
@@ -94,10 +164,13 @@ const CellContextMenus: React.FC<CellContextMenusProps> = ({
   onDeleteUnit,
   onEditorCellPatch,
   editorCatalogUnits = [],
+  editorTeamLimit = 2,
   onEditorUnitPatch,
   artilleryFacingPick = null,
   onStartArtilleryFacingPick,
   onCancelArtilleryFacingPick,
+  onStartDotFacingPick,
+  onCloseCellMenu,
   onCloseUnitMenu,
 }) => {
   if (!(mode === 'editor' && !lobbyPreview)) {
@@ -155,6 +228,49 @@ const CellContextMenus: React.FC<CellContextMenusProps> = ({
         >
           {formatUnitMeta(liveUnit as UnitMenuUnit)}
         </div>
+        {onEditorUnitPatch && Number.isFinite(unitInstanceId) ? (
+          <label
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+              padding: '8px 12px',
+              borderBottom: '1px solid #eee',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#333',
+            }}
+          >
+            Команда
+            <select
+              value={teamFromUnit(liveUnitRecord, editorTeamLimit)}
+              onChange={(e) => {
+                const team = teamFromUnit(
+                  { team: Number(e.target.value), faction: liveUnitRecord.faction },
+                  editorTeamLimit,
+                )
+                onEditorUnitPatch(cellId, unitInstanceId, (u) => ({
+                  ...u,
+                  team,
+                  faction: factionForTeam(team),
+                }))
+              }}
+              style={{
+                width: '100%',
+                padding: '4px 6px',
+                borderRadius: 6,
+                border: '1px solid #ccc',
+                fontSize: '12px',
+              }}
+            >
+              {teamsForFaction(liveUnitRecord.faction, editorTeamLimit).map((team) => (
+                <option key={team} value={team}>
+                  {team} {teamSideLabel(team)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
 
         {onEditorUnitPatch && Number.isFinite(unitInstanceId) ? (
           <EditorMapUnitOrderMenu
@@ -302,6 +418,90 @@ const CellContextMenus: React.FC<CellContextMenusProps> = ({
         >
           ID: {cellMenu.cell.id}
         </div>
+        {onStartDotFacingPick && hasDotOnCell(cellMenu.cell.builds) ? (
+          <div
+            role="button"
+            tabIndex={0}
+            style={{ ...menuActionStyle, borderTop: '1px solid #eee' }}
+            onClick={() => {
+              onStartDotFacingPick(cellMenu.cell.id)
+              onCloseCellMenu?.()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onStartDotFacingPick(cellMenu.cell.id)
+                onCloseCellMenu?.()
+              }
+            }}
+            {...menuActionHandlers('#f0f7ff')}
+          >
+            Сектор стрельбы
+          </div>
+        ) : null}
+        {onEditorCellPatch && hasStorageOnCell(cellMenu.cell.builds) ? (
+          <div
+            style={{
+              padding: '6px 12px 8px',
+              borderTop: '1px solid #eee',
+              fontSize: '11px',
+            }}
+            onMouseDown={(ev) => ev.stopPropagation()}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 6, color: '#555' }}>Склад — припасы</div>
+            {STORAGE_SUPPLY_FIELDS.map((field) => {
+              const builds = applyStorageSupplyDefaults(ensureCellBuilds(cellMenu.cell.builds))
+              const value = Number(builds[field.key] ?? 0)
+              return (
+                <label
+                  key={field.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    marginBottom: 4,
+                  }}
+                >
+                  <span style={{ color: '#555' }}>{field.label}</span>
+                  <StorageSupplyInput
+                    key={`${cellMenu.cell.id}-${field.key}`}
+                    value={Number.isFinite(value) ? value : 0}
+                    max={field.max}
+                    onCommit={(next) => {
+                      onEditorCellPatch(cellMenu.cell.id, (prev) => {
+                        const nextBuilds = applyStorageSupplyDefaults(ensureCellBuilds(prev.builds))
+                        nextBuilds[field.key] = next
+                        return { ...prev, builds: nextBuilds }
+                      })
+                    }}
+                  />
+                </label>
+              )
+            })}
+          </div>
+        ) : null}
+        {onEditorCellPatch && cellHasEditorStructure(cellMenu.cell) ? (
+          <div
+            role="button"
+            tabIndex={0}
+            style={{ ...menuActionStyle, borderTop: '1px solid #eee', color: '#d32f2f' }}
+            onClick={() => {
+              onEditorCellPatch(cellMenu.cell.id, (prev) => clearCellEditorStructures(prev))
+              onCloseCellMenu?.()
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onEditorCellPatch(cellMenu.cell.id, (prev) => clearCellEditorStructures(prev))
+                onCloseCellMenu?.()
+              }
+            }}
+            {...menuActionHandlers('#fff3f5')}
+          >
+            Удалить сооружение
+          </div>
+        ) : null}
         {onEditorCellPatch ? (
           <div
             style={{

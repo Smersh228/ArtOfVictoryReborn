@@ -8,8 +8,28 @@ import type { GameRoom } from './Room'
 import { useAuth } from '../../context/AuthContext'
 import { isCatalogEditorAdmin } from '../../utils/catalogEditorAdmin'
 import MaintenanceAdminPanel from './MaintenanceAdminPanel'
+import MainChat from './MainChat'
+import MainPlayerCard from './MainPlayerCard'
 import Modal from '../Modal'
 import { fetchRoomsList, createRoom, joinRoom, spectateRoom } from '../../api/rooms'
+import {
+  fetchLobbyState,
+  sendLobbyChat,
+  fetchLobbyProfile,
+  LobbyHubError,
+  type LobbyChatMessage,
+  type LobbyPlayerProfile,
+  type LobbyRoleKey,
+} from '../../api/lobbyHub'
+
+function ruPeopleWord(n: number): string {
+  const abs = Math.abs(n) % 100
+  const last = abs % 10
+  if (abs > 10 && abs < 20) return 'человек'
+  if (last === 1) return 'человек'
+  if (last >= 2 && last <= 4) return 'человека'
+  return 'человек'
+}
 
 type NetworkView = 'list' | 'create'
 
@@ -23,16 +43,17 @@ const MainBlock: React.FC = () => {
   const [roomsFetchedOnce, setRoomsFetchedOnce] = useState(false)
   const [joiningServerId, setJoiningServerId] = useState<number | null>(null)
   const [showAllowlistModal, setShowAllowlistModal] = useState(false)
-
-  const toggleNetwork = useCallback(() => {
-    setShowNetwork((v) => {
-      if (v) {
-        setNetworkView('list')
-        setRoomsFetchedOnce(false)
-      }
-      return !v
-    })
-  }, [])
+  const [onlineCount, setOnlineCount] = useState(0)
+  const [inBattleCount, setInBattleCount] = useState(0)
+  const [chatMessages, setChatMessages] = useState<LobbyChatMessage[]>([])
+  const [chatError, setChatError] = useState<string | null>(null)
+  const [chatSending, setChatSending] = useState(false)
+  const [chatMuted, setChatMuted] = useState(false)
+  const [chatLastSentAt, setChatLastSentAt] = useState(0)
+  const [playerProfile, setPlayerProfile] = useState<LobbyPlayerProfile | null>(null)
+  const [playerProfileLoading, setPlayerProfileLoading] = useState(false)
+  const [playerProfileError, setPlayerProfileError] = useState<string | null>(null)
+  const [myRoleKey, setMyRoleKey] = useState<LobbyRoleKey>('player')
 
   const openCreateServer = useCallback(() => {
     setNetworkView('create')
@@ -40,6 +61,29 @@ const MainBlock: React.FC = () => {
 
   const backToServerList = useCallback(() => {
     setNetworkView('list')
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const state = await fetchLobbyState()
+        if (cancelled) return
+        setOnlineCount(state.online)
+        setInBattleCount(state.inBattle)
+        setChatMessages(state.messages)
+        setChatMuted(state.muted)
+        setMyRoleKey(state.roleKey)
+      } catch {
+        /* счётчик и чат обновятся на следующем тике */
+      }
+    }
+    void tick()
+    const id = window.setInterval(tick, 2000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
   }, [])
 
   useEffect(() => {
@@ -69,9 +113,9 @@ const MainBlock: React.FC = () => {
   }, [showNetwork, networkView])
 
   const confirmCreateServer = useCallback(
-    async ({ name, map, mapId }: { name: string; map: string; mapId: number }) => {
+    async ({ name, map, mapId, maxPlayers }: { name: string; map: string; mapId: number; maxPlayers: number }) => {
       try {
-        const { room } = await createRoom({ name, maxPlayers: 2, map, mapId })
+        const { room } = await createRoom({ name, maxPlayers, map, mapId })
         setShowNetwork(false)
         setNetworkView('list')
         navigate('/lobby', { state: { serverId: room.id } })
@@ -112,6 +156,62 @@ const MainBlock: React.FC = () => {
     [navigate],
   )
 
+  const openPlayerProfile = useCallback(async (userId: number) => {
+    setPlayerProfileLoading(true)
+    setPlayerProfileError(null)
+    setPlayerProfile(null)
+    try {
+      const next = await fetchLobbyProfile(userId)
+      setPlayerProfile(next)
+    } catch (e) {
+      setPlayerProfileError(e instanceof Error ? e.message : 'Не удалось открыть профиль')
+    } finally {
+      setPlayerProfileLoading(false)
+    }
+  }, [])
+
+  const closePlayerProfile = useCallback(() => {
+    setPlayerProfile(null)
+    setPlayerProfileError(null)
+    setPlayerProfileLoading(false)
+  }, [])
+
+  const toggleNetwork = useCallback(() => {
+    closePlayerProfile()
+    setShowNetwork((v) => {
+      if (v) {
+        setNetworkView('list')
+        setRoomsFetchedOnce(false)
+      }
+      return !v
+    })
+  }, [closePlayerProfile])
+
+  const sendChat = useCallback(async (text: string) => {
+    setChatSending(true)
+    setChatError(null)
+    try {
+      const state = await sendLobbyChat(text)
+      setOnlineCount(state.online)
+      setInBattleCount(state.inBattle)
+      setChatMessages(state.messages)
+      setChatMuted(state.muted)
+      setMyRoleKey(state.roleKey)
+      setChatLastSentAt(Date.now())
+    } catch (e) {
+      if (e instanceof LobbyHubError && e.state) {
+        setOnlineCount(e.state.online)
+        setInBattleCount(e.state.inBattle)
+        setChatMessages(e.state.messages)
+        setChatMuted(e.state.muted)
+        setMyRoleKey(e.state.roleKey)
+      }
+      setChatError(e instanceof Error ? e.message : 'Не удалось отправить')
+    } finally {
+      setChatSending(false)
+    }
+  }, [])
+
   return (
     <div className={styles.layout}>
       <div className={styles.panel}>
@@ -147,6 +247,16 @@ const MainBlock: React.FC = () => {
           <MaintenanceAdminPanel inModal />
         </Modal>
       ) : null}
+      {(playerProfile || playerProfileLoading || playerProfileError) && (
+        <MainPlayerCard
+          profile={playerProfile}
+          loading={playerProfileLoading}
+          error={playerProfileError}
+          onClose={closePlayerProfile}
+          onProfileUpdate={setPlayerProfile}
+          viewerRoleKey={isCatalogEditorAdmin(user?.username) ? 'admin' : myRoleKey}
+        />
+      )}
       {showNetwork && (
         <div className={styles.serverZone}>
           <div
@@ -167,6 +277,28 @@ const MainBlock: React.FC = () => {
           </div>
         </div>
       )}
+      <div className={styles.rightCol}>
+        <div
+          className={styles.onlineBadge}
+          title="Сколько игроков сейчас на сайте и сколько из них в бою"
+        >
+          <span>
+            На сайте: {onlineCount} {ruPeopleWord(onlineCount)}
+          </span>
+          <span>
+            В боях: {inBattleCount} {ruPeopleWord(inBattleCount)}
+          </span>
+        </div>
+        <MainChat
+          messages={chatMessages}
+          sending={chatSending}
+          error={chatError}
+          muted={chatMuted}
+          lastSentAt={chatLastSentAt}
+          onSend={sendChat}
+          onViewProfile={(userId) => void openPlayerProfile(userId)}
+        />
+      </div>
     </div>
   )
 }

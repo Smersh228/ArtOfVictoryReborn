@@ -11,7 +11,13 @@ import {
 } from './battleDesantCombat';
 import { isInfantryUnitType } from './battleTerrain';
 import { isCellInArtillerySector, getArtillerySectorCellIdSet } from './battleDefendSector';
-import { dotRangeArrayForUnit } from './cellDot';
+import {
+  computeDotFireHighlights,
+  dotIntensityForTarget,
+  dotRangeArrayForUnit,
+  isDotFireShooter,
+  unitFiresFromDot,
+} from './cellDot';
 
 export { isArmoredVehicleTarget } from './battleDesantCombat';
 
@@ -35,6 +41,8 @@ function getIntensityDiceForTarget(
   attacker: Record<string, unknown>,
   target: Record<string, unknown>,
 ): number {
+  const dotInt = dotIntensityForTarget(attacker, target.type);
+  if (dotInt != null) return dotInt;
   const ft = normalizeFireObject(rawFireFromUnit(attacker));
   const key = targetTypeToFireKey(target.type);
   const arr = ft[key as keyof typeof ft]?.length ? ft[key as keyof typeof ft] : ft.inf;
@@ -492,7 +500,7 @@ export function explainNoFireTargets(
     if (!losOk && !concealedTargetOk) continue;
     losAllowed++;
 
-    if (isArt) {
+    if (isArt && !unitFiresFromDot(attackerUnit)) {
       const tac = attackerUnit.tactical as { artilleryDeployed?: boolean } | undefined;
       if (tac?.artilleryDeployed !== true) continue;
       if (!isCellInArtillerySector(attackerUnit, attackerCell, cells, cell.id)) continue;
@@ -510,7 +518,9 @@ export function explainNoFireTargets(
     return concealedTargetOk
       ? 'Цели недоступны для выбора в текущем положении.'
       : 'Нет прямой видимости на цель.';
-  if (isArt && artAllowed === 0) return 'Для артиллерии требуется развёртывание и цель в секторе обстрела.';
+  if (isArt && !unitFiresFromDot(attackerUnit) && artAllowed === 0) {
+    return 'Для артиллерии требуется развёртывание и цель в секторе обстрела.';
+  }
   return orderKey === 'fireHard'
     ? 'Нет доступных целей для огня на подавление.'
     : 'Нет доступных целей для огня.';
@@ -553,7 +563,15 @@ export function computeBattleFireHighlights(
   }
 
   const isArt = String(attackerUnit.type || '').toLowerCase() === 'artillery';
-  if (battleUnitHasPropKey(attackerUnit, 'areaFire') && isArt) {
+  if (isDotFireShooter(attackerUnit, attackerCell, cells)) {
+    const dotH = computeDotFireHighlights(attackerUnit, attackerCell, cells, fogRevealedCellIds);
+    return {
+      instanceIds: dotH.instanceIds,
+      areaCellIds: dotH.areaCellIds.size > 0 ? dotH.areaCellIds : null,
+    };
+  }
+  const fromDot = false;
+  if (battleUnitHasPropKey(attackerUnit, 'areaFire') && isArt && !fromDot) {
     const maxD = maxShootRangeStepsForUnit(attackerUnit, attackerCell);
     if (maxD < 1) return { instanceIds: new Set(), areaCellIds: null };
     const fogSet =
@@ -616,7 +634,7 @@ export function computeBattleFireHighlights(
       isArt,
     );
     if (!losOk && !concealedTargetOk) continue;
-    if (isArt) {
+    if (isArt && !fromDot) {
       const tac2 = attackerUnit.tactical as { artilleryDeployed?: boolean } | undefined;
       if (tac2?.artilleryDeployed !== true) continue;
       if (!isCellInArtillerySector(attackerUnit, attackerCell, cells, live.cell.id)) continue;

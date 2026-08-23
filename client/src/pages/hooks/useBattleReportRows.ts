@@ -1,6 +1,8 @@
 import { useMemo } from 'react';
 import type { RoomDetailResponse, LobbyFaction } from '../../api/rooms';
 import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
+import { findBattleUnitByInstanceId } from '../../game/battleMovePreview';
+import { teamFromUnit } from '../../game/editorMapTeam';
 import {
   battleLogEntryReplayWithFallback,
   battleReportEntryShouldOmit,
@@ -20,6 +22,77 @@ import {
 } from '../battleReportVisibility';
 
 type BattleLogEntry = NonNullable<RoomDetailResponse['battleLog']>[number];
+
+export type BattleReportActorFaction = 'rkka' | 'wehrmacht';
+
+export type BattleReportRow = {
+  key: string;
+  isMeta: boolean;
+  isTurnHeader: boolean;
+  formatted: {
+    order?: string;
+    detail?: string;
+    stats?: string;
+  } | null;
+  line: string;
+  logEntry?: BattleLogEntry;
+  replay?: unknown;
+  interactive: boolean;
+  bucket: 'general' | 'team';
+  actorFaction: BattleReportActorFaction | null;
+  actorTeam: number | null;
+};
+
+function reportUnitFaction(unit: { faction?: unknown } | null | undefined): BattleReportActorFaction | null {
+  const f = String(unit?.faction || '').toLowerCase();
+  if (f === 'germany' || f === 'wehrmacht') return 'wehrmacht';
+  if (f === 'ussr' || f === 'rkka') return 'rkka';
+  return null;
+}
+
+function extractReportActorUnitId(entry: BattleLogEntry | undefined): number | null {
+  const m = (entry?.meta || {}) as Record<string, any>;
+  const candidates = [
+    m.unitInstanceId,
+    m.fireLine?.attackerId,
+    m.attackLine?.attackerId,
+    m.reconLine?.unitInstanceId,
+    m.airSortieLine?.unitInstanceId,
+    m.airMissionLine?.unitInstanceId,
+    m.airCombatLine?.unitInstanceId,
+    m.airStrikeLine?.unitInstanceId,
+    m.logisticsLine?.fromInstanceId,
+  ];
+  for (const raw of candidates) {
+    const id = Number(raw);
+    if (Number.isFinite(id) && id > 0) return id;
+  }
+  const text = String(entry?.text || '');
+  const hit = text.match(/(?:[Юю]нит|юнит|Ход:)\s*(\d+)/);
+  if (hit) {
+    const id = Number(hit[1]);
+    if (Number.isFinite(id) && id > 0) return id;
+  }
+  return null;
+}
+
+function reportRowActor(
+  entry: BattleLogEntry | undefined,
+  cells: Cell[],
+): { faction: BattleReportActorFaction; team: number } | null {
+  const uid = extractReportActorUnitId(entry);
+  const live = uid != null ? findBattleUnitByInstanceId(cells, uid) : null;
+  if (live?.unit) {
+    const faction = reportUnitFaction(live.unit);
+    if (faction) return { faction, team: teamFromUnit(live.unit, 6) };
+  }
+  const metaFac = String((entry?.meta as { unitFaction?: unknown } | undefined)?.unitFaction || '')
+    .trim()
+    .toLowerCase();
+  if (metaFac === 'rkka' || metaFac === 'ussr') return { faction: 'rkka', team: 1 };
+  if (metaFac === 'wehrmacht' || metaFac === 'germany') return { faction: 'wehrmacht', team: 2 };
+  return null;
+}
 
 function battleLogLatestTurn(log: BattleLogEntry[] | undefined): number | null {
   if (!log?.length) return null;
@@ -72,16 +145,7 @@ export function useBattleReportRows(params: {
   const battleReportVisibleLog = useMemo(() => battleLogEntriesLatestTurn(battleLog), [battleLog]);
 
   const battleReportRows = useMemo(() => {
-    const baseRows: Array<{
-      key: string;
-      isMeta: boolean;
-      isTurnHeader: boolean;
-      formatted: any;
-      line: string;
-      logEntry: BattleLogEntry;
-      replay: any;
-      interactive: boolean;
-    }> = [];
+    const baseRows: BattleReportRow[] = [];
     for (let i = 0; i < battleReportVisibleLog.length; i++) {
       const entry = battleReportVisibleLog[i];
       if (battleReportEntryShouldOmit(entry, cells, viewerBattleFaction, battleFogRevealedCellIds)) continue;
@@ -103,6 +167,7 @@ export function useBattleReportRows(params: {
       if (shouldHideFormattedBattleReport(formatted)) continue;
       const replay = battleLogEntryReplayWithFallback(entry, cells, battleReportVisibleLog);
       const interactive = replay != null && hasGrid;
+      const actor = isMeta || isTurnHeader ? null : reportRowActor(entry, cells);
       baseRows.push({
         key: `${entry.t ?? 0}-${i}-${line.slice(0, 24)}`,
         isMeta,
@@ -112,10 +177,15 @@ export function useBattleReportRows(params: {
         logEntry: entry,
         replay,
         interactive,
+        bucket: actor ? 'team' : 'general',
+        actorFaction: actor?.faction ?? null,
+        actorTeam: actor?.team ?? null,
       });
     }
 
     for (const synth of collectSyntheticAirAppearanceReportRows(cells, battleTurnIndex, battleLog)) {
+      const airUnit = findBattleUnitByInstanceId(cells, synth.unitInstanceId);
+      const airFac = reportUnitFaction(airUnit?.unit);
       baseRows.push({
         key: `synthetic-air-${synth.unitInstanceId}`,
         isMeta: false,
@@ -124,6 +194,9 @@ export function useBattleReportRows(params: {
         line: synth.formatted.detail,
         replay: synth.replay,
         interactive: hasGrid,
+        bucket: airFac ? 'team' : 'general',
+        actorFaction: airFac,
+        actorTeam: airUnit?.unit ? teamFromUnit(airUnit.unit, 6) : null,
       });
     }
 

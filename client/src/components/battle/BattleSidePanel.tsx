@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import Button from '../Button';
 import styles from '../../pages/styleModules/battle.module.css';
+import { teamSideLabel } from '../../game/editorMapTeam';
+import type { BattleReportRow } from '../../pages/hooks/useBattleReportRows';
+
+type ReportGroup = 'general' | 'ally' | 'enemy';
 
 type BattleLeftPanelId = 'report' | 'tasks';
 type BattleFaction = 'rkka' | 'wehrmacht' | 'none';
@@ -13,16 +17,7 @@ interface BattleSidePanelProps {
   apiRoomId: number | null;
   battleStartedAt: unknown;
   battleReportRows: {
-    rows: Array<{
-      key: string;
-      isMeta: boolean;
-      isTurnHeader: boolean;
-      interactive: boolean;
-      logEntry?: BattleLogEntry;
-      replay?: any;
-      formatted?: { order?: string; detail?: string; stats?: string } | null;
-      line: string;
-    }>;
+    rows: BattleReportRow[];
   };
   destroyedSummary: {
     rkka: string[];
@@ -50,6 +45,36 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
   allyTasksBattle,
   axisTasksBattle,
 }) => {
+  const [reportGroup, setReportGroup] = useState<ReportGroup>('general');
+  const [reportTeam, setReportTeam] = useState<number | 'all'>('all');
+  const spectator = myBattleFaction === 'none';
+  const allyFaction = myBattleFaction === 'wehrmacht' ? 'wehrmacht' : 'rkka';
+  const enemyFaction = allyFaction === 'rkka' ? 'wehrmacht' : 'rkka';
+  const allyTitle = spectator ? 'РККА' : 'Союзники';
+  const enemyTitle = spectator ? 'Вермахт' : 'Противник';
+
+  const groupRows = useMemo(() => {
+    const rows = battleReportRows.rows;
+    if (reportGroup === 'general') {
+      return rows.filter((row) => row.bucket === 'general' || row.isMeta || row.isTurnHeader);
+    }
+    const fac = reportGroup === 'ally' ? allyFaction : enemyFaction;
+    return rows.filter((row) => row.bucket === 'team' && row.actorFaction === fac);
+  }, [battleReportRows.rows, reportGroup, allyFaction, enemyFaction]);
+
+  const teamOptions = useMemo(() => {
+    const set = new Set<number>();
+    for (const row of groupRows) {
+      if (row.actorTeam != null && row.actorTeam > 0) set.add(row.actorTeam);
+    }
+    return [...set].sort((a, b) => a - b);
+  }, [groupRows]);
+
+  const visibleRows = useMemo(() => {
+    if (reportGroup === 'general' || reportTeam === 'all') return groupRows;
+    return groupRows.filter((row) => row.actorTeam === reportTeam);
+  }, [groupRows, reportGroup, reportTeam]);
+
   if (!leftMenu) return null;
   return (
     <aside
@@ -73,6 +98,60 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                 Записей ещё нет. Когда оба игрока подтвердят ход, здесь появится сводка последнего хода.
               </p>
             ) : (
+              <>
+              <div className={styles.battleReportFilters} role="tablist" aria-label="Фильтр отчёта">
+                <button
+                  type="button"
+                  className={`${styles.battleReportFilter} ${reportGroup === 'general' ? styles.battleReportFilterActive : ''}`}
+                  onClick={() => {
+                    setReportGroup('general');
+                    setReportTeam('all');
+                  }}
+                >
+                  Общие
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.battleReportFilter} ${reportGroup === 'ally' ? styles.battleReportFilterActive : ''}`}
+                  onClick={() => {
+                    setReportGroup('ally');
+                    setReportTeam('all');
+                  }}
+                >
+                  {allyTitle}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.battleReportFilter} ${reportGroup === 'enemy' ? styles.battleReportFilterActive : ''}`}
+                  onClick={() => {
+                    setReportGroup('enemy');
+                    setReportTeam('all');
+                  }}
+                >
+                  {enemyTitle}
+                </button>
+              </div>
+              {reportGroup !== 'general' && teamOptions.length > 0 ? (
+                <div className={styles.battleReportTeamFilters} aria-label="Команды">
+                  <button
+                    type="button"
+                    className={`${styles.battleReportFilter} ${reportTeam === 'all' ? styles.battleReportFilterActive : ''}`}
+                    onClick={() => setReportTeam('all')}
+                  >
+                    Все
+                  </button>
+                  {teamOptions.map((team) => (
+                    <button
+                      key={team}
+                      type="button"
+                      className={`${styles.battleReportFilter} ${reportTeam === team ? styles.battleReportFilterActive : ''}`}
+                      onClick={() => setReportTeam(team)}
+                    >
+                      {team} {teamSideLabel(team)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <ul className={styles.battleReportList}>
                 <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineTurn}`}>
                   <span className={styles.battleReportLineText}>
@@ -84,7 +163,12 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                     Уничтожены юниты Вермахта: {destroyedSummary.wehrmacht.length ? destroyedSummary.wehrmacht.join(', ') : '—'}
                   </span>
                 </li>
-                {battleReportRows.rows.map((row) => (
+                {!visibleRows.length ? (
+                  <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta}`}>
+                    <span className={styles.battleReportLineText}>Нет записей в этом фильтре</span>
+                  </li>
+                ) : null}
+                {visibleRows.map((row) => (
                   <li
                     key={row.key}
                     className={`${styles.battleReportLine} ${row.isMeta ? styles.battleReportLineMeta : ''} ${row.isTurnHeader ? styles.battleReportLineTurn : ''} ${row.interactive ? styles.battleReportLineInteractive : ''}`}
@@ -108,6 +192,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                   </li>
                 ))}
               </ul>
+              </>
             )}
           </div>
         )}

@@ -1,4 +1,5 @@
 import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
+import { cellHasEditorStructure } from '../../game/editorMapFortifications'
 
 export function getTerrainColor(terrainType: string | undefined) {
   if (terrainType === 'forest') return '#2e7d32'
@@ -146,6 +147,15 @@ export function battleHoverDropShadowFilter(kind: 'ally' | 'enemy' | 'neutral') 
   ].join(' ')
 }
 
+export function battleEmptyDotDropShadowFilter() {
+  return [
+    'drop-shadow(0 0 2px rgba(245,245,245,0.95))',
+    'drop-shadow(0 0 6px rgba(180,180,180,0.85))',
+    'drop-shadow(0 0 14px rgba(140,140,140,0.62))',
+    'drop-shadow(0 0 22px rgba(110,110,110,0.42))',
+  ].join(' ')
+}
+
 export function battleFireTargetDropShadowFilter() {
   return [
     'drop-shadow(0 0 2px rgba(255,230,230,0.98))',
@@ -228,6 +238,7 @@ export const cellHasEditorPlacement = (cell: Cell): boolean => {
   const extraCell = cell as Cell & { img?: string; mapBuilding?: unknown }
   if (extraCell.img && extraCell.img.trim() !== '') return true
   if (extraCell.mapBuilding != null) return true
+  if (cellHasEditorStructure(cell)) return true
 
   if (cell.type && cell.type !== 'plain') return true
   return false

@@ -346,10 +346,12 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
 
   if (k === 'exitDot') {
     const dotMod = require('../lib/map/battleDot')
-    dotMod.resolveExitDot(cur, le, ph, {
+    dotMod.resolveExitDot(cells, cur, o, le, ph, {
       isInfantryUnit,
       isArtilleryUnit,
       ensureTacticalBattle,
+      hexDistCells,
+      getStr,
     })
     return
   }

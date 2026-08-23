@@ -11,6 +11,7 @@ interface BattleUnitTipCardProps {
   cells?: import('../../../server/src/game/gameLogic/cells/cell').Cell[] | null;
   pendingOrderKey?: string | null;
   factionLabel: string;
+  teamLabel: string;
   playerLabel: string;
   cargoLine: string | null;
   desantLine?: string | null;
@@ -25,6 +26,7 @@ const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
   cells = null,
   pendingOrderKey = null,
   factionLabel,
+  teamLabel,
   playerLabel,
   cargoLine,
   desantLine = null,
@@ -40,6 +42,10 @@ const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
       <div className={styles.battleUnitTipRow}>
         <span className={styles.battleUnitTipKey}>Фракция</span>
         <span className={styles.battleUnitTipVal}>{factionLabel}</span>
+      </div>
+      <div className={styles.battleUnitTipRow}>
+        <span className={styles.battleUnitTipKey}>Команда</span>
+        <span className={styles.battleUnitTipVal}>{teamLabel}</span>
       </div>
       <div className={styles.battleUnitTipRow}>
         <span className={styles.battleUnitTipKey}>Игрок</span>

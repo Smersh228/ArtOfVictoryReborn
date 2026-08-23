@@ -3,6 +3,7 @@
 const { getStr, unitFaction, opposing } = require('../unit/battleUnitField')
 const { readVisionRange } = require('../unit/battleUnitVision')
 const { hexDistCells } = require('./battleHexGeometry')
+const { dotOccupantVisionCellIds } = require('./battleDot')
 const {
   effectiveElevationLevel,
   isRavine,
@@ -141,6 +142,14 @@ function isHexVisible(observer, target, cells, options) {
   return lineOpenWithOneHexShadow(observer, target, cells)
 }
 
+function observerVisionCellIds(observer, unit, cells) {
+  const fromDot = dotOccupantVisionCellIds(observer, unit, cells)
+  if (fromDot) return fromDot
+  return visibleCellIdsInRange(observer, readVisionRange(unit), cells, {
+    airObserver: isBattleAirUnitType(unit),
+  })
+}
+
 function visibleCellIdsInRange(observer, maxRange, cells, options) {
   const obs = cellToCube(observer)
   const out = new Set()
@@ -176,9 +185,12 @@ function isCellSeenByAnyHostileUnit(subjectUnit, targetCell, cells) {
       const u = us[ui]
       if (getStr(u) <= 0) continue
       if (!opposing(mySide, unitFaction(u))) continue
-      const seen = visibleCellIdsInRange(cell, readVisionRange(u), cells, {
-        airObserver: isBattleAirUnitType(u),
-      })
+      const fromDot = dotOccupantVisionCellIds(cell, u, cells)
+      if (fromDot) {
+        if (fromDot.has(targetCell.id)) return true
+        continue
+      }
+      const seen = observerVisionCellIds(cell, u, cells)
       if (seen.has(targetCell.id)) return true
       if (isUnitVisibleFromCell(cell, u, targetCell, null, cells)) return true
     }
@@ -196,10 +208,7 @@ function computeRevealedCellIdsForFaction(cells, faction) {
       const u = us[ui]
       if (unitFaction(u) !== faction) continue
       if (getStr(u) <= 0) continue
-      const r = readVisionRange(u)
-      const ids = visibleCellIdsInRange(cell, r, cells, {
-        airObserver: isBattleAirUnitType(u),
-      })
+      const ids = observerVisionCellIds(cell, u, cells)
       ids.forEach((id) => revealed.add(id))
     }
   }
@@ -209,6 +218,7 @@ function computeRevealedCellIdsForFaction(cells, faction) {
 module.exports = {
   computeRevealedCellIdsForFaction,
   visibleCellIdsInRange,
+  observerVisionCellIds,
   cellBlocksLineOfSight,
   isHexVisible,
   isUnitVisibleFromCell,

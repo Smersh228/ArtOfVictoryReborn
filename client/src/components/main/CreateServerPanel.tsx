@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import styles from '../styleModules/listMain.module.css'
 import Button from '../Button'
-import { fetchSavedMaps, type SavedMapListItem } from '../../api/maps'
+import { fetchSavedMaps, normalizeTeamLimit, TEAM_LIMITS, type SavedMapListItem } from '../../api/maps'
 
 interface CreateServerPanelProps {
   onCancel: () => void
-  onCreate: (data: { name: string; map: string; mapId: number }) => void
+  onCreate: (data: { name: string; map: string; mapId: number; maxPlayers: number }) => void
 }
 
 const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreate }) => {
@@ -15,6 +15,7 @@ const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreat
   const [mapsLoading, setMapsLoading] = useState(true)
   const [mapsError, setMapsError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [maxPlayers, setMaxPlayers] = useState<(typeof TEAM_LIMITS)[number]>(2)
 
   useEffect(() => {
     let cancelled = false
@@ -45,6 +46,12 @@ const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreat
     }
   }, [])
 
+  useEffect(() => {
+    const selected = maps.find((m) => m.id === mapId)
+    if (!selected) return
+    setMaxPlayers(normalizeTeamLimit(selected.teamLimit))
+  }, [mapId, maps])
+
   const canSubmit = !mapsLoading && maps.length > 0 && mapId != null && !mapsError
 
   const submit = async (e: React.FormEvent) => {
@@ -54,7 +61,7 @@ const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreat
     const mapLabel = selected?.name.trim() ? selected.name : `Карта #${mapId}`
     setBusy(true)
     try {
-      onCreate({ name: name.trim() || 'Комната', map: mapLabel, mapId })
+      onCreate({ name: name.trim() || 'Комната', map: mapLabel, mapId, maxPlayers })
     } finally {
       setBusy(false)
     }
@@ -90,6 +97,23 @@ const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreat
                 </option>
               ))
             )}
+          </select>
+        </label>
+        <label className={styles.fieldLabel}>
+          Лимит игроков
+          <select
+            className={styles.fieldSelect}
+            value={maxPlayers}
+            onChange={(e) => {
+              const n = Number(e.target.value)
+              if (n === 2 || n === 4 || n === 6) setMaxPlayers(n)
+            }}
+          >
+            {TEAM_LIMITS.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
         </label>
         {mapsError ? <p className={styles.listError}>{mapsError}</p> : null}

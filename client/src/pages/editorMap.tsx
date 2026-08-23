@@ -22,10 +22,19 @@ import { toggleAntiTankEdgeOnBuilds } from '../game/cellAntiTankEdges'
 import { computeBombardmentDirectionPickCellIds } from '../game/battleAirSupport'
 import { patchUnitOrderEditorMeta, readArtilleryDeployMeta, readUnitOrderEditorMeta } from '../game/editorMapUnitOrderMeta'
 import {
+  applyStorageSupplyDefaults,
+  clearStorageSupplyFields,
   ensureCellBuilds,
   isCatalogFortification,
   type CatalogFortification,
 } from '../game/editorMapFortifications'
+import { factionForTeam, normalizeUnitTeam, teamFromUnit } from '../game/editorMapTeam'
+import {
+  computeEditorDotFireSectorCellIds,
+  findDotFacingDirFromNeighbor,
+  hasDotFacing,
+  hasDotOnCell,
+} from '../game/cellDot'
 import { fetchEditorCatalog, uploadEditorImage } from '../api/editorCatalog'
 import {
   deleteSavedMap,
@@ -86,6 +95,7 @@ type CatalogBuilding = {
 
 type PlacedUnit = CatalogUnit & {
   instanceId: number
+  team?: number
   str?: number
   def?: number
   mor?: number
@@ -231,7 +241,8 @@ const EditorMap: React.FC = () => {
   const [widthSize, setWidthSize] = useState(10)
   const [heightSize, setHeightSize] = useState(10)
   const [activeTab, setActiveTab] = useState<EditorTabId>('units')
-  const [selectedFaction, setSelectedFaction] = useState<FactionId>('all')
+  const [selectedFaction, setSelectedFaction] = useState<FactionId>('ussr')
+  const [selectedTeam, setSelectedTeam] = useState(1)
   const [selectedUnitType, setSelectedUnitType] = useState<UnitTypeId>('all')
   const [selectedItem, setSelectedItem] = useState<PaletteItem | null>(null)
   const [apiUnits, setApiUnits] = useState<CatalogUnit[]>([])
@@ -245,6 +256,12 @@ const EditorMap: React.FC = () => {
     unitInstanceId: number
     unitCellId: number
   } | null>(null)
+  const [dotFacingPick, setDotFacingPick] = useState<{
+    cellId: number
+    previousFacing?: number
+    newlyPlaced?: boolean
+  } | null>(null)
+  const [editorHoverCellId, setEditorHoverCellId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchEditorCatalog()
@@ -311,6 +328,14 @@ const EditorMap: React.FC = () => {
   const [maxTurns, setMaxTurns] = useState('20')
   const [missionBrief, setMissionBrief] = useState('')
   const [historyText, setHistoryText] = useState('')
+  const [teamLimit, setTeamLimit] = useState<2 | 4 | 6>(2)
+
+  useEffect(() => {
+    const next = normalizeUnitTeam(selectedTeam, teamLimit)
+    if (next === selectedTeam) return
+    setSelectedTeam(next)
+    setSelectedFaction(factionForTeam(next))
+  }, [teamLimit, selectedTeam])
   const [scenarioPhotos, setScenarioPhotos] = useState<readonly [string, string]>(['', ''])
 
   const mapHostRef = useRef<HTMLDivElement>(null)
@@ -323,38 +348,74 @@ const EditorMap: React.FC = () => {
   const editorMapEdgeCellIds = useMemo(() => computeEdgeCellIds(cells), [cells])
 
   const editorFacingPickCellIds = useMemo(() => {
-    if (!artilleryFacingPick) return null
-    const center = cells.find((c) => c.id === artilleryFacingPick.unitCellId)
+    const centerId = artilleryFacingPick?.unitCellId ?? dotFacingPick?.cellId
+    if (centerId == null) return null
+    const center = cells.find((c) => c.id === centerId)
     if (!center) return null
     return computeBombardmentDirectionPickCellIds(center, cells)
-  }, [artilleryFacingPick, cells])
+  }, [artilleryFacingPick, dotFacingPick, cells])
+
+  const editorDotSectorCellIds = useMemo(() => {
+    if (dotFacingPick) {
+      const center = cells.find((c) => c.id === dotFacingPick.cellId)
+      if (!center) return null
+      const hover =
+        editorHoverCellId != null ? cells.find((h) => h.id === editorHoverCellId) : null
+      if (!hover || !editorFacingPickCellIds?.includes(hover.id)) return null
+      const dir = findDotFacingDirFromNeighbor(center, hover)
+      if (dir == null) return null
+      const preview = computeEditorDotFireSectorCellIds(center, cells, dir)
+      return preview.length ? preview : null
+    }
+    if (editorHoverCellId == null) return null
+    const hover = cells.find((c) => c.id === editorHoverCellId)
+    if (!hover || !hasDotOnCell(hover.builds) || !hasDotFacing(hover.builds)) return null
+    const ids = computeEditorDotFireSectorCellIds(hover, cells)
+    return ids.length ? ids : null
+  }, [dotFacingPick, cells, editorHoverCellId, editorFacingPickCellIds])
 
   useEffect(() => {
-    if (!artilleryFacingPick) return
-    const pick = artilleryFacingPick
+    if (!artilleryFacingPick && !dotFacingPick) return
+    const artPick = artilleryFacingPick
+    const dotPick = dotFacingPick
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
-      setArtilleryFacingPick(null)
-      const hostCell = cells.find((c) => c.id === pick.unitCellId)
-      const hostUnit = hostCell?.units?.find(
-        (u) => (u as unknown as PlacedUnit).instanceId === pick.unitInstanceId,
-      )
-      if (!hostUnit) return
-      const dep = readArtilleryDeployMeta(readUnitOrderEditorMeta(hostUnit))
-      if (dep.deployed && dep.facingCellId == null) {
-        handleEditorUnitPatch(pick.unitCellId, pick.unitInstanceId, (u) =>
-          patchUnitOrderEditorMeta(u, (prev) => {
-            const copy = { ...prev }
-            delete copy.artilleryDeploy
-            delete copy.artilleryDeployed
-            return copy
-          }),
+      if (artPick) {
+        setArtilleryFacingPick(null)
+        const hostCell = cells.find((c) => c.id === artPick.unitCellId)
+        const hostUnit = hostCell?.units?.find(
+          (u) => (u as unknown as PlacedUnit).instanceId === artPick.unitInstanceId,
         )
+        if (!hostUnit) return
+        const dep = readArtilleryDeployMeta(readUnitOrderEditorMeta(hostUnit))
+        if (dep.deployed && dep.facingCellId == null) {
+          handleEditorUnitPatch(artPick.unitCellId, artPick.unitInstanceId, (u) =>
+            patchUnitOrderEditorMeta(u, (prev) => {
+              const copy = { ...prev }
+              delete copy.artilleryDeploy
+              delete copy.artilleryDeployed
+              return copy
+            }),
+          )
+        }
+        return
+      }
+      if (dotPick) {
+        setDotFacingPick(null)
+        if (dotPick.newlyPlaced) return
+        if (dotPick.previousFacing != null) {
+          setCells((prev) =>
+            prev.map((c) => {
+              if (c.id !== dotPick.cellId) return c
+              return { ...c, builds: { ...ensureCellBuilds(c.builds), dotFacing: dotPick.previousFacing } }
+            }),
+          )
+        }
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [artilleryFacingPick, cells])
+  }, [artilleryFacingPick, dotFacingPick, cells])
 
   const editorAviationPlacementActive =
     activeTab === 'units' &&
@@ -426,6 +487,7 @@ const EditorMap: React.FC = () => {
     _unitId?: number,
     click?: { canvasX: number; canvasY: number },
   ) {
+    if (artilleryFacingPick || dotFacingPick) return
     if (!selectedItem) return
 
     if (activeTab === 'buildings' && isCatalogFortification(selectedItem)) {
@@ -456,6 +518,46 @@ const EditorMap: React.FC = () => {
               nextBuilds = toggleAntiTankEdgeOnBuilds(c.builds, edgeDir)
             }
             return { ...c, builds: nextBuilds } as Cell
+          }),
+        )
+        return
+      }
+      if (selectedItem.buildKey === 'dot') {
+        const wasOn = hasDotOnCell(cell.builds)
+        setCells((prev) =>
+          prev.map((c) => {
+            if (c.id !== cell.id) return c
+            const builds = ensureCellBuilds(c.builds)
+            if (builds.dot > 0) {
+              const nextBuilds = { ...builds, dot: 0 }
+              delete nextBuilds.dotFacing
+              delete nextBuilds.dotFacingCellId
+              delete nextBuilds.dotDef
+              delete nextBuilds.dotAmmo
+              delete nextBuilds.dotOccupantId
+              return { ...c, builds: nextBuilds }
+            }
+            return {
+              ...c,
+              builds: { ...builds, dot: 1, dotDef: 4, dotAmmo: 15 },
+            }
+          }),
+        )
+        if (!wasOn) {
+          setArtilleryFacingPick(null)
+          setDotFacingPick({ cellId: cell.id, newlyPlaced: true })
+        }
+        return
+      }
+      if (selectedItem.buildKey === 'storage') {
+        setCells((prev) =>
+          prev.map((c) => {
+            if (c.id !== cell.id) return c
+            const builds = ensureCellBuilds(c.builds)
+            if (builds.storage > 0) {
+              return { ...c, builds: clearStorageSupplyFields(builds) }
+            }
+            return { ...c, builds: applyStorageSupplyDefaults(builds) }
           }),
         )
         return
@@ -539,6 +641,15 @@ const EditorMap: React.FC = () => {
     }
 
     if (activeTab === 'units' && isCatalogUnit(selectedItem)) {
+      const placeTeam = normalizeUnitTeam(selectedTeam, teamLimit)
+      if (selectedItem.faction !== factionForTeam(placeTeam)) {
+        window.alert(
+          placeTeam % 2 === 1
+            ? 'Для этой команды ставьте юниты СССР'
+            : 'Для этой команды ставьте юниты вермахта',
+        )
+        return
+      }
       if (
         (selectedItem.type === 'lightAir' || selectedItem.type === 'heavyAir') &&
         !editorMapEdgeCellIds.has(cell.id)
@@ -556,9 +667,12 @@ const EditorMap: React.FC = () => {
           }
           const instanceId = nextInstanceIdRef.current++
           const st = unitCombatStatsByCatalogId.get(selectedItem.id)
+          const team = normalizeUnitTeam(selectedTeam, teamLimit)
           const newUnit: PlacedUnit = {
             ...selectedItem,
             instanceId,
+            team,
+            faction: factionForTeam(team),
             ...(st
               ? {
                   str: st.str,
@@ -615,15 +729,33 @@ const EditorMap: React.FC = () => {
   }
 
   function handleEditorFacingCellPick(cell: Cell) {
-    if (!artilleryFacingPick) return
     if (!editorFacingPickCellIds?.includes(cell.id)) return
-    handleEditorUnitPatch(artilleryFacingPick.unitCellId, artilleryFacingPick.unitInstanceId, (u) =>
-      patchUnitOrderEditorMeta(u, (prev) => ({
-        ...prev,
-        artilleryDeploy: { deployed: true, facingCellId: cell.id },
-      })),
-    )
-    setArtilleryFacingPick(null)
+    if (artilleryFacingPick) {
+      handleEditorUnitPatch(artilleryFacingPick.unitCellId, artilleryFacingPick.unitInstanceId, (u) =>
+        patchUnitOrderEditorMeta(u, (prev) => ({
+          ...prev,
+          artilleryDeploy: { deployed: true, facingCellId: cell.id },
+        })),
+      )
+      setArtilleryFacingPick(null)
+      return
+    }
+    if (dotFacingPick) {
+      const center = cells.find((c) => c.id === dotFacingPick.cellId)
+      if (!center) return
+      const dir = findDotFacingDirFromNeighbor(center, cell)
+      if (dir == null) return
+      setCells((prev) =>
+        prev.map((c) => {
+          if (c.id !== dotFacingPick.cellId) return c
+          return {
+            ...c,
+            builds: { ...ensureCellBuilds(c.builds), dotFacing: dir, dotFacingCellId: cell.id },
+          }
+        }),
+      )
+      setDotFacingPick(null)
+    }
   }
 
   async function handleScenarioPhotoUpload(slot: ScenarioPhotoSlot, file: File | null) {
@@ -653,7 +785,7 @@ const EditorMap: React.FC = () => {
     return {
       cells: JSON.parse(JSON.stringify(cells)) as unknown[],
       conditions: { axisCapture, axisElimination, struggleFaction, allyTasks, axisTasks, maxTurns },
-      scenario: { missionBrief, historyText, photos: attached },
+      scenario: { missionBrief, historyText, photos: attached, teamLimit },
     }
   }
 
@@ -670,9 +802,23 @@ const EditorMap: React.FC = () => {
       return false
     }
     const loadedCells = JSON.parse(JSON.stringify(rawCells)) as Cell[]
+    const loadedTeamLimit = (() => {
+      const scen =
+        p.scenario != null && typeof p.scenario === 'object'
+          ? (p.scenario as Record<string, unknown>)
+          : {}
+      const n = Number(scen.teamLimit)
+      return n === 4 || n === 6 ? n : 2
+    })()
     for (let i = 0; i < loadedCells.length; i++) {
       const c = loadedCells[i]
-      loadedCells[i] = { ...c, builds: ensureCellBuilds(c.builds) }
+      const units = Array.isArray(c.units)
+        ? c.units.map((u) => {
+            const rec = u as unknown as PlacedUnit
+            return { ...rec, team: teamFromUnit(rec, loadedTeamLimit) } as unknown as (typeof c.units)[number]
+          })
+        : c.units
+      loadedCells[i] = { ...c, units, builds: ensureCellBuilds(c.builds) }
     }
 
     const cond =
@@ -720,6 +866,10 @@ const EditorMap: React.FC = () => {
         : savedMapName.trim()
     setMissionBrief(brief)
     setHistoryText(typeof scen.historyText === 'string' ? scen.historyText : '')
+    {
+      const n = Number(scen.teamLimit)
+      setTeamLimit(n === 4 || n === 6 ? n : 2)
+    }
     const photosRaw = scen.photos
     let p0 = ''
     let p1 = ''
@@ -842,12 +992,16 @@ const EditorMap: React.FC = () => {
         onShowGuide={() => setShowGuideModal(true)}
       />
 
-      {artilleryFacingPick ? (
+      {dotFacingPick ? (
+        <div className={styles.selectionToast} role="status">
+          <span>Выберите соседний гекс — направление сектора стрельбы ДОТ (Esc — отмена)</span>
+        </div>
+      ) : artilleryFacingPick ? (
         <div className={styles.selectionToast} role="status">
           <span>Выберите соседний гекс — направление орудия (Esc — отмена)</span>
         </div>
       ) : null}
-      {selectedItem && !artilleryFacingPick ? (
+      {selectedItem && !artilleryFacingPick && !dotFacingPick ? (
         <div className={styles.selectionToast} role="status">
           <span>
             Выбран: {selectedItem.name}
@@ -856,8 +1010,9 @@ const EditorMap: React.FC = () => {
               selectedItem.buildKey === 'trench' ||
               selectedItem.buildKey === 'antiTankBuild')
               ? ' — клик по стороне гекса'
-              : isCatalogFortification(selectedItem) &&
-                  (selectedItem.buildKey === 'dot' || selectedItem.buildKey === 'storage')
+              : isCatalogFortification(selectedItem) && selectedItem.buildKey === 'dot'
+                ? ' — клик по гексу, затем направление сектора'
+                : isCatalogFortification(selectedItem) && selectedItem.buildKey === 'storage'
                 ? ' — клик по гексу'
                 : ''}
           </span>
@@ -882,13 +1037,29 @@ const EditorMap: React.FC = () => {
             editorFacingPickCellIds={editorFacingPickCellIds}
             onEditorFacingCellPick={handleEditorFacingCellPick}
             artilleryFacingPick={artilleryFacingPick}
-            onStartArtilleryFacingPick={(unitInstanceId, unitCellId) =>
+            onStartArtilleryFacingPick={(unitInstanceId, unitCellId) => {
+              setDotFacingPick(null)
               setArtilleryFacingPick({ unitInstanceId, unitCellId })
-            }
+            }}
             onCancelArtilleryFacingPick={() => setArtilleryFacingPick(null)}
+            dotFacingPick={dotFacingPick}
+            onStartDotFacingPick={(cellId) => {
+              setArtilleryFacingPick(null)
+              const host = cells.find((c) => c.id === cellId)
+              const prev = host && hasDotFacing(host.builds) ? Number(host.builds.dotFacing) : undefined
+              setDotFacingPick({
+                cellId,
+                previousFacing: prev,
+                newlyPlaced: false,
+              })
+            }}
+            battleDotSectorCellIds={editorDotSectorCellIds}
+            onCellHover={(cell) => setEditorHoverCellId(cell?.id ?? null)}
+            onCellLeave={() => setEditorHoverCellId(null)}
             onEditorCellPatch={(cellId, patch) =>
               setCells((prev) => prev.map((c) => (c.id === cellId ? patch(c) : c)))
             }
+            editorTeamLimit={teamLimit}
           />
         </div>
 
@@ -903,8 +1074,21 @@ const EditorMap: React.FC = () => {
                 <UnitsFilters
                   selectedFaction={selectedFaction}
                   selectedUnitType={selectedUnitType}
-                  onFaction={(id) => setSelectedFaction(id as FactionId)}
+                  selectedTeam={selectedTeam}
+                  teamLimit={teamLimit}
+                  onFaction={(id) => {
+                    setSelectedFaction(id as FactionId)
+                    if (id === 'ussr' && selectedTeam % 2 === 0) setSelectedTeam(1)
+                    if (id === 'germany' && selectedTeam % 2 === 1) {
+                      setSelectedTeam(Math.min(2, teamLimit) as 1 | 2)
+                    }
+                  }}
                   onUnitType={(id) => setSelectedUnitType(id as UnitTypeId)}
+                  onTeam={(team) => {
+                    setSelectedTeam(team)
+                    setSelectedFaction(factionForTeam(team))
+                    setSelectedItem(null)
+                  }}
                 />
               )}
               {activeTab === 'conditions' && (
@@ -929,6 +1113,8 @@ const EditorMap: React.FC = () => {
                   setMissionBrief={setMissionBrief}
                   historyText={historyText}
                   setHistoryText={setHistoryText}
+                  teamLimit={teamLimit}
+                  setTeamLimit={setTeamLimit}
                   scenarioPhotos={scenarioPhotos}
                   onScenarioPhotoUpload={handleScenarioPhotoUpload}
                   onScenarioPhotoClear={handleScenarioPhotoClear}

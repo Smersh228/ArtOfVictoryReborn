@@ -14,8 +14,10 @@ interface BattleToolbarProps {
   onLeaveOrSurrender: () => void;
   onShowReport: () => void;
   onShowTasks: () => void;
+  onOpenChat: () => void;
   onNextTurn: () => void;
   reportBadgeCount?: number;
+  chatUnreadCount?: number;
 }
 
 const BattleToolbar: React.FC<BattleToolbarProps> = ({
@@ -30,8 +32,10 @@ const BattleToolbar: React.FC<BattleToolbarProps> = ({
   onLeaveOrSurrender,
   onShowReport,
   onShowTasks,
+  onOpenChat,
   onNextTurn,
   reportBadgeCount = 0,
+  chatUnreadCount = 0,
 }) => {
   return (
     <div className={styles.toolbar}>
@@ -57,6 +61,14 @@ const BattleToolbar: React.FC<BattleToolbarProps> = ({
               <Button name="Посмотреть задания" disabled={toolbarBusy} onClick={onShowTasks} />
             </div>
           ) : null}
+          <div className={styles.toolbarBtnSlot}>
+            <Button
+              name="Чат"
+              disabled={toolbarBusy}
+              badgeCount={chatUnreadCount}
+              onClick={onOpenChat}
+            />
+          </div>
           {showAirSupportButton ? (
             <div className={styles.toolbarBtnSlot}>
               <Button

@@ -330,6 +330,7 @@ function logUnitDestroyed(le, ph, unit, prevStr, reason, destroyedCellId) {
     unitInstanceId: Number(unit.instanceId),
     unitName: String(unit.name || '').trim() || undefined,
     unitFaction: String(unitFaction(unit) || '').trim().toLowerCase() || undefined,
+    unitType: String(unit.type || '').trim().toLowerCase() || undefined,
     destroyedCellId: Number.isFinite(Number(destroyedCellId)) ? Number(destroyedCellId) : undefined,
     destroyed: true,
   })
@@ -1031,10 +1032,6 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
     unitFaction,
   }
   resolveSuppressionRecovery(cells, le)
-  require('./lib/map/battleDot').tickDotExitStates(cells, le, turnIndex, {
-    getStr,
-    ensureTacticalBattle,
-  })
   airSortieModule.tickAirSorties(cells, le, turnIndex, {
     beginAirCooldown: (unit, dep, path, fromId, fired, le2, ph2) =>
       artilleryAirSector.beginAirCooldownWithSector(
@@ -1308,6 +1305,19 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
 
   airStrikePhase.processAirInboundEndOfTurn(cells, le, PHASE_KEYS.air, airPhaseDeps)
   sweepCorpses(cells)
+  require('./lib/map/battleDot').tickDotExitStates(cells, le, turnIndex, {
+    getStr,
+    ensureTacticalBattle,
+    hexDistCells,
+    removeUnitFromCell,
+    addUnitToCell,
+    syncUnitCoor,
+  })
+  require('./lib/map/battleDot').tickDotEnterStates(cells, le, turnIndex, {
+    getStr,
+    ensureTacticalBattle,
+    isArtilleryUnit,
+  })
 
   resetTurnResources(cells)
   clearTurnMoraleCells()

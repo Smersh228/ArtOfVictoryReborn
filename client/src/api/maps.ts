@@ -22,6 +22,14 @@ function parseError(res: Response, text: string): string {
   return raw || res.statusText
 }
 
+export const TEAM_LIMITS = [2, 4, 6] as const
+export type TeamLimit = (typeof TEAM_LIMITS)[number]
+
+export function normalizeTeamLimit(raw: unknown): TeamLimit {
+  const n = Number(raw)
+  return n === 4 || n === 6 ? n : 2
+}
+
 export type SavedMapListItem = {
   id: number
   name: string
@@ -29,6 +37,7 @@ export type SavedMapListItem = {
   moderationStatus?: 'pending' | 'approved' | 'rejected'
   ownerUsername?: string | null
   canModerate?: boolean
+  teamLimit?: number
 }
 
 
@@ -44,6 +53,7 @@ export type EditorMapPayloadLobby = {
     missionBrief?: string
     historyText?: string
     photos?: string[]
+    teamLimit?: number
     [key: string]: unknown
   }
   [key: string]: unknown

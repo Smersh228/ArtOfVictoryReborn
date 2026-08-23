@@ -1,17 +1,23 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import styles from './styleModules/lobby.module.css';
 import Button from '../components/Button';
 import { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import LobbyPlayersPanel from '../components/lobby/LobbyPlayersPanel';
 import LobbyMissionPanels from '../components/lobby/LobbyMissionPanels';
+import LobbyRoomChat, { type LobbyChatView } from '../components/lobby/LobbyRoomChat';
+import { useAuth } from '../context/AuthContext';
 import {
   fetchRoomDetail,
   fetchRoomLobbyMap,
   leaveRoom,
+  postRoomChat,
   startRoomBattle,
   updateLobbyMe,
   type LobbyFaction,
+  type LobbyRoomChatChannel,
+  type LobbyRoomChatMessage,
+  type RoomDetailResponse,
   type RoomMember,
   type RoomPublic,
 } from '../api/rooms';
@@ -72,17 +78,20 @@ function normalizeMembers(list: RoomMember[]): RoomMember[] {
 }
 
 
-function getStartBattleHint(members: RoomMember[], youAreHost: boolean): string {
+function getStartBattleHint(members: RoomMember[], youAreHost: boolean, maxPlayers?: number): string {
   if (!youAreHost || members.length === 0) return '';
-  if (members.length < 2) return 'Для начала боя нужно минимум два игрока в комнате';
+  const cap = maxPlayers === 4 || maxPlayers === 6 ? maxPlayers : 2;
+  const perTeam = cap / 2;
+  if (members.length !== cap) return `Для начала боя нужно ${cap} игроков`;
   for (const m of members) {
     if ((m.faction ?? 'none') === 'none') return 'Все игроки должны выбрать фракцию';
   }
   for (const m of members) {
     if (!m.ready) return 'Все игроки должны быть готовы';
   }
-  const facs = members.map((m) => m.faction);
-  if (new Set(facs).size !== facs.length) return 'Фракции игроков не должны совпадать';
+  const rkka = members.filter((m) => m.faction === 'rkka').length;
+  const wehr = members.filter((m) => m.faction === 'wehrmacht').length;
+  if (rkka !== perTeam || wehr !== perTeam) return `Нужно по ${perTeam} игрока на команду`;
   return '';
 }
 
@@ -99,6 +108,31 @@ const Lobby: React.FC = () => {
   const battleNavigatedRef = useRef(false);
   const [savedMapPayload, setSavedMapPayload] = useState<EditorMapPayloadLobby | null>(null);
   const [mapPayloadError, setMapPayloadError] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<LobbyRoomChatMessage[]>([]);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [chatSending, setChatSending] = useState(false);
+  const [chatSeen, setChatSeen] = useState({ all: 0, team: 0 });
+  const { user } = useAuth();
+
+  useEffect(() => {
+    setChatSeen({ all: 0, team: 0 })
+    setChatOpen(false)
+    setChatError(null)
+    setChatMessages([])
+  }, [serverId])
+
+  const applyRoomDetail = (data: RoomDetailResponse) => {
+    setRoom(data.room);
+    setMembers(normalizeMembers(data.members));
+    setYouAreHost(Boolean(data.youAreHost));
+    setChatMessages(Array.isArray(data.lobbyChat) ? data.lobbyChat : []);
+    setLobbyError(null);
+    if (data.battleStartedAt != null && !battleNavigatedRef.current && serverId != null) {
+      battleNavigatedRef.current = true;
+      navigate(`/battle?room=${serverId}`, { state: { serverId } });
+    }
+  };
 
   useEffect(() => {
     if (serverId == null || !Number.isFinite(serverId)) {
@@ -111,14 +145,7 @@ const Lobby: React.FC = () => {
       try {
         const data = await fetchRoomDetail(serverId);
         if (cancelled) return;
-        setRoom(data.room);
-        setMembers(normalizeMembers(data.members));
-        setYouAreHost(Boolean(data.youAreHost));
-        setLobbyError(null);
-        if (data.battleStartedAt != null && !battleNavigatedRef.current) {
-          battleNavigatedRef.current = true;
-          navigate(`/battle?room=${serverId}`, { state: { serverId } });
-        }
+        applyRoomDetail(data);
       } catch (e) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : 'Ошибка загрузки лобби';
@@ -205,8 +232,33 @@ const Lobby: React.FC = () => {
   const canLobbyAction = Boolean(self && !lobbyError && members.length > 0 && !actionBusy);
   const canToggleReady = canLobbyAction && !youAreHost;
 
-  const startBattleHint = useMemo(() => getStartBattleHint(members, youAreHost), [members, youAreHost]);
+  const startBattleHint = useMemo(
+    () => getStartBattleHint(members, youAreHost, room?.maxPlayers),
+    [members, youAreHost, room?.maxPlayers],
+  );
   const canStartBattle = youAreHost && members.length > 0 && startBattleHint === '';
+  const unreadAll = chatMessages.filter((m) => (m.channel === 'team' ? false : m.id > chatSeen.all)).length;
+  const unreadTeam = chatMessages.filter((m) => m.channel === 'team' && m.id > chatSeen.team).length;
+  const chatUnreadCount = unreadAll + unreadTeam;
+
+  const markChatSeen = useCallback((channel: LobbyChatView, lastId: number) => {
+    if (!lastId) return
+    setChatSeen((prev) => (prev[channel] >= lastId ? prev : { ...prev, [channel]: lastId }))
+  }, []);
+
+  const runSendChat = async (text: string, channel: LobbyRoomChatChannel) => {
+    if (serverId == null || !Number.isFinite(serverId)) return;
+    setChatSending(true);
+    setChatError(null);
+    try {
+      const data = await postRoomChat(serverId, text, channel);
+      applyRoomDetail(data);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : 'Не удалось отправить');
+    } finally {
+      setChatSending(false);
+    }
+  };
 
   const runLobbyAction = (body: { toggleFaction?: boolean; toggleReady?: boolean }) => {
     if (!canLobbyAction || serverId == null || !Number.isFinite(serverId)) return;
@@ -214,14 +266,7 @@ const Lobby: React.FC = () => {
     setActionBusy(true);
     void updateLobbyMe(serverId, body)
       .then((data) => {
-        setRoom(data.room);
-        setMembers(normalizeMembers(data.members));
-        setYouAreHost(Boolean(data.youAreHost));
-        setLobbyError(null);
-        if (data.battleStartedAt != null && !battleNavigatedRef.current) {
-          battleNavigatedRef.current = true;
-          navigate(`/battle?room=${serverId}`, { state: { serverId } });
-        }
+        applyRoomDetail(data);
       })
       .catch((e) => {
         setLobbyError(e instanceof Error ? e.message : 'Ошибка');
@@ -241,14 +286,7 @@ const Lobby: React.FC = () => {
     setActionBusy(true);
     void startRoomBattle(serverId)
       .then((data) => {
-        setRoom(data.room);
-        setMembers(normalizeMembers(data.members));
-        setYouAreHost(Boolean(data.youAreHost));
-        setLobbyError(null);
-        if (data.battleStartedAt != null && !battleNavigatedRef.current) {
-          battleNavigatedRef.current = true;
-          navigate(`/battle?room=${serverId}`, { state: { serverId } });
-        }
+        applyRoomDetail(data);
       })
       .catch((e) => {
         setLobbyError(e instanceof Error ? e.message : 'Ошибка');
@@ -291,6 +329,8 @@ const Lobby: React.FC = () => {
           onToggleReady={() => canToggleReady && runLobbyAction({ toggleReady: true })}
           onStartBattle={runStartBattle}
           onToggleFaction={() => canLobbyAction && runLobbyAction({ toggleFaction: true })}
+          onOpenChat={() => setChatOpen(true)}
+          chatUnreadCount={chatUnreadCount}
         />
 
         <LobbyMissionPanels
@@ -305,6 +345,21 @@ const Lobby: React.FC = () => {
           historyText={historyText}
         />
       </div>
+
+      <LobbyRoomChat
+        isOpen={chatOpen}
+        onClose={() => setChatOpen(false)}
+        messages={chatMessages}
+        selfLabel={self?.label || ''}
+        selfUserId={user?.id}
+        selfFaction={self?.faction}
+        sending={chatSending}
+        error={chatError}
+        onSend={runSendChat}
+        onViewChannel={markChatSeen}
+        unreadAll={unreadAll}
+        unreadTeam={unreadTeam}
+      />
     </div>
   );
 };

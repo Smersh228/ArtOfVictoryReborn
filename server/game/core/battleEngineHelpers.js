@@ -130,6 +130,9 @@ function validateUnitOrdersAllowed(unit, deps, orderKey) {
     return 'снаряжение после десантирования'
   }
   const ok = String(orderKey || '').trim()
+  if (unit.tactical?.dotEnterTurnsLeft > 0) {
+    return 'вход в ДОТ'
+  }
   if (unit.tactical?.dotExitTurnsLeft > 0) {
     return 'выход из ДОТ'
   }

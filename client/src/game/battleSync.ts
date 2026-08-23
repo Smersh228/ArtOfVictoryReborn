@@ -273,5 +273,6 @@ export function useBattleSync(
     confirmNextTurn,
     myBattleFaction,
     roomDetail,
+    setRoomDetail,
   };
 }

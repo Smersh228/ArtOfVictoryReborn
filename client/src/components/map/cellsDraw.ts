@@ -6,6 +6,8 @@ import {
   strokeHexEdges,
 } from '../../game/cellElevation'
 import {
+  battleEmptyDotDropShadowFilter,
+  battleHoverDropShadowFilter,
   drawImageCoverInCircle,
   drawImageCoverInCircleWithTransform,
   getTerrainColor,
@@ -24,7 +26,7 @@ import {
   TRENCH_SPRITE_URL,
   ensureCellBuilds,
 } from '../../game/editorMapFortifications'
-import { dotOccupancySide, hasDotOnCell } from '../../game/cellDot'
+import { dotOccupancySide, hasDotOnCell, unitInDot } from '../../game/cellDot'
 import type { LobbyFaction } from '../../api/rooms'
 import { getTrenchEdgesMask } from '../../game/cellTrenchEdges'
 import { getAntiTankEdgesMask } from '../../game/cellAntiTankEdges'
@@ -364,6 +366,24 @@ function drawAntiTankEdges(
   }
 }
 
+function dotHoverGlowFilter(side: 'friendly' | 'enemy' | 'empty'): string {
+  if (side === 'enemy') return battleHoverDropShadowFilter('enemy')
+  if (side === 'friendly') return battleHoverDropShadowFilter('ally')
+  return battleEmptyDotDropShadowFilter()
+}
+
+function battleBuildingHiddenByFog(
+  mode: 'editor' | 'battle',
+  lobbyPreview: boolean,
+  fogIds: number[] | null | undefined,
+  cellId: number,
+  viewerFaction: LobbyFaction | undefined,
+): boolean {
+  if (mode !== 'battle' || lobbyPreview) return false
+  if (!fogIds || viewerFaction === 'none' || viewerFaction == null) return false
+  return !fogIds.some((id) => Number(id) === Number(cellId))
+}
+
 function drawCenterBuildFortifications(
   ctx: CanvasRenderingContext2D,
   params: {
@@ -373,9 +393,20 @@ function drawCenterBuildFortifications(
     dotImg?: HTMLImageElement | null
     storageImg?: HTMLImageElement | null
     resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+    dotHoverGlow?: boolean
+    dotHoverSide?: 'friendly' | 'enemy' | 'empty'
   },
 ) {
-  const { cell, center, cellSize, dotImg, storageImg, resolveEditorCachedImage } = params
+  const {
+    cell,
+    center,
+    cellSize,
+    dotImg,
+    storageImg,
+    resolveEditorCachedImage,
+    dotHoverGlow,
+    dotHoverSide,
+  } = params
   const builds = ensureCellBuilds(cell.builds)
 
   if (builds.dot > 0) {
@@ -385,6 +416,9 @@ function drawCenterBuildFortifications(
         : resolveEditorCachedImage(DOT_SPRITE_URL).ready
     if (img?.naturalWidth) {
       ctx.save()
+      if (dotHoverGlow && dotHoverSide) {
+        ctx.filter = dotHoverGlowFilter(dotHoverSide)
+      }
       drawCenterFortification(ctx, { center, cellSize, img, scale: 0.92 })
       ctx.restore()
     }
@@ -401,29 +435,6 @@ function drawCenterBuildFortifications(
       ctx.restore()
     }
   }
-}
-
-function drawDotHoverHighlight(
-  ctx: CanvasRenderingContext2D,
-  center: { x: number; y: number },
-  cellSize: number,
-  side: 'friendly' | 'enemy' | 'empty',
-) {
-  const r = cellSize * 0.36
-  ctx.save()
-  ctx.beginPath()
-  ctx.arc(center.x, center.y, r, 0, Math.PI * 2)
-  if (side === 'enemy') {
-    ctx.fillStyle = 'rgba(220, 38, 38, 0.32)'
-    ctx.strokeStyle = 'rgba(220, 38, 38, 0.98)'
-  } else {
-    ctx.fillStyle = 'rgba(234, 179, 0, 0.28)'
-    ctx.strokeStyle = 'rgba(234, 179, 0, 0.98)'
-  }
-  ctx.lineWidth = 3
-  ctx.fill()
-  ctx.stroke()
-  ctx.restore()
 }
 
 function drawMapBuilding(
@@ -487,6 +498,8 @@ export function drawCellsCanvas(params: {
   defendFacingPickCellIds: number[] | null
   battleDefendHover: any
   battleAreaFireCellIds: number[] | null
+  battleDotSectorCellIds?: number[] | null
+  enterDotGlowCellIds?: number[] | null
   battlePatrolVisibilityCellIds?: number[] | null
   battlePatrolCenterCellId?: number | null
   battleAirInterceptionTargetCellIds?: number[] | null
@@ -527,6 +540,7 @@ export function drawCellsCanvas(params: {
   dotImg?: HTMLImageElement | null
   storageImg?: HTMLImageElement | null
   viewerBattleFaction?: LobbyFaction
+  battleFogRevealedCellIds?: number[] | null
 }) {
   const {
     canvas,
@@ -542,6 +556,8 @@ export function drawCellsCanvas(params: {
     defendFacingPickCellIds,
     battleDefendHover,
     battleAreaFireCellIds,
+    battleDotSectorCellIds = null,
+    enterDotGlowCellIds = null,
     battlePatrolVisibilityCellIds = null,
     battlePatrolCenterCellId = null,
     battleAirInterceptionTargetCellIds = null,
@@ -575,6 +591,7 @@ export function drawCellsCanvas(params: {
     antiTankImg = null,
     dotImg = null,
     storageImg = null,
+    battleFogRevealedCellIds = null,
     airDepartureDecalImg = null,
     fireAirGunDecalImg = null,
     viewerBattleFaction = 'none',
@@ -673,7 +690,13 @@ export function drawCellsCanvas(params: {
         ctx.fillText(idLabel, center.x, center.y - 20)
       }
 
-      if (hoverCell?.id === cell.id && !hoveredUnit && !cell.highlight && !defendFacingPickCellIds?.length) {
+      if (
+        hoverCell?.id === cell.id &&
+        !hoveredUnit &&
+        !hasDotOnCell(cell.builds) &&
+        !cell.highlight &&
+        !defendFacingPickCellIds?.length
+      ) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.strokeStyle = 'rgba(234, 179, 0, 0.95)'
@@ -690,6 +713,18 @@ export function drawCellsCanvas(params: {
         traceHexPath(ctx, corners)
         ctx.strokeStyle = 'rgba(30, 90, 180, 0.9)'
         ctx.lineWidth = 2.5
+        ctx.stroke()
+      }
+
+      if (battleDotSectorCellIds?.includes(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(150, 155, 175, 0.40)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(90, 100, 120, 0.62)'
+        ctx.lineWidth = 1.5
         ctx.stroke()
       }
     } else {
@@ -923,6 +958,18 @@ export function drawCellsCanvas(params: {
         ctx.fill()
       }
 
+      if (battleDotSectorCellIds?.includes(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(150, 155, 175, 0.40)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(90, 100, 120, 0.62)'
+        ctx.lineWidth = 1.5
+        ctx.stroke()
+      }
+
       if (defendCommitPreviewIds?.includes(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
@@ -1151,7 +1198,11 @@ export function drawCellsCanvas(params: {
       ctx.restore()
     }
 
-    drawMapBuilding(ctx, { cell, center, cellSize, mode, resolveEditorCachedImage })
+    if (
+      !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIds, cell.id, viewerBattleFaction)
+    ) {
+      drawMapBuilding(ctx, { cell, center, cellSize, mode, resolveEditorCachedImage })
+    }
 
     const reportDepartureId = battleReportReplayHighlight?.airDepartureCellId
     if (
@@ -1177,6 +1228,11 @@ export function drawCellsCanvas(params: {
 
   for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
     const cell = cells[cellIndex]
+    if (
+      battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIds, cell.id, viewerBattleFaction)
+    ) {
+      continue
+    }
     const center = getCellCenter(cell.coor.x, cell.coor.z)
     drawWireEdges(ctx, {
       cell,
@@ -1201,6 +1257,15 @@ export function drawCellsCanvas(params: {
       antiTankImg,
       resolveEditorCachedImage,
     })
+    const hoveringDot =
+      mode === 'battle' &&
+      hoverCell?.id === cell.id &&
+      hasDotOnCell(cell.builds) &&
+      (!hoveredUnit || unitInDot(hoveredUnit.unit as Record<string, unknown>))
+    const enterDotGlow = Boolean(
+      enterDotGlowCellIds?.some((id) => Number(id) === Number(cell.id)) && hasDotOnCell(cell.builds),
+    )
+    const glowDot = hoveringDot || enterDotGlow
     drawCenterBuildFortifications(ctx, {
       cell,
       center,
@@ -1208,19 +1273,9 @@ export function drawCellsCanvas(params: {
       dotImg,
       storageImg,
       resolveEditorCachedImage,
+      dotHoverGlow: glowDot,
+      dotHoverSide: glowDot ? dotOccupancySide(cell, cells, viewerBattleFaction) : undefined,
     })
-    if (
-      mode === 'battle' &&
-      hoverCell?.id === cell.id &&
-      hasDotOnCell(cell.builds)
-    ) {
-      drawDotHoverHighlight(
-        ctx,
-        center,
-        cellSize,
-        dotOccupancySide(cell, cells, viewerBattleFaction),
-      )
-    }
   }
 
   drawPath(ctx)

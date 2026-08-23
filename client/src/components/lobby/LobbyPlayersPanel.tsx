@@ -17,6 +17,8 @@ interface LobbyPlayersPanelProps {
   onToggleReady: () => void;
   onStartBattle: () => void;
   onToggleFaction: () => void;
+  onOpenChat: () => void;
+  chatUnreadCount?: number;
 }
 
 const LobbyPlayersPanel: React.FC<LobbyPlayersPanelProps> = ({
@@ -33,6 +35,8 @@ const LobbyPlayersPanel: React.FC<LobbyPlayersPanelProps> = ({
   onToggleReady,
   onStartBattle,
   onToggleFaction,
+  onOpenChat,
+  chatUnreadCount = 0,
 }) => {
   return (
     <aside className={styles.lobbyLeft}>
@@ -48,7 +52,10 @@ const LobbyPlayersPanel: React.FC<LobbyPlayersPanelProps> = ({
               {members.map((m) => (
                 <li key={m.key} className={styles.playerRow}>
                   <span className={styles.playerRowName}>{m.label}</span>
-                  <span className={styles.playerRowFaction}>{factionLabel(m.faction)}</span>
+                  <span className={styles.playerRowFaction}>
+                    {factionLabel(m.faction)}
+                    {m.team ? ` · ${m.team}` : ''}
+                  </span>
                   <span className={styles.playerRowReady}>{readyLabel(m.ready)}</span>
                 </li>
               ))}
@@ -81,6 +88,7 @@ const LobbyPlayersPanel: React.FC<LobbyPlayersPanelProps> = ({
           onClick={onToggleFaction}
           disabled={!canLobbyAction}
         />
+        <Button name="Чат" size={200} onClick={onOpenChat} badgeCount={chatUnreadCount} />
       </div>
     </aside>
   );

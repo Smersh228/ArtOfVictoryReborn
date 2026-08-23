@@ -11,6 +11,7 @@ import { adjacentCellsWithWire } from '../../game/cellWireEdges';
 import {
   buildDotHoverTip,
   cellsEligibleForEnterDot,
+  cellsEligibleForExitDot,
   hasDotOnCell,
   resolveDotOccupantUnit,
   shouldShowDotTipForUnitHover,
@@ -27,6 +28,8 @@ type BattleMapStageProps = {
   battleHoverCellId: number | null;
   orderPick: { orderKey?: string; unit?: { instanceId?: number | string; faction?: string }; unloadCargoInstanceId?: number | string | null; defendStep?: 'facing' | 'range'; defendFacingPickedId?: number } | null;
   battleAreaFireCellIds: number[] | null;
+  battleDotSectorCellIds?: number[] | null;
+  enterDotGlowCellIds?: number[] | null;
   cells: Cell[];
   mapViewport: { w: number; h: number };
   battleCellSize: number;
@@ -88,6 +91,8 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   battleHoverCellId,
   orderPick,
   battleAreaFireCellIds,
+  battleDotSectorCellIds = null,
+  enterDotGlowCellIds = null,
   cells,
   mapViewport,
   battleCellSize,
@@ -154,6 +159,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   };
   const hexTargetOrderKeys = new Set([
     'enterDot',
+    'exitDot',
     'cutWire',
     'move',
     'moveWar',
@@ -357,7 +363,12 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             }}
             onCellHover={(cell, e) => {
               setBattleHoverCellId(cell?.id ?? null);
-              if (cell && hasDotOnCell(cell.builds) && !battleUnitOrders) {
+              const fogHidesBuilding =
+                battleFogRevealedCellIds != null &&
+                viewerBattleFaction !== 'none' &&
+                cell != null &&
+                !battleFogRevealedCellIds.some((id) => Number(id) === Number(cell.id));
+              if (cell && hasDotOnCell(cell.builds) && !battleUnitOrders && !fogHidesBuilding) {
                 setBattleDotTip({
                   cell,
                   clientX: e.clientX,
@@ -377,6 +388,8 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             battleDefendHover={defendRangeOrderPreview ?? battleReportSectorHover ?? battleDefendHover}
             battleFireTargetInstanceIds={battleFireTargetInstanceIds}
             battleAreaFireCellIds={battleAreaFireCellIds}
+            battleDotSectorCellIds={battleDotSectorCellIds}
+            enterDotGlowCellIds={enterDotGlowCellIds}
             battlePendingShootPreview={battlePendingShootPreview}
             hoverPath={cellsHoverPath}
             hoverPathIsAirMission={cellsHoverPathIsAirMission}
@@ -520,7 +533,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
               if (pick && pick.orderKey === 'unloading') {
                 return;
               }
-              if (pick && (pick.orderKey === 'enterDot' || pick.orderKey === 'cutWire')) {
+              if (pick && (pick.orderKey === 'enterDot' || pick.orderKey === 'exitDot' || pick.orderKey === 'cutWire')) {
                 return;
               }
               if (pick && pick.orderKey === 'bombardment' && pick.bombardmentStep === 'direction') {
@@ -796,17 +809,50 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   const n = Number(u.str ?? u.strength);
                   return Number.isFinite(n) ? n : 0;
                 };
+                const fogOk =
+                  battleFogRevealedCellIds == null ||
+                  viewerBattleFaction === 'none' ||
+                  cellIdInList(battleFogRevealedCellIds, cell.id);
                 const highlighted = cellIdInList(moveReachableCellIds, cell.id);
                 const eligible =
                   live &&
                   cellsEligibleForEnterDot(live.cell, cells, getStr).some((c) => sameCellId(c.id, cell.id));
-                if (!live || !(highlighted || eligible)) {
+                if (!live || !fogOk || !(highlighted || eligible)) {
                   return;
                 }
                 setPendingOrders((prev) => {
                   return upsertOrder(prev, parseId(pick.unit.instanceId), {
                     unitInstanceId: parseId(pick.unit.instanceId),
                     orderKey: 'enterDot',
+                    targetCellId: Number(cell.id),
+                  });
+                });
+                dismissOrderPicking();
+                return;
+              }
+              if (pick && pick.orderKey === 'exitDot') {
+                if (apiRoomId == null || !isFinite(apiRoomId)) {
+                  dismissOrderPicking();
+                  return;
+                }
+                const liveExit = findUnitCellByInstanceId(cells, Number(pick.unit.instanceId));
+                const getStrExit = (u: Record<string, unknown>) => {
+                  const n = Number(u.str ?? u.strength);
+                  return Number.isFinite(n) ? n : 0;
+                };
+                const highlightedExit = cellIdInList(moveReachableCellIds, cell.id);
+                const eligibleExit =
+                  liveExit &&
+                  cellsEligibleForExitDot(liveExit.cell, cells, getStrExit).some((c) =>
+                    sameCellId(c.id, cell.id),
+                  );
+                if (!liveExit || !(highlightedExit || eligibleExit)) {
+                  return;
+                }
+                setPendingOrders((prev) => {
+                  return upsertOrder(prev, parseId(pick.unit.instanceId), {
+                    unitInstanceId: parseId(pick.unit.instanceId),
+                    orderKey: 'exitDot',
                     targetCellId: Number(cell.id),
                   });
                 });

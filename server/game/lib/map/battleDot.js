@@ -26,9 +26,9 @@ const DOT_ART_INTENSITY = {
   art: 6,
   tech: 9,
   armor: 10,
-  lightTank: 12,
-  mediumTank: 12,
-  heavyTank: 10,
+  lt: 12,
+  mt: 12,
+  ht: 10,
 }
 
 function ensureBuilds(builds) {
@@ -62,7 +62,7 @@ function isDotEmpty(builds, dotCell, cells, getStr, findUnitOnField) {
   if (occId == null) return true
   if (!dotCell || !cells || !getStr || !findUnitOnField) return false
   const found = findUnitOnField(cells, occId)
-  if (!found || getStr(found.unit) <= 0 || !unitInDot(found.unit)) {
+  if (!found || getStr(found.unit) <= 0 || !unitHoldsDot(found.unit)) {
     dotCell.builds = ensureBuilds(dotCell.builds)
     delete dotCell.builds.dotOccupantId
     return true
@@ -77,6 +77,15 @@ function unitInDot(unit) {
 function unitDotExiting(unit) {
   const n = Number(unit?.tactical?.dotExitTurnsLeft)
   return Number.isFinite(n) && n > 0
+}
+
+function unitDotEntering(unit) {
+  const n = Number(unit?.tactical?.dotEnterTurnsLeft)
+  return Number.isFinite(n) && n > 0
+}
+
+function unitHoldsDot(unit) {
+  return unitInDot(unit) || unitDotEntering(unit)
 }
 
 function countSurfaceUnitsOnCell(cell, getStr) {
@@ -110,14 +119,63 @@ function dotExitTurnsForUnit(unit, isInfantryUnit, isArtilleryUnit) {
   return 0
 }
 
+function isAxialNeighbor(a, b) {
+  if (!a || !b) return false
+  const dx = Number(b.coor.x) - Number(a.coor.x)
+  const dz = Number(b.coor.z) - Number(a.coor.z)
+  const axial = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, -1],
+    [-1, 1],
+  ]
+  for (let i = 0; i < axial.length; i++) {
+    if (axial[i][0] === dx && axial[i][1] === dz) return true
+  }
+  return false
+}
+
 function findMoveDir(fromCell, toCell, allCells) {
   if (!fromCell || !toCell) return 0
+  const dx = Number(toCell.coor.x) - Number(fromCell.coor.x)
+  const dz = Number(toCell.coor.z) - Number(fromCell.coor.z)
+  const dirs = [
+    { x: 1, z: 0 },
+    { x: 1, z: -1 },
+    { x: 0, z: -1 },
+    { x: -1, z: 0 },
+    { x: -1, z: 1 },
+    { x: 0, z: 1 },
+  ]
+  for (let dir = 0; dir < 6; dir++) {
+    if (dirs[dir].x === dx && dirs[dir].z === dz) return dir
+  }
   for (let dir = 0; dir < 6; dir++) {
     const nb = getNeighbor(fromCell.coor, dir)
     const c = findCellByCoor(allCells, nb)
     if (c && Number(c.id) === Number(toCell.id)) return dir
   }
   return 0
+}
+
+function resolveDotFacingDir(dotCell, allCells) {
+  const facingCellId = Number(dotCell?.builds?.dotFacingCellId)
+  if (allCells && Number.isFinite(facingCellId)) {
+    const nb = allCells.find((c) => Number(c.id) === facingCellId)
+    if (nb) return findMoveDir(dotCell, nb, allCells)
+  }
+  const n = Number(dotCell?.builds?.dotFacing)
+  if (Number.isFinite(n) && n >= 0 && n <= 5) return Math.floor(n)
+  return 0
+}
+
+function hasEditorDotFacing(builds) {
+  const n = Number(builds && builds.dotFacing)
+  if (Number.isFinite(n) && n >= 0 && n <= 5) return true
+  const cid = Number(builds && builds.dotFacingCellId)
+  return Number.isFinite(cid)
 }
 
 function dotRangeArrayForUnit(unit, isInfantryUnit, isArtilleryUnit) {
@@ -200,6 +258,7 @@ function ejectDotOccupant(cells, cell, le, ph, findUnitOnField, ensureTacticalBa
     const tac = ensureTacticalBattle(found.unit)
     delete tac.inDot
     delete tac.dotExitTurnsLeft
+    delete tac.dotEnterTurnsLeft
     if (le && ph) le(ph, `Юнит ${occId} выбит из ДОТ на кл. ${cell.id}`)
   }
   cell.builds = ensureBuilds(cell.builds)
@@ -217,6 +276,7 @@ function destroyDot(cells, cell, le, ph, reason, deps) {
   cell.builds.dotAmmo = 0
   delete cell.builds.dotOccupantId
   delete cell.builds.dotFacing
+  delete cell.builds.dotFacingCellId
   if (le && ph) le(ph, `ДОТ на кл. ${cell.id} уничтожен (${reason})`)
 }
 
@@ -266,29 +326,86 @@ function tryDamageDotFromFire(targetCell, attacker, shooterCell, distance, deps,
   return true
 }
 
-function tickDotExitStates(cells, le, turnIndex, deps) {
-  const { getStr, ensureTacticalBattle } = deps
-  const ph = 'dotExit'
+function finishEnterDotOnUnit(cell, unit, deps) {
+  const { ensureTacticalBattle, isArtilleryUnit } = deps
+  const tac = ensureTacticalBattle(unit)
+  tac.inDot = true
+  delete tac.dotEnterTurnsLeft
+  delete tac.dotExitTurnsLeft
+  cell.builds = initDotBattleFields(cell.builds)
+  cell.builds.dotOccupantId = Number(unit.instanceId)
+  if (typeof isArtilleryUnit === 'function' && isArtilleryUnit(unit)) {
+    tac.artilleryDeployed = true
+  }
+}
+
+function tickDotEnterStates(cells, le, turnIndex, deps) {
+  const { getStr, ensureTacticalBattle, isArtilleryUnit } = deps
+  const ph = 'dotEnter'
   for (const c of cells) {
     for (const u of c.units || []) {
       if (getStr(u) <= 0) continue
       const tac = u.tactical
-      if (!tac || !tac.dotExitTurnsLeft) continue
+      if (!tac || !tac.dotEnterTurnsLeft) continue
+      let left = Number(tac.dotEnterTurnsLeft)
+      if (!Number.isFinite(left) || left <= 0) continue
+      left -= 1
+      if (left <= 0) {
+        finishEnterDotOnUnit(c, u, { ensureTacticalBattle, isArtilleryUnit })
+        le(ph, `Юнит ${u.instanceId} занял ДОТ на кл. ${c.id}`, turnIndex)
+      } else {
+        tac.dotEnterTurnsLeft = left
+        le(ph, `Юнит ${u.instanceId} занимает ДОТ (осталось ${left} ход.)`, turnIndex)
+      }
+    }
+  }
+}
+
+function tickDotExitStates(cells, le, turnIndex, deps) {
+  const { getStr, ensureTacticalBattle, hexDistCells, removeUnitFromCell, addUnitToCell, syncUnitCoor } = deps
+  const finished = []
+  for (const c of cells) {
+    for (const u of c.units || []) {
+      if (getStr(u) <= 0) continue
+      const tac = u.tactical
+      if (!tac) continue
+      if (!tac.dotExitTurnsLeft) continue
       let left = Number(tac.dotExitTurnsLeft)
       if (!Number.isFinite(left) || left <= 0) continue
       left -= 1
       if (left <= 0) {
-        delete tac.inDot
-        delete tac.dotExitTurnsLeft
-        if (c.builds) {
-          c.builds = ensureBuilds(c.builds)
-          delete c.builds.dotOccupantId
-        }
-        le(ph, `Юнит ${u.instanceId} покинул ДОТ`, turnIndex)
+        finished.push({ cell: c, unit: u, destId: Number(tac.dotExitCellId) })
       } else {
         tac.dotExitTurnsLeft = left
-        le(ph, `Юнит ${u.instanceId} выходит из ДОТ (осталось ${left} ход.)`, turnIndex)
+        le('dotExit', `Юнит ${u.instanceId} выходит из ДОТ (осталось ${left} ход.)`, turnIndex)
       }
+    }
+  }
+  for (const item of finished) {
+    const tac = ensureTacticalBattle(item.unit)
+    delete tac.inDot
+    delete tac.dotExitTurnsLeft
+    delete tac.dotExitCellId
+    if (item.cell.builds) {
+      item.cell.builds = ensureBuilds(item.cell.builds)
+      delete item.cell.builds.dotOccupantId
+    }
+    const dest = Number.isFinite(item.destId) ? cells.find((x) => Number(x.id) === item.destId) : null
+    if (
+      dest &&
+      Number(dest.id) !== Number(item.cell.id) &&
+      isAxialNeighbor(item.cell, dest) &&
+      canUnitOccupySurfaceOnCell(dest, getStr) &&
+      typeof removeUnitFromCell === 'function' &&
+      typeof addUnitToCell === 'function' &&
+      typeof syncUnitCoor === 'function'
+    ) {
+      removeUnitFromCell(item.cell, item.unit.instanceId)
+      addUnitToCell(dest, item.unit)
+      syncUnitCoor(item.unit, dest)
+      le('dotExit', `Юнит ${item.unit.instanceId} покинул ДОТ → кл. ${dest.id}`, turnIndex)
+    } else {
+      le('dotExit', `Юнит ${item.unit.instanceId} покинул ДОТ`, turnIndex)
     }
   }
 }
@@ -344,26 +461,33 @@ function resolveEnterDot(cells, cur, o, le, ph, deps) {
     syncUnitCoor(cur.unit, dotCell)
     cur.cell = dotCell
   }
-  let facing = 0
+  const keepFacingCellId = Number(dotCell.builds && dotCell.builds.dotFacingCellId)
+  let facing = resolveDotFacingDir(dotCell, cells)
+  let facingCellId = Number.isFinite(keepFacingCellId) ? keepFacingCellId : null
   const fid = o.defendFacingCellId != null ? Number(o.defendFacingCellId) : null
   if (fid != null && Number.isFinite(fid)) {
     const fCell = cells.find((c) => Number(c.id) === fid)
-    if (fCell) facing = findMoveDir(dotCell, fCell, cells)
-  } else if (dist === 1) {
+    if (fCell) {
+      facing = findMoveDir(dotCell, fCell, cells)
+      facingCellId = Number(fCell.id)
+    }
+  } else if (!hasEditorDotFacing(dotCell.builds) && dist === 1) {
     facing = findMoveDir(dotCell, fromCellForFacing, cells)
   }
   dotCell.builds = initDotBattleFields(dotCell.builds)
   dotCell.builds.dotOccupantId = Number(cur.unit.instanceId)
   dotCell.builds.dotFacing = facing
+  if (facingCellId != null) dotCell.builds.dotFacingCellId = facingCellId
   const tac = ensureTacticalBattle(cur.unit)
-  tac.inDot = true
+  delete tac.inDot
   delete tac.dotExitTurnsLeft
+  tac.dotEnterTurnsLeft = 1
   clearDefendOnUnit(cur.unit)
-  le(ph, `Юнит ${cur.unit.instanceId} занял ДОТ на кл. ${dotCell.id}`)
+  le(ph, `Юнит ${cur.unit.instanceId} начинает занимать ДОТ на кл. ${dotCell.id} (войдёт на следующем ходу)`)
 }
 
-function resolveExitDot(cur, le, ph, deps) {
-  const { isInfantryUnit, isArtilleryUnit, ensureTacticalBattle } = deps
+function resolveExitDot(cells, cur, o, le, ph, deps) {
+  const { isInfantryUnit, isArtilleryUnit, ensureTacticalBattle, hexDistCells: hexDistCellsFn, getStr } = deps
   if (!unitInDot(cur.unit)) {
     le(ph, `Покинуть ДОТ: ${cur.unit.instanceId} — не в ДОТ`)
     return
@@ -373,32 +497,82 @@ function resolveExitDot(cur, le, ph, deps) {
     le(ph, `Покинуть ДОТ: ${cur.unit.instanceId} — отклонено`)
     return
   }
+  const cid = o && o.targetCellId != null ? Number(o.targetCellId) : NaN
+  const dest = (cells || []).find((c) => Number(c.id) === cid)
+  if (!dest) {
+    le(ph, `Покинуть ДОТ: ${cur.unit.instanceId} — не указана клетка выхода`)
+    return
+  }
+  if (!isAxialNeighbor(cur.cell, dest)) {
+    le(ph, `Покинуть ДОТ: ${cur.unit.instanceId} — выйти можно только на соседний гекс`)
+    return
+  }
+  if (typeof getStr === 'function' && !canUnitOccupySurfaceOnCell(dest, getStr)) {
+    le(ph, `Покинуть ДОТ: ${cur.unit.instanceId} — на кл. ${dest.id} нет места`)
+    return
+  }
   const tac = ensureTacticalBattle(cur.unit)
   tac.dotExitTurnsLeft = turns
-  le(ph, `Юнит ${cur.unit.instanceId} выходит из ДОТ (${turns} ход.)`)
+  tac.dotExitCellId = Number(dest.id)
+  le(ph, `Юнит ${cur.unit.instanceId} выходит из ДОТ на кл. ${dest.id} (${turns} ход.)`)
 }
 
-/** Сектор пулемётчика в ДОТ: фронт + два соседних направления. */
+/** Сектор пулемётчика в ДОТ: заполненный веер (фронт + два соседних направления). */
 function computeDotMgSectorCellIds(dotCell, facingDir, allCells, maxSteps) {
-  if (!dotCell || facingDir < 0 || facingDir > 5) return []
-  const dirs = [facingDir, (facingDir + 5) % 6, (facingDir + 1) % 6]
+  if (!dotCell || facingDir < 0 || facingDir > 5 || maxSteps < 1) return []
+  const dirs = [
+    { x: 1, y: -1, z: 0 },
+    { x: 1, y: 0, z: -1 },
+    { x: 0, y: 1, z: -1 },
+    { x: -1, y: 1, z: 0 },
+    { x: -1, y: 0, z: 1 },
+    { x: 0, y: -1, z: 1 },
+  ]
+  const d0 = dirs[facingDir]
+  const dLeft = dirs[(facingDir + 1) % 6]
+  const dRight = dirs[(facingDir + 5) % 6]
+  const ox = Number(dotCell.coor.x)
+  const oz = Number(dotCell.coor.z)
   const out = []
   const seen = new Set()
-  for (let di = 0; di < dirs.length; di++) {
-    let cur = dotCell
-    for (let step = 1; step <= maxSteps; step++) {
-      const nb = getNeighbor(cur.coor, dirs[di])
-      const cell = findCellByCoor(allCells, nb)
-      if (!cell) break
-      const id = Number(cell.id)
-      if (!seen.has(id)) {
+  for (const d1 of [dLeft, dRight]) {
+    for (let s = 1; s <= maxSteps; s++) {
+      for (let i = 0; i <= s; i++) {
+        const j = s - i
+        const wantX = ox + i * d0.x + j * d1.x
+        const wantZ = oz + i * d0.z + j * d1.z
+        const cell = allCells.find((c) => Number(c.coor.x) === wantX && Number(c.coor.z) === wantZ) || null
+        if (!cell || Number(cell.id) === Number(dotCell.id)) continue
+        const id = Number(cell.id)
+        if (seen.has(id)) continue
         seen.add(id)
         out.push(id)
       }
-      cur = cell
     }
   }
   return out
+}
+
+/** Видимость гарнизона ДОТ: свой гекс + сектор стрельбы (без круговой дальности юнита). */
+function dotOccupantVisionCellIds(dotCell, unit, allCells) {
+  if (!unitInDot(unit) || !dotCell || !hasDotOnCell(dotCell.builds)) return null
+  const maxSteps =
+    String(unit.type || '').toLowerCase() === 'artillery' ? DOT_ART_RANGE.length : DOT_INF_RANGE.length
+  const facing = resolveDotFacingDir(dotCell, allCells)
+  const ids = computeDotMgSectorCellIds(dotCell, facing, allCells, maxSteps)
+  const out = new Set(ids)
+  out.add(Number(dotCell.id))
+  return out
+}
+
+function isDotFireTargetCellAllowed(attacker, attackerCell, targetCellId, allCells) {
+  if (!unitInDot(attacker) || unitDotExiting(attacker)) return true
+  if (!attackerCell || !hasDotOnCell(attackerCell.builds)) return true
+  const facing = resolveDotFacingDir(attackerCell, allCells)
+  const maxSteps = String(attacker.type || '').toLowerCase() === 'artillery' ? DOT_ART_RANGE.length : DOT_INF_RANGE.length
+  const ids = computeDotMgSectorCellIds(attackerCell, facing, allCells, maxSteps)
+  const cid = Number(targetCellId)
+  return ids.some((id) => Number(id) === cid)
 }
 
 module.exports = {
@@ -409,9 +583,12 @@ module.exports = {
   isDotEmpty,
   unitInDot,
   unitDotExiting,
+  unitDotEntering,
+  unitHoldsDot,
   countSurfaceUnitsOnCell,
   maxSurfaceUnitsOnCell,
   canUnitOccupySurfaceOnCell,
+  isAxialNeighbor,
   canEnterDotUnitType,
   dotExitTurnsForUnit,
   dotRangeArrayForUnit,
@@ -424,8 +601,12 @@ module.exports = {
   deductShooterAmmoForFire,
   tryDamageDotFromFire,
   tickDotExitStates,
+  tickDotEnterStates,
   resolveEnterDot,
   resolveExitDot,
   computeDotMgSectorCellIds,
+  resolveDotFacingDir,
+  dotOccupantVisionCellIds,
+  isDotFireTargetCellAllowed,
   destroyDot,
 }

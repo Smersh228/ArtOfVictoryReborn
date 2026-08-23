@@ -70,7 +70,10 @@ function getOrderMetaText(
     return ' — клик по красному гексу: вражеская авиация в небе';
   }
   if (orderPick.orderKey === 'enterDot') {
-    return ' — клик по гексу с ДОТ (свой или соседний, серая подсветка)';
+    return ' — клик по гексу с ДОТ (вход займёт 1 ход)';
+  }
+  if (orderPick.orderKey === 'exitDot') {
+    return ' — клик по соседнему гексу (не ДОТ): выход, пехота — 1 ход';
   }
   if (orderPick.orderKey === 'cutWire') {
     return ' — клик по соседнему гексу с проволокой';

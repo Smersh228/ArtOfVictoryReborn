@@ -24,7 +24,15 @@ import {
 import { computeHexFlightPathCellIds } from '../../game/battleFlightPath';
 import { computeDefendSectorCells, findFacingNeighborCells, getArtillerySectorCellIdSet, artilleryUsesFireSectorProperty } from '../../game/battleDefendSector';
 import { adjacentCellsWithWire } from '../../game/cellWireEdges';
-import { cellsEligibleForEnterDot } from '../../game/cellDot';
+import {
+  cellsEligibleForEnterDot,
+  cellsEligibleForExitDot,
+  computeOccupiedDotFireSectorCellIds,
+  dotOccupantVisionCellIds,
+  hasDotOnCell,
+  isDotFireShooter,
+  unitInDot,
+} from '../../game/cellDot';
 import {
   computeGetSupTargetInstanceIds,
   computeLoadingTargetInstanceIds,
@@ -128,6 +136,11 @@ export function useBattleDerivedState(params: {
           }
         }
         if (isBattleAirUnitType(raw.type)) continue;
+        const fromDot = dotOccupantVisionCellIds(cell, raw, cells);
+        if (fromDot) {
+          for (const id of fromDot) revealed.add(id);
+          continue;
+        }
         const vr = readBattleUnitNumber(raw, 'vis', 'visible', 'visibleRange');
         const r = vr != null && vr > 0 ? vr : 6;
         hv.computeVisibleCellIds(cell, r).forEach((id) => revealed.add(id));
@@ -183,7 +196,24 @@ export function useBattleDerivedState(params: {
       const n = Number(u.str ?? u.strength);
       return Number.isFinite(n) ? n : 0;
     };
-    return new Set(cellsEligibleForEnterDot(live.cell, cells, getStr).map((c) => c.id));
+    return new Set(
+      cellsEligibleForEnterDot(live.cell, cells, getStr)
+        .filter((c) => !battleFogRevealedCellIds || battleFogRevealedCellIds.has(c.id))
+        .map((c) => c.id),
+    );
+  }, [orderPick, cells, battleFogRevealedCellIds]);
+
+  const exitDotTargetCellIds = useMemo(() => {
+    if (!orderPick || orderPick.orderKey !== 'exitDot') return null;
+    const iid = Number(orderPick.unit?.instanceId);
+    if (!Number.isFinite(iid)) return null;
+    const live = findUnitCellByInstanceId(cells, iid);
+    if (!live) return null;
+    const getStr = (u: Record<string, unknown>) => {
+      const n = Number(u.str ?? u.strength);
+      return Number.isFinite(n) ? n : 0;
+    };
+    return new Set(cellsEligibleForExitDot(live.cell, cells, getStr).map((c) => c.id));
   }, [orderPick, cells]);
 
   const defendFacingPickCellIds = useMemo(() => {
@@ -709,6 +739,35 @@ export function useBattleDerivedState(params: {
       ? battleFireHighlights.areaCellIds
       : null;
 
+  const battleDotSectorCellIds = useMemo(() => {
+    const fireFromDot =
+      firePickLive &&
+      orderPick &&
+      (orderPick.orderKey === 'fire' || orderPick.orderKey === 'fireHard') &&
+      isDotFireShooter(firePickLive.unit as Record<string, unknown>, firePickLive.cell, cells);
+    if (fireFromDot) {
+      const ids = computeOccupiedDotFireSectorCellIds(firePickLive.cell, cells);
+      return ids.length ? ids : null;
+    }
+    const hoverCell =
+      battleHoverCellId != null ? cells.find((c) => Number(c.id) === Number(battleHoverCellId)) : null;
+    if (hoverCell && hasDotOnCell(hoverCell.builds)) {
+      const ids = computeOccupiedDotFireSectorCellIds(hoverCell, cells);
+      if (ids.length) return ids;
+    }
+    const ordersCell = battleUnitOrders?.cell as Cell | undefined;
+    if (ordersCell && hasDotOnCell(ordersCell.builds) && unitInDot(battleUnitOrders.unit)) {
+      const ids = computeOccupiedDotFireSectorCellIds(ordersCell, cells);
+      if (ids.length) return ids;
+    }
+    const tipCell = battleUnitTip?.cell as Cell | undefined;
+    if (tipCell && hasDotOnCell(tipCell.builds) && unitInDot(battleUnitTip.unit) && !battleUnitOrders) {
+      const ids = computeOccupiedDotFireSectorCellIds(tipCell, cells);
+      if (ids.length) return ids;
+    }
+    return null;
+  }, [firePickLive, orderPick, cells, battleHoverCellId, battleUnitOrders, battleUnitTip]);
+
   const battlePendingShootPreview = useMemo((): BattlePendingShootPreview | null => {
     if (!battleUnitTip || battleUnitOrders) return null;
     const u = battleUnitTip.unit;
@@ -900,6 +959,7 @@ export function useBattleDerivedState(params: {
     moveReachableCellIds,
     cutWireTargetCellIds,
     enterDotTargetCellIds,
+    exitDotTargetCellIds,
     defendFacingPickCellIds,
     defendRangePickCellIds,
     defendPickHighlightCellIds,
@@ -910,6 +970,7 @@ export function useBattleDerivedState(params: {
     battleUnloadCellIds,
     battleFireTargetInstanceIds,
     battleAreaFireCellIds,
+    battleDotSectorCellIds,
     battlePendingShootPreview,
     battlePendingLogisticsPreview,
     battleDefendHover,

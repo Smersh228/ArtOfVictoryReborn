@@ -23,7 +23,7 @@ const BattleDotTipCard: React.FC<BattleDotTipCardProps> = ({ battleTipRef, left,
         <span className={styles.battleUnitTipVal}>{tip.defense}</span>
       </div>
       <div className={styles.battleUnitTipRow}>
-        <span className={styles.battleUnitTipKey}>БК</span>
+        <span className={styles.battleUnitTipKey}>Боезапас</span>
         <span className={styles.battleUnitTipVal}>{tip.ammo}</span>
       </div>
       <div className={styles.battleUnitTipRow}>

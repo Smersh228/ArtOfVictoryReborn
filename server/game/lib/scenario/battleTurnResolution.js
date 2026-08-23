@@ -16,6 +16,7 @@ function collectAliveUnitsOnField(cells) {
           info.set(uid, {
             unitName: String(u.name || '').trim() || undefined,
             unitFaction: String(u.faction || '').trim().toLowerCase() || undefined,
+            unitType: String(u.type || '').trim().toLowerCase() || undefined,
             destroyedCellId: cellId,
           })
         }
@@ -30,6 +31,7 @@ function collectAliveUnitsOnField(cells) {
               info.set(cid, {
                 unitName: String(cu.name || '').trim() || undefined,
                 unitFaction: String(cu.faction || '').trim().toLowerCase() || undefined,
+                unitType: String(cu.type || '').trim().toLowerCase() || undefined,
                 destroyedCellId: cellId,
               })
             }
@@ -92,6 +94,7 @@ function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrd
         unitInstanceId: idAlive,
         unitName: info.unitName,
         unitFaction: info.unitFaction,
+        unitType: info.unitType,
         destroyedCellId: info.destroyedCellId,
         destroyed: true,
       },

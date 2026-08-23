@@ -20,10 +20,17 @@ function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey,
   if (!tc) return 'клетка не найдена'
   if (!isArtilleryUnit(atk.unit)) return 'только артиллерия'
   if (!unitHasPropKey(atk.unit, 'areaFire')) return 'нужно свойство «стрельба по площади»'
-  if (!isArtilleryDeployedForBattle(atk.unit)) {
-    return 'артиллерия свёрнута — приказ «Развёртывание»'
+  const dotMod = require('../lib/map/battleDot')
+  if (dotMod.unitInDot(atk.unit)) {
+    if (!dotMod.isDotFireTargetCellAllowed(atk.unit, atk.cell, tc.id, cells)) {
+      return 'клетка вне сектора стрельбы ДОТ'
+    }
+  } else {
+    if (!isArtilleryDeployedForBattle(atk.unit)) {
+      return 'артиллерия свёрнута — приказ «Развёртывание»'
+    }
+    if (!isArtilleryFireTargetCellAllowed(atk.unit, tc.id)) return 'клетка вне сектора обстрела'
   }
-  if (!isArtilleryFireTargetCellAllowed(atk.unit, tc.id)) return 'клетка вне сектора обстрела'
   const d = hexDistCells(atk.cell, tc)
   const ra = rangeArrayForAtCell ? rangeArrayForAtCell(atk.unit, atk.cell) : rangeArrayFor(atk.unit)
   const rMode = fireRangeTableMode(ra)

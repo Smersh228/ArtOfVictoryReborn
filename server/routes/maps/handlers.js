@@ -21,14 +21,16 @@ async function listMapsHandler(req, res) {
     let r
     if (isMapAdminUser(user)) {
       r = await pool.query(
-        `SELECT sm.id_map, sm.name, sm.updated_at, ${hasStatus ? 'sm.map_status' : `'approved' AS map_status`}, u.username AS owner_username
+        `SELECT sm.id_map, sm.name, sm.updated_at, ${hasStatus ? 'sm.map_status' : `'approved' AS map_status`}, u.username AS owner_username,
+                (sm.payload #>> '{scenario,teamLimit}') AS team_limit
          FROM saved_map sm
          LEFT JOIN users u ON u.id = sm.owner_user_id
          ORDER BY updated_at DESC, id_map DESC`,
       )
     } else if (editorOnly) {
       r = await pool.query(
-        `SELECT sm.id_map, sm.name, sm.updated_at, ${hasStatus ? 'sm.map_status' : `'approved' AS map_status`}, u.username AS owner_username
+        `SELECT sm.id_map, sm.name, sm.updated_at, ${hasStatus ? 'sm.map_status' : `'approved' AS map_status`}, u.username AS owner_username,
+                (sm.payload #>> '{scenario,teamLimit}') AS team_limit
          FROM saved_map sm
          LEFT JOIN users u ON u.id = sm.owner_user_id
          WHERE owner_user_id = $1
@@ -38,7 +40,8 @@ async function listMapsHandler(req, res) {
     } else {
       if (hasStatus) {
         r = await pool.query(
-          `SELECT sm.id_map, sm.name, sm.updated_at, sm.map_status, u.username AS owner_username
+          `SELECT sm.id_map, sm.name, sm.updated_at, sm.map_status, u.username AS owner_username,
+                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit
            FROM saved_map sm
            LEFT JOIN users u ON u.id = sm.owner_user_id
            WHERE sm.map_status = $1
@@ -47,7 +50,8 @@ async function listMapsHandler(req, res) {
         )
       } else {
         r = await pool.query(
-          `SELECT sm.id_map, sm.name, sm.updated_at, 'approved' AS map_status, u.username AS owner_username
+          `SELECT sm.id_map, sm.name, sm.updated_at, 'approved' AS map_status, u.username AS owner_username,
+                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit
            FROM saved_map sm
            LEFT JOIN users u ON u.id = sm.owner_user_id
            WHERE sm.owner_user_id = $1
@@ -58,14 +62,18 @@ async function listMapsHandler(req, res) {
       }
     }
     return res.json({
-      maps: r.rows.map((row) => ({
-        id: row.id_map,
-        name: row.name,
-        updatedAt: row.updated_at,
-        moderationStatus: String(row.map_status || MAP_STATUS_PENDING).trim().toLowerCase(),
-        ownerUsername: row.owner_username || null,
-        canModerate: isMapAdminUser(user),
-      })),
+      maps: r.rows.map((row) => {
+        const n = Number(row.team_limit)
+        return {
+          id: row.id_map,
+          name: row.name,
+          updatedAt: row.updated_at,
+          moderationStatus: String(row.map_status || MAP_STATUS_PENDING).trim().toLowerCase(),
+          ownerUsername: row.owner_username || null,
+          canModerate: isMapAdminUser(user),
+          teamLimit: n === 4 || n === 6 ? n : 2,
+        }
+      }),
     })
   } catch (err) {
     console.error('GET /api/maps:', err)

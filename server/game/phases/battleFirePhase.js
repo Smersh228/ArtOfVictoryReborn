@@ -363,7 +363,12 @@ function processFirePhase(
       le(ph, `Юнит ${atk.unit.instanceId}: пехота не стреляет по бронетехнике и танкам`)
       continue
     }
-    if (isArtilleryUnit(atk.unit)) {
+    if (dotMod.unitInDot(atk.unit)) {
+      if (!dotMod.isDotFireTargetCellAllowed(atk.unit, atk.cell, def.cell.id, cells)) {
+        le(ph, `Юнит ${atk.unit.instanceId}: цель вне сектора стрельбы ДОТ`)
+        continue
+      }
+    } else if (isArtilleryUnit(atk.unit)) {
       if (!isArtilleryDeployedForBattle(atk.unit)) {
         le(ph, `Юнит ${atk.unit.instanceId}: артиллерия свёрнута — развернитесь (приказ «Развёртывание»)`)
         continue

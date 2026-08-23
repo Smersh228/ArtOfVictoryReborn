@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { User } from '../api/auth'
 import { logoutRequest, verifySession } from '../api/auth'
+import { leaveLobbyPresence, sendLobbyHeartbeat } from '../api/lobbyHub'
 
 type AuthContextValue = {
   user: User | null
@@ -33,6 +34,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   const logout = useCallback(async () => {
+    leaveLobbyPresence()
     await logoutRequest()
     setUser(null)
     setMaintenanceNotice(null)
@@ -48,6 +50,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       cancelled = true
     }
   }, [refresh])
+
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    const beat = () => {
+      if (cancelled) return
+      void sendLobbyHeartbeat().catch(() => undefined)
+    }
+    beat()
+    const id = window.setInterval(beat, 12_000)
+    const onHide = () => {
+      leaveLobbyPresence()
+    }
+    const onShow = () => {
+      beat()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') onShow()
+    }
+    window.addEventListener('pagehide', onHide)
+    window.addEventListener('pageshow', onShow)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+      window.removeEventListener('pagehide', onHide)
+      window.removeEventListener('pageshow', onShow)
+      document.removeEventListener('visibilitychange', onVisibility)
+      leaveLobbyPresence()
+    }
+  }, [user])
 
   const value = useMemo(
     () => ({

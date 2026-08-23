@@ -13,6 +13,8 @@ const {
   maybeForfeitDisconnectedBattleFighter,
   touchBattlePresenceFromPoll,
   initBattlePresenceForFighters,
+  assignMemberTeam,
+  addRoomChatMessage,
 } = require('./shared')
 const { rooms, allocRoomId } = require('./state')
 
@@ -86,7 +88,8 @@ function registerLobbyRoutes(router) {
     }
     const { name, maxPlayers, map, mapId } = req.body || {}
     const n = String(name || '').trim() || 'Комната'
-    const mp = Math.min(8, Math.max(2, Number(maxPlayers) || 2))
+    const rawLimit = Number(maxPlayers)
+    let mp = rawLimit === 4 || rawLimit === 6 ? rawLimit : 2
 
     let mapLabel = String(map || '').trim()
     let resolvedMapId = null
@@ -102,7 +105,8 @@ function registerLobbyRoutes(router) {
       }
       try {
         const row = await pool.query(
-          `SELECT sm.name, sm.owner_user_id, u.username AS owner_username
+          `SELECT sm.name, sm.owner_user_id, u.username AS owner_username,
+                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit
            FROM saved_map sm
            LEFT JOIN users u ON u.id = sm.owner_user_id
            WHERE sm.id_map = $1`,
@@ -127,6 +131,8 @@ function registerLobbyRoutes(router) {
         }
         resolvedMapId = mid
         mapLabel = String(row.rows[0].name || '').trim() || mapLabel
+        const fromMap = Number(row.rows[0].team_limit)
+        if (fromMap === 2 || fromMap === 4 || fromMap === 6) mp = fromMap
       } catch (err) {
         console.error('rooms mapId lookup:', err.message)
         return res.status(500).json({ error: 'Не удалось проверить карту' })
@@ -215,9 +221,11 @@ function registerLobbyRoutes(router) {
     if (toggleFaction) {
       const i = FACTIONS.indexOf(mem.faction)
       mem.faction = FACTIONS[(i + 1) % FACTIONS.length]
+      assignMemberTeam(room, mem, mem.faction)
     } else if (faction !== undefined) {
       if (!FACTIONS.includes(faction)) return res.status(400).json({ error: 'Неверная фракция' })
       mem.faction = faction
+      assignMemberTeam(room, mem, mem.faction)
     }
     const isHost = key === room.hostKey
     if (!isHost && toggleReady) {
@@ -299,6 +307,27 @@ function registerLobbyRoutes(router) {
     room.members = room.members.filter((m) => m.key !== key)
     if (room.members.length === 0) rooms.delete(id)
     res.json({ ok: true })
+  })
+
+  router.post('/:id/chat', express.json(), async (req, res) => {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Неверный id' })
+    const room = rooms.get(id)
+    if (!room) return res.status(404).json({ error: 'Комната не найдена' })
+    ensureMemberSlots(room)
+    const key = await memberKeyForRoom(req, room)
+    if (!key) return res.status(401).json({ error: 'Нет идентификатора' })
+    const mem = room.members.find((m) => m.key === key)
+    if (!mem) return res.status(403).json({ error: 'Вы не в этой комнате' })
+    const result = await addRoomChatMessage(
+      room,
+      mem,
+      key,
+      req.body && req.body.text,
+      req.body && req.body.channel,
+    )
+    if (!result.ok) return res.status(400).json({ error: result.error })
+    await sendRoomDetailOr500(res, room, key)
   })
 }
 

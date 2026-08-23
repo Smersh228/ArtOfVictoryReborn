@@ -46,6 +46,7 @@ export type RoomMember = {
   isYou: boolean
   isHost?: boolean
   faction: LobbyFaction
+  team?: number | null
   ready: boolean
 }
 
@@ -69,10 +70,23 @@ export type BattleOrderPayload = {
   defendMaxRangeSteps?: number
 }
 
+export type LobbyRoomChatChannel = 'all' | 'team'
+
+export type LobbyRoomChatMessage = {
+  id: number
+  userId: number
+  username: string
+  text: string
+  ts: number
+  channel?: LobbyRoomChatChannel
+  teamKey?: 'rkka' | 'wehrmacht' | null
+}
+
 export type RoomDetailResponse = {
   room: RoomPublic
   members: RoomMember[]
   youAreHost?: boolean
+  lobbyChat?: LobbyRoomChatMessage[]
   battleStartedAt?: number | null
 
   battleSurrenderSeq?: number
@@ -191,6 +205,7 @@ function normalizeRoomDetail(raw: RoomDetailResponse): RoomDetailResponse {
     battleTurnAckCount: raw.battleTurnAckCount ?? 0,
     battleTurnAckNeed: raw.battleTurnAckNeed ?? 0,
     members: raw.members ?? [],
+    lobbyChat: Array.isArray(raw.lobbyChat) ? raw.lobbyChat : [],
   }
 }
 
@@ -295,6 +310,22 @@ export async function updateLobbyMe(
   const text = await res.text()
   if (!res.ok) throw new Error(parseRoomsError(res, text))
   return normalizeRoomDetail(parseRoomsJson(text))
+}
+
+export async function postRoomChat(
+  roomId: number,
+  text: string,
+  channel: LobbyRoomChatChannel = 'all',
+): Promise<RoomDetailResponse> {
+  const res = await fetch(roomsUrl(`/api/rooms/${roomId}/chat`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: roomHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ text, channel }),
+  })
+  const raw = await res.text()
+  if (!res.ok) throw new Error(parseRoomsError(res, raw))
+  return normalizeRoomDetail(parseRoomsJson(raw))
 }
 
 export async function startRoomBattle(roomId: number): Promise<RoomDetailResponse> {
