@@ -80,6 +80,7 @@ interface CellsProps {
   lobbyPreview?: boolean
   hideEditorCellHexMenu?: boolean
   viewerBattleFaction?: LobbyFaction
+  viewerBattleTeam?: number | null
   battleHoverCursor?: string
   wrapClassName?: string
   onCellClick?: (cell: Cell, unitId?: number, click?: { canvasX: number; canvasY: number; clientX?: number; clientY?: number }) => void  
@@ -182,6 +183,7 @@ const Cells: React.FC<CellsProps> = ({
   lobbyPreview = false,
   hideEditorCellHexMenu = false,
   viewerBattleFaction = 'none',
+  viewerBattleTeam = null,
   battleHoverCursor,
   onCellClick,
   onUnitClick,
@@ -503,6 +505,7 @@ const Cells: React.FC<CellsProps> = ({
       lobbyPreview,
       mode,
       viewerBattleFaction,
+      viewerBattleTeam,
       hoveredUnit,
       battleFireTargetInstanceIds,
       battleLogisticsPickInstanceIds,
@@ -641,6 +644,7 @@ const Cells: React.FC<CellsProps> = ({
     mode,
     lobbyPreview,
     viewerBattleFaction,
+    viewerBattleTeam,
     hoverPath,
     hoverPathIsAirMission,
     moveReachableCellIds,

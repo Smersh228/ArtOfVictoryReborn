@@ -368,7 +368,7 @@ function drawAntiTankEdges(
 
 function dotHoverGlowFilter(side: 'friendly' | 'enemy' | 'empty'): string {
   if (side === 'enemy') return battleHoverDropShadowFilter('enemy')
-  if (side === 'friendly') return battleHoverDropShadowFilter('ally')
+  if (side === 'friendly') return battleHoverDropShadowFilter('own')
   return battleEmptyDotDropShadowFilter()
 }
 

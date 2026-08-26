@@ -123,13 +123,21 @@ export function unitDrawSize(
   return 30
 }
 
-export function battleHoverDropShadowFilter(kind: 'ally' | 'enemy' | 'neutral') {
-  if (kind === 'ally') {
+export function battleHoverDropShadowFilter(kind: 'own' | 'ally' | 'enemy' | 'neutral') {
+  if (kind === 'own') {
     return [
       'drop-shadow(0 0 2px rgba(255,255,245,0.95))',
       'drop-shadow(0 0 6px rgba(255,235,120,0.85))',
       'drop-shadow(0 0 14px rgba(255,210,70,0.65))',
       'drop-shadow(0 0 22px rgba(255,190,40,0.45))',
+    ].join(' ')
+  }
+  if (kind === 'ally') {
+    return [
+      'drop-shadow(0 0 2px rgba(230,245,255,0.95))',
+      'drop-shadow(0 0 6px rgba(90,170,255,0.9))',
+      'drop-shadow(0 0 14px rgba(40,130,255,0.7))',
+      'drop-shadow(0 0 22px rgba(20,100,255,0.48))',
     ].join(' ')
   }
   if (kind === 'enemy') {

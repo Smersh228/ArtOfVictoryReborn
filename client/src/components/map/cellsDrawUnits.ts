@@ -2,6 +2,7 @@ import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
 import { battleUnitsVisibleOnMap, readFlightPathCellIdsFromUnit } from '../../game/battleAirSupport'
 import type { AirInterceptionTarget, AirUnitInFlight } from '../../game/battleAirSupport'
 import { battleInstanceIdInList, normalizeBattleInstanceId } from '../../game/battleMovePreview'
+import { teamFromUnit } from '../../game/editorMapTeam'
 import {
   airFlightIconPixelOffset,
   airInterceptionTargetDrawSize,
@@ -50,7 +51,7 @@ function getBattleFilter(params: {
   isFirePickTarget: boolean
   isLogisticsPickTarget: boolean
   isPendingLogisticsTarget: boolean
-  battleHoverKind: 'ally' | 'enemy' | 'neutral' | null
+  battleHoverKind: 'own' | 'ally' | 'enemy' | 'neutral' | null
 }) {
   const { isFirePickTarget, isLogisticsPickTarget, isPendingLogisticsTarget, battleHoverKind } = params
   if (isFirePickTarget) return battleFireTargetDropShadowFilter()
@@ -102,6 +103,7 @@ export function drawUnitsOnCell(
     lobbyPreview: boolean
     mode: 'editor' | 'battle'
     viewerBattleFaction: 'none' | 'rkka' | 'wehrmacht'
+    viewerBattleTeam?: number | null
     hoveredUnit: { cell: Cell; unit: any; index: number } | null
     battleFireTargetInstanceIds: number[] | null
     battleLogisticsPickInstanceIds: number[] | null
@@ -127,6 +129,7 @@ export function drawUnitsOnCell(
     lobbyPreview,
     mode,
     viewerBattleFaction,
+    viewerBattleTeam = null,
     hoveredUnit,
       battleFireTargetInstanceIds,
     battleLogisticsPickInstanceIds,
@@ -152,16 +155,19 @@ export function drawUnitsOnCell(
   const positions = unitPositionsForDraw(lobbyPreview, mode, cellSize)
   const hiPad = lobbyPreview ? 3 : mode === 'battle' ? Math.max(4, Math.round(cellSize * 0.12)) : 5
 
-  const battleHoverKindForUnit = (u: { faction?: string }): 'ally' | 'enemy' | 'neutral' => {
-    const uf = u.faction as string | undefined
-    let k: 'ally' | 'enemy' | 'neutral' = 'neutral'
-    if (viewerBattleFaction !== 'none' && (uf === 'ussr' || uf === 'germany')) {
-      const ally =
-        (viewerBattleFaction === 'rkka' && uf === 'ussr') ||
-        (viewerBattleFaction === 'wehrmacht' && uf === 'germany')
-      k = ally ? 'ally' : 'enemy'
+  const battleHoverKindForUnit = (u: { faction?: string; team?: unknown }): 'own' | 'ally' | 'enemy' | 'neutral' => {
+    const uf = String(u.faction || '').toLowerCase()
+    if (viewerBattleFaction === 'none' || (uf !== 'ussr' && uf !== 'germany' && uf !== 'rkka' && uf !== 'wehrmacht')) {
+      return 'neutral'
     }
-    return k
+    const sameSide =
+      (viewerBattleFaction === 'rkka' && (uf === 'ussr' || uf === 'rkka')) ||
+      (viewerBattleFaction === 'wehrmacht' && (uf === 'germany' || uf === 'wehrmacht'))
+    if (!sameSide) return 'enemy'
+    const viewerTeam = Number(viewerBattleTeam)
+    if (!Number.isFinite(viewerTeam) || viewerTeam < 1) return 'own'
+    const unitTeam = teamFromUnit(u, 6)
+    return unitTeam === viewerTeam ? 'own' : 'ally'
   }
 
   rowUnits.slice(0, 3).forEach((unit: any, index: number) => {
@@ -196,7 +202,7 @@ export function drawUnitsOnCell(
       ctx.shadowBlur = 0
     }
 
-    let battleHoverKind: 'ally' | 'enemy' | 'neutral' | null = null
+    let battleHoverKind: 'own' | 'ally' | 'enemy' | 'neutral' | null = null
     if (mode === 'battle' && isHovered) {
       battleHoverKind = battleHoverKindForUnit(unit)
     } else if (mode === 'battle' && isReportShooterGlow) {

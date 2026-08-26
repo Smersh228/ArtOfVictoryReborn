@@ -164,6 +164,10 @@ const Battle: React.FC = () => {
   const selfMember = roomDetail?.members?.find((m) => m.isYou);
   const readonlyBattle = spectatorFromState || spectatorFromQuery || (roomDetail?.battleStartedAt != null && !selfMember);
   const viewerBattleFaction: LobbyFaction = readonlyBattle ? 'none' : myBattleFaction;
+  const viewerBattleTeam =
+    !readonlyBattle && Number.isFinite(Number(selfMember?.team)) && Number(selfMember?.team) > 0
+      ? Number(selfMember?.team)
+      : null;
   const spectatorResolving =
     readonlyBattle &&
     Number(roomDetail?.battleTurnAckNeed || 0) > 0 &&
@@ -881,6 +885,7 @@ const Battle: React.FC = () => {
           battleCellSize={battleCellSize}
           battlePointerCursor={battlePointerCursor}
           viewerBattleFaction={viewerBattleFaction}
+          viewerBattleTeam={viewerBattleTeam}
           battleUnitOrders={battleUnitOrders}
           turn={turn}
           setBattleUnitTip={setBattleUnitTip}

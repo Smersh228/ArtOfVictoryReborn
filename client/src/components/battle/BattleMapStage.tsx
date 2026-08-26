@@ -35,6 +35,7 @@ type BattleMapStageProps = {
   battleCellSize: number;
   battlePointerCursor: string;
   viewerBattleFaction: 'rkka' | 'wehrmacht' | 'none';
+  viewerBattleTeam?: number | null;
   battleUnitOrders: { unit: { [key: string]: any }; cell: Cell; clientX: number; clientY: number } | null;
   turn: number;
   setBattleUnitTip: (tip: { unit: { [key: string]: any }; cell: Cell; clientX: number; clientY: number; capturedAtTurn: number } | null) => void;
@@ -98,6 +99,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   battleCellSize,
   battlePointerCursor,
   viewerBattleFaction,
+  viewerBattleTeam = null,
   battleUnitOrders,
   turn,
   setBattleUnitTip,
@@ -334,6 +336,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             wrapClassName={styles.battleCellsRoot}
             battleHoverCursor={battlePointerCursor}
             viewerBattleFaction={viewerBattleFaction}
+            viewerBattleTeam={viewerBattleTeam}
             ignoreUnitClicks={ignoreUnitClicks}
             hiddenBattleInstanceIds={hiddenBattleInstanceIds}
             onUnitHover={(unit, cell, e) => {
