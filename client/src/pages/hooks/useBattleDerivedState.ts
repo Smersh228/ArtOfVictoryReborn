@@ -38,6 +38,7 @@ import {
   computeLoadingTargetInstanceIds,
   computeTowTargetInstanceIds,
   computeUnloadCellIds,
+  computeLoadingSupTargetCellIds,
   isTruckUnitBattle,
 } from '../../game/battleLogisticsUi';
 import { HexVisibility } from '../../game/hexVisibility';
@@ -675,6 +676,16 @@ export function useBattleDerivedState(params: {
     return computeUnloadCellIds(cells, truck, Number(cid));
   }, [orderPick, cells, unloadCargoPickModal]);
 
+  const loadingSupTargetCellIds = useMemo(() => {
+    if (!orderPick || orderPick.orderKey !== 'loadingSup') return null;
+    const live = findUnitCellByInstanceId(cells, Number(orderPick.unit.instanceId));
+    if (!live) return null;
+    const u = orderPick.unit as unknown as Record<string, unknown>;
+    if (!isTruckUnitBattle(u)) return null;
+    const ids = computeLoadingSupTargetCellIds(cells, u, live.cell);
+    return ids.size > 0 ? ids : null;
+  }, [orderPick, cells]);
+
   const firePickLive = useMemo(() => {
     if (!orderPick || !['fire', 'fireHard', 'attack'].includes(orderPick.orderKey)) return null;
     const iid = normalizeBattleInstanceId(orderPick.unit.instanceId);
@@ -968,6 +979,7 @@ export function useBattleDerivedState(params: {
     battleReportSectorHover,
     battleLogisticsPickInstanceIds,
     battleUnloadCellIds,
+    loadingSupTargetCellIds,
     battleFireTargetInstanceIds,
     battleAreaFireCellIds,
     battleDotSectorCellIds,

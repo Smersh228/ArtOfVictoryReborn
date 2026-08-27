@@ -15,6 +15,7 @@ const DEFAULT_BATTLE_ORDERS = [
   ['Смена сектора', 'changeSector'],
   ['Выгрузка', 'unloading'],
   ['Загрузка припасов', 'getSup'],
+  ['Загрузка припасов со склада', 'loadingSup'],
   ['Сопровождение дружественной авиации', 'accompaniment'],
   ['Сброс припасов', 'airSupply'],
   ['Штурмовка', 'attackAir'],
@@ -126,6 +127,9 @@ async function ensureDefaultBattleOrders() {
   }
   try {
     await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'getSup'`, ['Загрузка припасов'])
+    await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'loadingSup'`, [
+      'Загрузка припасов со склада',
+    ])
     await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'accompaniment'`, [
       'Сопровождение дружественной авиации',
     ])

@@ -130,7 +130,7 @@ function validateBattleOrders(cells, orders, context) {
     }
     const block = validateUnitOrdersAllowed(found.unit, ok)
     if (block) return `Приказ ${i + 1}: ${block} — приказы недоступны`
-    if (ok === 'getSup' || ok === 'loading' || ok === 'unloading' || ok === 'tow') {
+    if (ok === 'getSup' || ok === 'loadingSup' || ok === 'loading' || ok === 'unloading' || ok === 'tow') {
       const le = validateLogisticsOrder(cells, o)
       if (le) return `Приказ ${i + 1}: ${le}`
       continue

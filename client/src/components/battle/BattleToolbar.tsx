@@ -8,6 +8,7 @@ interface BattleToolbarProps {
   battleControlsDisabled: boolean;
   waitingNextTurn: boolean;
   turn: number;
+  environmentLabels?: string[];
   showAirSupportButton: boolean;
   airSupportDisabled?: boolean;
   onToggleAirSupport: () => void;
@@ -26,6 +27,7 @@ const BattleToolbar: React.FC<BattleToolbarProps> = ({
   battleControlsDisabled,
   waitingNextTurn,
   turn,
+  environmentLabels = [],
   showAirSupportButton,
   airSupportDisabled = false,
   onToggleAirSupport,
@@ -92,7 +94,10 @@ const BattleToolbar: React.FC<BattleToolbarProps> = ({
               onClick={() => !waitingNextTurn && onNextTurn()}
             />
           </div>
-          <span className={styles.battleTurnCounter}>Ход: {turn}</span>
+          <span className={styles.battleTurnCounter}>
+            Ход: {turn}
+            {environmentLabels.length ? ` · ${environmentLabels.join(', ')}` : ''}
+          </span>
         </div>
       </div>
     </div>

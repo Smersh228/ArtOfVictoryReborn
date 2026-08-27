@@ -42,6 +42,9 @@ function getOrderMetaText(
   if (orderPick.orderKey === 'getSup' || orderPick.orderKey === 'loading' || orderPick.orderKey === 'tow') {
     return ' — клик по своему юниту или грузовику';
   }
+  if (orderPick.orderKey === 'loadingSup') {
+    return ' — клик по складу (свой гекс или соседний)';
+  }
   if (
     (orderPick.orderKey === 'fire' || orderPick.orderKey === 'fireHard') &&
     battleAreaFireCellIds &&

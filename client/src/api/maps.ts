@@ -41,12 +41,27 @@ export type SavedMapListItem = {
 }
 
 
+export type MapWeatherSpec = {
+  enabled?: boolean
+  chance?: number | string
+  duration?: number | string
+}
+
+export type MapEnvironment = {
+  night?: boolean
+  nightFromFirst?: boolean
+  strongWind?: boolean | MapWeatherSpec
+  fog?: boolean | MapWeatherSpec
+  rain?: boolean | MapWeatherSpec
+}
+
 export type EditorMapPayloadLobby = {
   cells?: unknown[]
   conditions?: {
     allyTasks?: string
     axisTasks?: string
     maxTurns?: string
+    environment?: MapEnvironment
     [key: string]: unknown
   }
   scenario?: {
@@ -57,6 +72,33 @@ export type EditorMapPayloadLobby = {
     [key: string]: unknown
   }
   [key: string]: unknown
+}
+
+function weatherLabel(name: string, raw: boolean | MapWeatherSpec | undefined): string | null {
+  if (raw === true) return name
+  if (raw && typeof raw === 'object' && raw.enabled) {
+    const chance = Number(raw.chance)
+    const duration = Number(raw.duration)
+    const c = Number.isFinite(chance) ? Math.trunc(chance) : 30
+    const d = Number.isFinite(duration) && duration > 0 ? Math.trunc(duration) : 3
+    return `${name} (${c}%, ${d} ход.)`
+  }
+  return null
+}
+
+export function mapEnvironmentLabels(environment?: MapEnvironment | null): string[] {
+  if (!environment) return []
+  const out: string[] = []
+  if (environment.night) {
+    out.push(environment.nightFromFirst === false ? 'Ночь/день со второго хода' : 'Ночь/день с первого хода')
+  }
+  const fog = weatherLabel('Туман', environment.fog)
+  const rain = weatherLabel('Дождь', environment.rain)
+  const wind = weatherLabel('Сильный ветер', environment.strongWind)
+  if (fog) out.push(fog)
+  if (rain) out.push(rain)
+  if (wind) out.push(wind)
+  return out
 }
 
 export type SavedMapDetail = {

@@ -18,6 +18,7 @@ import {
   isDotFireShooter,
   unitFiresFromDot,
 } from './cellDot';
+import { applyAccuracyRangeShift, applyIntensityPenalty } from './battleEnvironment';
 
 export { isArmoredVehicleTarget } from './battleDesantCombat';
 
@@ -42,20 +43,20 @@ function getIntensityDiceForTarget(
   target: Record<string, unknown>,
 ): number {
   const dotInt = dotIntensityForTarget(attacker, target.type);
-  if (dotInt != null) return dotInt;
+  if (dotInt != null) return applyIntensityPenalty(dotInt);
   const ft = normalizeFireObject(rawFireFromUnit(attacker));
   const key = targetTypeToFireKey(target.type);
   const arr = ft[key as keyof typeof ft]?.length ? ft[key as keyof typeof ft] : ft.inf;
   const ia = arr && arr.length ? arr : [1, 2, 2, 3];
   const strength = Math.max(1, getStr(attacker));
   const len = ia.length;
-  if (!len) return 1;
+  if (!len) return applyIntensityPenalty(1);
   const descending = Number(ia[0]) > Number(ia[len - 1]);
   if (strength > len) {
-    return descending ? Number(ia[0]) || 1 : Number(ia[len - 1]) || 1;
+    return applyIntensityPenalty(descending ? Number(ia[0]) || 1 : Number(ia[len - 1]) || 1);
   }
-  if (descending) return Number(ia[len - strength]) || 1;
-  return Number(ia[strength - 1]) || 1;
+  if (descending) return applyIntensityPenalty(Number(ia[len - strength]) || 1);
+  return applyIntensityPenalty(Number(ia[strength - 1]) || 1);
 }
 
 function isFireRowMeleeOnlyForTarget(
@@ -190,9 +191,10 @@ function rawFireFromUnit(u: Record<string, unknown>): Record<string, unknown> | 
 
 export function rangeArrayForUnit(attacker: Record<string, unknown>): number[] {
   const dotRa = dotRangeArrayForUnit(attacker);
-  if (dotRa) return dotRa;
+  if (dotRa) return applyAccuracyRangeShift(dotRa);
   const ft = normalizeFireObject(rawFireFromUnit(attacker));
-  return ft.range && ft.range.length ? ft.range : [3, 2, 1];
+  const raw = ft.range && ft.range.length ? ft.range : [3, 2, 1];
+  return applyAccuracyRangeShift(raw);
 }
 
 export function rangeArrayForUnitAtCell(

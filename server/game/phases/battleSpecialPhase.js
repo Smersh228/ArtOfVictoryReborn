@@ -1,6 +1,7 @@
 'use strict'
 
 const recon = require('../lib/recon/battleReconResolve')
+const { getStorageAmmo, setStorageAmmo, hasStorage } = require('../lib/map/battleStorage')
 
 function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
   const {
@@ -77,6 +78,47 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
         fromInstanceId: Number(cur.unit.instanceId),
         toInstanceId: Number(tgt.unit.instanceId),
         amount: give,
+      },
+    })
+    return
+  }
+  if (k === 'loadingSup') {
+    const cid = Number(o.targetCellId)
+    const wh = cells.find((c) => Number(c.id) === cid)
+    if (!wh || !isTruckUnit(cur.unit)) {
+      le(ph, `Загрузка со склада: юнит ${cur.unit.instanceId} — отклонено`)
+      return
+    }
+    if (hexDistCells(cur.cell, wh) > 1) {
+      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — склад не рядом`)
+      return
+    }
+    if (!hasStorage(wh)) {
+      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — нет склада`)
+      return
+    }
+    const want = Math.floor(Number(o.transferAmmo))
+    if (!Number.isFinite(want) || want < 1) {
+      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — неверное количество`)
+      return
+    }
+    const stock = getStorageAmmo(wh)
+    const have = getAmmo(cur.unit)
+    const cap = getAmmoCapacityMax(cur.unit)
+    const headroom = Math.max(0, cap - have)
+    const take = Math.min(want, stock, headroom)
+    if (take < 1) {
+      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — нельзя взять БК`)
+      return
+    }
+    setStorageAmmo(wh, stock - take)
+    setAmmo(cur.unit, have + take)
+    le(ph, `Загрузка со склада: грузовик ${cur.unit.instanceId} ← кл. ${cid}, +${take}`, {
+      logisticsLine: {
+        orderKey: 'loadingSup',
+        fromInstanceId: Number(cur.unit.instanceId),
+        toCellId: cid,
+        amount: take,
       },
     })
     return

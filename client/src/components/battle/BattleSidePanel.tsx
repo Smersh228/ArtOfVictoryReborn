@@ -28,6 +28,7 @@ interface BattleSidePanelProps {
   myBattleFaction: BattleFaction;
   allyTasksBattle: string;
   axisTasksBattle: string;
+  environmentLabels?: string[];
 }
 
 const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
@@ -44,6 +45,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
   myBattleFaction,
   allyTasksBattle,
   axisTasksBattle,
+  environmentLabels = [],
 }) => {
   const [reportGroup, setReportGroup] = useState<ReportGroup>('general');
   const [reportTeam, setReportTeam] = useState<number | 'all'>('all');
@@ -93,7 +95,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
           <div className={styles.battleReportWrap}>
             {apiRoomId == null || !Number.isFinite(apiRoomId) || battleStartedAt == null ? (
               <p className={styles.leftMenuText}>Журнал хода доступен в бою по сети: откройте комнату и начните сражение.</p>
-            ) : !battleReportRows.rows.length ? (
+            ) : !battleReportRows.rows.length && !environmentLabels.length ? (
               <p className={styles.leftMenuText}>
                 Записей ещё нет. Когда оба игрока подтвердят ход, здесь появится сводка последнего хода.
               </p>
@@ -153,6 +155,13 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                 </div>
               ) : null}
               <ul className={styles.battleReportList}>
+                {environmentLabels.length ? (
+                  <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineTurn}`}>
+                    <span className={styles.battleReportLineText}>
+                      Сейчас: {environmentLabels.join(', ')}
+                    </span>
+                  </li>
+                ) : null}
                 <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineTurn}`}>
                   <span className={styles.battleReportLineText}>
                     Уничтожены юниты РККА: {destroyedSummary.rkka.length ? destroyedSummary.rkka.join(', ') : '—'}
@@ -163,7 +172,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                     Уничтожены юниты Вермахта: {destroyedSummary.wehrmacht.length ? destroyedSummary.wehrmacht.join(', ') : '—'}
                   </span>
                 </li>
-                {!visibleRows.length ? (
+                {!visibleRows.length && (reportGroup !== 'general' || !environmentLabels.length) ? (
                   <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta}`}>
                     <span className={styles.battleReportLineText}>Нет записей в этом фильтре</span>
                   </li>

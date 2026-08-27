@@ -123,7 +123,6 @@ export function inferOrderKey(o: { name: string; order_key?: string }): string |
   const n = o.name.toLowerCase();
   if (n.includes('подавлен')) return 'fireHard';
   const k = o.order_key?.trim();
-  if (k === 'loadingSup') return null;
   if (k) return k;
   if (n.includes('огонь')) return 'fire';
   if (n.includes('атака')) return 'attack';
@@ -137,6 +136,7 @@ export function inferOrderKey(o: { name: string; order_key?: string }): string |
   if (n.includes('развёртыв') || n.includes('развертыв')) return 'deploy';
   if (n.includes('смена') && n.includes('сектор')) return 'changeSector';
   if (n.includes('выгруз')) return 'unloading';
+  if (n.includes('склад') && (n.includes('припас') || n.includes('загруз'))) return 'loadingSup';
   if (n.includes('припас') && (n.includes('загруз') || n.includes('получ') || n.includes('получен'))) return 'getSup';
   if (n.includes('разведк') && (n.includes('авиац') || n.includes('авиа'))) return 'intelligenceAir';
   if ((n.includes('поддержк') || n.includes('поддержка')) && (n.includes('авиац') || n.includes('авиа')))

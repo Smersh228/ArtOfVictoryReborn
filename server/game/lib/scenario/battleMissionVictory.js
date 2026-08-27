@@ -1,6 +1,7 @@
 'use strict'
 
 const { getStr, unitFaction, opposing, findUnitOnField } = require('../unit/battleUnitField')
+const { effectiveMaxTurns } = require('./battleEnvironment')
 
 function parseIdList(raw) {
   if (raw == null || raw === '') return []
@@ -133,10 +134,7 @@ function captureHoldProgressLine(streak, needHold) {
 }
 
 function parseMaxTurns(conditions) {
-  if (!conditions || typeof conditions !== 'object') return null
-  const n = Number(String(conditions.maxTurns ?? '').trim())
-  if (!Number.isFinite(n) || n <= 0) return null
-  return Math.floor(n)
+  return effectiveMaxTurns(conditions)
 }
 
 function isMissionTurnLimitReached(conditions, battleTurnIndexAfterIncrement) {

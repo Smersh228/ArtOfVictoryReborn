@@ -18,7 +18,7 @@ import {
 } from '../../game/cellDot';
 import type { DotHoverTip } from '../../game/cellDot';
 import { computeHexFlightPathCellIds, computeInterceptionMeetingCell } from '../../game/battleFlightPath';
-import { maxAmmoTransferFromTruckTo } from '../../game/battleLogisticsUi';
+import { maxAmmoLoadFromWarehouse, readStorageAmmo } from '../../game/battleLogisticsUi';
 import type { BattleOrderPayload } from '../../api/rooms';
 
 type BattleMapStageProps = {
@@ -166,6 +166,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
     'move',
     'moveWar',
     'unloading',
+    'loadingSup',
     'defend',
     'ambush',
     'deploy',
@@ -533,7 +534,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
               ) {
                 return;
               }
-              if (pick && pick.orderKey === 'unloading') {
+              if (pick && (pick.orderKey === 'unloading' || pick.orderKey === 'loadingSup')) {
                 return;
               }
               if (pick && (pick.orderKey === 'enterDot' || pick.orderKey === 'exitDot' || pick.orderKey === 'cutWire')) {
@@ -756,10 +757,6 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 return;
               }
               if (pick && pick.orderKey === 'unloading') {
-                if (apiRoomId == null || !isFinite(apiRoomId)) {
-                  dismissOrderPicking();
-                  return;
-                }
                 const cargoId = pick.unloadCargoInstanceId;
                 if (cargoId == null || !isValidId(parseId(cargoId))) {
                   dismissOrderPicking();
@@ -778,6 +775,28 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   });
                 });
                 dismissOrderPicking();
+                return;
+              }
+              if (pick && pick.orderKey === 'loadingSup') {
+                if (apiRoomId == null || !isFinite(apiRoomId)) {
+                  dismissOrderPicking();
+                  return;
+                }
+                if (!cellIdInList(moveReachableCellIds, cell.id)) {
+                  dismissOrderPicking();
+                  return;
+                }
+                const max = maxAmmoLoadFromWarehouse(pick.unit as { [key: string]: unknown }, cell);
+                if (max < 1) {
+                  dismissOrderPicking();
+                  return;
+                }
+                setBattleAmmoModal({
+                  giver: { name: 'Склад', ammoCount: readStorageAmmo(cell) },
+                  receiver: pick.unit as { [key: string]: unknown },
+                  maxTransfer: max,
+                  warehouseCellId: Number(cell.id),
+                });
                 return;
               }
               if (pick && pick.orderKey === 'cutWire') {

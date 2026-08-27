@@ -10,6 +10,7 @@ import loadingOrderImg from '../img/orderUnits/ordinaryOrders/trunksOrders/loadi
 import trailerOrderImg from '../img/orderUnits/ordinaryOrders/trunksOrders/trailer.png';
 import landingOrderImg from '../img/orderUnits/ordinaryOrders/trunksOrders/landing.png';
 import getSupOrderImg from '../img/orderUnits/ordinaryOrders/trunksOrders/getSup.png';
+import loadSupOrderImg from '../img/orderUnits/ordinaryOrders/trunksOrders/LoadSup.png';
 import accompanimentOrderImg from '../img/orderUnits/airOrders/accompaniment.png';
 import airSupplyOrderImg from '../img/orderUnits/airOrders/airSupply.png';
 import attackAirOrderImg from '../img/orderUnits/airOrders/attackAir.png';
@@ -73,6 +74,7 @@ export const EDITOR_BATTLE_ORDER_DEFS: EditorBattleOrderDef[] = [
   { order_key: 'changeSector', name: 'Смена сектора', icon: changeSectorOrderImg, editorCategory: 'special' },
   { order_key: 'unloading', name: 'Выгрузка', icon: landingOrderImg, editorCategory: 'special' },
   { order_key: 'getSup', name: 'Загрузка припасов', icon: getSupOrderImg, editorCategory: 'special' },
+  { order_key: 'loadingSup', name: 'Загрузка припасов со склада', icon: loadSupOrderImg, editorCategory: 'special' },
   { order_key: 'explomost', name: 'Подрыв сооружения', icon: explomostOrderImg, editorCategory: 'special' },
   { order_key: 'fireMove', name: 'Стрельба в движение', icon: fireMoveOrderImg, editorCategory: 'special' },
   { order_key: 'razvedka', name: 'Разведка', icon: razvedkaOrderImg, editorCategory: 'special' },

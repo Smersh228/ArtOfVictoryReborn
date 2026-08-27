@@ -38,6 +38,7 @@ import {
   unitIsMineOnMap,
 } from './battlePageUtils';
 import { Cell } from '../../../server/src/game/gameLogic/cells/cell';
+import { setLiveBattleEnvironment } from '../game/battleEnvironment';
 import { parseBattlePlayer, useBattleSync } from '../game/battleSync';
 import {
   collectAirSupportUnitsFromCells,
@@ -254,6 +255,27 @@ const Battle: React.FC = () => {
     setChatSeen((prev) => (prev[channel] >= lastId ? prev : { ...prev, [channel]: lastId }));
   }, []);
 
+  useEffect(() => {
+    const env = roomDetail?.battleEnvironment
+    setLiveBattleEnvironment(
+      env
+        ? {
+            nightEnabled: Boolean(env.nightEnabled),
+            nightFromFirst: env.nightFromFirst !== false,
+            isNight: Boolean(env.isNight),
+            fogActive: Boolean(env.fogActive),
+            rainActive: Boolean(env.rainActive),
+            strongWindActive: Boolean(env.strongWindActive),
+            visionPenalty: Number(env.visionPenalty) || 0,
+            accuracyShift: Number(env.accuracyShift) || 0,
+            intensityPenalty: Number(env.intensityPenalty) || 0,
+            labels: Array.isArray(env.labels) ? env.labels.map(String) : [],
+          }
+        : null,
+    )
+    return () => setLiveBattleEnvironment(null)
+  }, [roomDetail?.battleEnvironment, roomDetail?.battleTurnIndex])
+
   const runSendChat = useCallback(
     async (text: string, channel: LobbyRoomChatChannel) => {
       if (readonlyBattle || apiRoomId == null || !Number.isFinite(apiRoomId)) return;
@@ -292,6 +314,7 @@ const Battle: React.FC = () => {
     giver: Record<string, unknown>;
     receiver: Record<string, unknown>;
     maxTransfer: number;
+    warehouseCellId?: number;
   } | null>(null);
   const [ammoPickCount, setAmmoPickCount] = useState(1);
   const [unloadCargoPickModal, setUnloadCargoPickModal] = useState<{
@@ -427,6 +450,7 @@ const Battle: React.FC = () => {
     cutWireTargetCellIds,
     enterDotTargetCellIds,
     exitDotTargetCellIds,
+    loadingSupTargetCellIds,
     defendFacingPickCellIds,
     defendRangePickCellIds,
     defendPickHighlightCellIds,
@@ -700,6 +724,7 @@ const Battle: React.FC = () => {
           myBattleFaction={myBattleFaction}
           allyTasksBattle={allyTasksBattle}
           axisTasksBattle={axisTasksBattle}
+          environmentLabels={roomDetail?.battleEnvironment?.labels ?? []}
         />
         <BattleAirSupportPanel
           open={airSupportOpen}
@@ -859,6 +884,7 @@ const Battle: React.FC = () => {
           battleControlsDisabled={battleControlsDisabled}
           waitingNextTurn={waitingNextTurn}
           turn={turn}
+          environmentLabels={roomDetail?.battleEnvironment?.labels ?? []}
           showAirSupportButton={showAirSupportButton}
           airSupportDisabled={airSupportDisabled}
           onToggleAirSupport={toggleAirSupport}
@@ -896,9 +922,11 @@ const Battle: React.FC = () => {
               ? Array.from(cutWireTargetCellIds)
               : exitDotTargetCellIds
                 ? Array.from(exitDotTargetCellIds)
-                : moveReachableCellIds
-                  ? Array.from(moveReachableCellIds)
-                  : null
+                : loadingSupTargetCellIds
+                  ? Array.from(loadingSupTargetCellIds)
+                  : moveReachableCellIds
+                    ? Array.from(moveReachableCellIds)
+                    : null
           }
           defendPickHighlightCellIds={defendPickHighlightCellIds ? Array.from(defendPickHighlightCellIds) : null}
           defendRangeOrderPreview={defendRangeOrderPreview}

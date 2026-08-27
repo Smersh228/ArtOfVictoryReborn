@@ -1,5 +1,7 @@
 'use strict'
 
+const { getStorageAmmo, setStorageAmmo, hasStorage } = require('../lib/map/battleStorage')
+
 function validateLogisticsOrder(cells, o, deps) {
   const {
     findUnitOnField,
@@ -20,7 +22,7 @@ function validateLogisticsOrder(cells, o, deps) {
   } = deps
 
   const ok = String(o.orderKey || '').trim()
-  if (!['getSup', 'loading', 'unloading', 'tow'].includes(ok)) return null
+  if (!['getSup', 'loadingSup', 'loading', 'unloading', 'tow'].includes(ok)) return null
   const uid = Number(o.unitInstanceId)
   if (!Number.isFinite(uid)) return 'нет unitInstanceId'
   const cur = findUnitOnField(cells, uid)
@@ -42,6 +44,25 @@ function validateLogisticsOrder(cells, o, deps) {
     const giveMax = Math.min(getAmmo(cur.unit), headroom)
     if (giveMax < 1) return 'у получателя нет места под БК'
     if (n > giveMax) return `можно передать не больше ${giveMax}`
+    return null
+  }
+  if (ok === 'loadingSup') {
+    const cid = Number(o.targetCellId)
+    const n = Number(o.transferAmmo)
+    if (!Number.isFinite(cid)) return 'нужна клетка склада (targetCellId)'
+    if (!Number.isFinite(n) || n < 1) return 'укажите transferAmmo (целое >= 1)'
+    if (!isTruckUnit(cur.unit)) return 'со склада грузит только грузовик'
+    const wh = cells.find((c) => Number(c.id) === cid)
+    if (!wh) return 'клетка не существует'
+    if (!hasStorage(wh)) return 'на клетке нет склада'
+    if (hexDistCells(cur.cell, wh) > 1) return 'склад должен быть в своём или соседнем гексе'
+    const stock = getStorageAmmo(wh)
+    if (stock < 1) return 'на складе нет БК'
+    const cap = getAmmoCapacityMax(cur.unit)
+    const headroom = Math.max(0, cap - getAmmo(cur.unit))
+    const takeMax = Math.min(stock, headroom)
+    if (takeMax < 1) return 'у грузовика нет места под БК'
+    if (n > takeMax) return `можно взять не больше ${takeMax}`
     return null
   }
   if (ok === 'loading') {

@@ -86,10 +86,9 @@ function registerLobbyRoutes(router) {
     if (!key) {
       return res.status(401).json({ error: 'Войдите в аккаунт или передайте заголовок X-Client-Id (uuid из localStorage)' })
     }
-    const { name, maxPlayers, map, mapId } = req.body || {}
+    const { name, map, mapId } = req.body || {}
     const n = String(name || '').trim() || 'Комната'
-    const rawLimit = Number(maxPlayers)
-    let mp = rawLimit === 4 || rawLimit === 6 ? rawLimit : 2
+    let mp = 2
 
     let mapLabel = String(map || '').trim()
     let resolvedMapId = null
@@ -132,7 +131,7 @@ function registerLobbyRoutes(router) {
         resolvedMapId = mid
         mapLabel = String(row.rows[0].name || '').trim() || mapLabel
         const fromMap = Number(row.rows[0].team_limit)
-        if (fromMap === 2 || fromMap === 4 || fromMap === 6) mp = fromMap
+        mp = fromMap === 4 || fromMap === 6 ? fromMap : 2
       } catch (err) {
         console.error('rooms mapId lookup:', err.message)
         return res.status(500).json({ error: 'Не удалось проверить карту' })
@@ -285,6 +284,13 @@ function registerLobbyRoutes(router) {
     room.battleScenarioReason = null
     room.battleMapConditions = mapConditions
     room.battleCaptureHoldStreak = 0
+    const { initBattleEnvironment } = require('../../game/lib/scenario/battleEnvironment')
+    initBattleEnvironment(room)
+    const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
+    withBattleEnv(room, () => {
+      const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
+      syncBattleReconByFaction(room, room.battleCells)
+    })
     initBattlePresenceForFighters(room)
     await sendRoomDetailOr500(res, room, key)
   })

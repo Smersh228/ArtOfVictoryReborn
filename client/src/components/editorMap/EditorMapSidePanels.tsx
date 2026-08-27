@@ -22,6 +22,80 @@ interface AxisEliminationState {
 type StruggleFactionId = string;
 export type ScenarioPhotoSlot = 0 | 1;
 
+export type MapWeatherSpec = {
+  enabled: boolean;
+  chance: string;
+  duration: string;
+};
+
+export type MapEnvironmentFlags = {
+  night: boolean;
+  nightFromFirst: boolean;
+  fog: MapWeatherSpec;
+  rain: MapWeatherSpec;
+  strongWind: MapWeatherSpec;
+};
+
+const DEFAULT_WEATHER_SPEC: MapWeatherSpec = { enabled: false, chance: '30', duration: '3' };
+
+export const DEFAULT_MAP_ENVIRONMENT: MapEnvironmentFlags = {
+  night: false,
+  nightFromFirst: true,
+  fog: { ...DEFAULT_WEATHER_SPEC },
+  rain: { ...DEFAULT_WEATHER_SPEC },
+  strongWind: { ...DEFAULT_WEATHER_SPEC },
+};
+
+function weatherSpecFromRaw(raw: unknown): MapWeatherSpec {
+  if (raw === true) return { enabled: true, chance: '30', duration: '3' }
+  if (!raw || typeof raw !== 'object') return { ...DEFAULT_WEATHER_SPEC }
+  const o = raw as Record<string, unknown>
+  const chanceN = Number(o.chance)
+  const durationN = Number(o.duration)
+  return {
+    enabled: o.enabled === true,
+    chance: String(Number.isFinite(chanceN) ? Math.max(0, Math.min(100, Math.trunc(chanceN))) : 30),
+    duration: String(Number.isFinite(durationN) && durationN > 0 ? Math.trunc(durationN) : 3),
+  }
+}
+
+export function parseEnvironmentFromPayload(raw: unknown): MapEnvironmentFlags {
+  const env = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  return {
+    night: env.night === true,
+    nightFromFirst: env.nightFromFirst !== false,
+    fog: weatherSpecFromRaw(env.fog),
+    rain: weatherSpecFromRaw(env.rain),
+    strongWind: weatherSpecFromRaw(env.strongWind),
+  }
+}
+
+function weatherSpecToPayload(spec: MapWeatherSpec) {
+  const chance = Number(spec.chance)
+  const duration = Number(spec.duration)
+  return {
+    enabled: spec.enabled,
+    chance: Number.isFinite(chance) ? Math.max(0, Math.min(100, Math.trunc(chance))) : 30,
+    duration: Number.isFinite(duration) && duration > 0 ? Math.trunc(duration) : 3,
+  }
+}
+
+export function environmentToPayload(env: MapEnvironmentFlags) {
+  return {
+    night: env.night,
+    nightFromFirst: env.nightFromFirst,
+    fog: weatherSpecToPayload(env.fog),
+    rain: weatherSpecToPayload(env.rain),
+    strongWind: weatherSpecToPayload(env.strongWind),
+  }
+}
+
+const WEATHER_ROWS: { key: 'fog' | 'rain' | 'strongWind'; label: string }[] = [
+  { key: 'fog', label: 'Туман' },
+  { key: 'rain', label: 'Дождь' },
+  { key: 'strongWind', label: 'Сильный ветер' },
+];
+
 const factions: { id: FactionId; label: string }[] = [
   { id: 'all', label: 'Все' },
   { id: 'germany', label: 'Вермахт' },
@@ -109,6 +183,8 @@ export const ConditionsPanel: React.FC<{
   setAxisTasks: (v: string) => void;
   maxTurns: string;
   setMaxTurns: (v: string) => void;
+  environment: MapEnvironmentFlags;
+  setEnvironment: React.Dispatch<React.SetStateAction<MapEnvironmentFlags>>;
 }> = ({
   axisCapture,
   setAxisCapture,
@@ -122,6 +198,8 @@ export const ConditionsPanel: React.FC<{
   setAxisTasks,
   maxTurns,
   setMaxTurns,
+  environment,
+  setEnvironment,
 }) => (
   <>
     <div className={styles.filterGroup}>
@@ -194,6 +272,84 @@ export const ConditionsPanel: React.FC<{
       <div className={`${styles.tasksBlock} ${styles.tasksBlockLast}`}>
         <div className={styles.tasksHeadingAxis}>ЗАДАЧИ ВЕРМАХТА</div>
         <textarea value={axisTasks} onChange={(e) => setAxisTasks(e.target.value)} placeholder="Задачи для немецких войск..." rows={4} className={`${styles.panelTextarea} ${styles.conditionsTasksTextarea} ${styles.fullWidth} ${styles.marginTopSm}`} />
+      </div>
+    </div>
+    <div className={styles.filterGroup}>
+      <div className={styles.filterGroupTitle}>Погода и время суток</div>
+      <div className={styles.conditionsWeather}>
+        <label className={styles.checkboxRow}>
+          <input
+            type="checkbox"
+            checked={environment.night}
+            onChange={(e) => setEnvironment((prev) => ({ ...prev, night: e.target.checked }))}
+          />
+          Ночное время суток
+        </label>
+        {environment.night ? (
+          <label className={`${styles.checkboxRow} ${styles.conditionsWeatherNested}`}>
+            <input
+              type="checkbox"
+              checked={environment.nightFromFirst}
+              onChange={(e) => setEnvironment((prev) => ({ ...prev, nightFromFirst: e.target.checked }))}
+            />
+            С первого хода
+          </label>
+        ) : null}
+        {WEATHER_ROWS.map((row) => {
+          const spec = environment[row.key]
+          return (
+            <div key={row.key} className={styles.weatherSpecBlock}>
+              <label className={styles.checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={spec.enabled}
+                  onChange={(e) =>
+                    setEnvironment((prev) => ({
+                      ...prev,
+                      [row.key]: { ...prev[row.key], enabled: e.target.checked },
+                    }))
+                  }
+                />
+                {row.label}
+              </label>
+              {spec.enabled ? (
+                <div className={styles.weatherSpecFields}>
+                  <label className={styles.weatherSpecField}>
+                    Шанс %
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      className={styles.panelInput}
+                      value={spec.chance}
+                      onChange={(e) =>
+                        setEnvironment((prev) => ({
+                          ...prev,
+                          [row.key]: { ...prev[row.key], chance: e.target.value },
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className={styles.weatherSpecField}>
+                    Ходов
+                    <input
+                      type="number"
+                      min={1}
+                      className={styles.panelInput}
+                      value={spec.duration}
+                      onChange={(e) =>
+                        setEnvironment((prev) => ({
+                          ...prev,
+                          [row.key]: { ...prev[row.key], duration: e.target.value },
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
     </div>
     <div className={styles.filterGroup}>

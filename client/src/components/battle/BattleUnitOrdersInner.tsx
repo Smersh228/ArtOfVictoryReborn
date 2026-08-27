@@ -21,6 +21,7 @@ import { findGroundBattleUnitByInstanceId } from '../../game/battleMovePreview';
 import {
   canTruckAcceptLoading,
   canTruckAcceptTow,
+  computeLoadingSupTargetCellIds,
 } from '../../game/battleLogisticsUi';
 import {
   canEnterDotUnitType,
@@ -161,7 +162,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
             ? (liveGroundOrd.unit as BattleUnitOrdersInnerUnit)
             : unit;
         let can = Boolean(key) && apiRoomId != null && battleStarted;
-        if (can && (key === 'getSup' || key === 'loading' || key === 'tow') && !isTruckUnitBattle(uOrd)) {
+        if (can && (key === 'getSup' || key === 'loadingSup' || key === 'loading' || key === 'tow') && !isTruckUnitBattle(uOrd)) {
           can = false;
         }
         if (can && key === 'unloading') {
@@ -180,6 +181,13 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
               key === 'loading'
                 ? 'Кузов заполнен или рядом нет пехоты для погрузки'
                 : 'Кузов заполнен или рядом нет свёрнутого орудия для буксира';
+          }
+        }
+        if (can && key === 'loadingSup' && isTruckUnitBattle(uOrd)) {
+          const truckCell = resolveBattleCellOnField(cell, cells) ?? cell;
+          if (computeLoadingSupTargetCellIds(cells, uOrd, truckCell).size === 0) {
+            can = false;
+            truckLogisticsTitle = 'Рядом нет склада с БК или боезапас грузовика полный';
           }
         }
         let desantOrderTitle = '';
@@ -339,7 +347,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
               const iid = toId(unit.instanceId);
               if (!isFinite(iid)) return;
               let pickUseFireAdjustment = false;
-              if ((key === 'getSup' || key === 'loading' || key === 'tow') && !isTruckUnitBattle(uOrd)) return;
+              if ((key === 'getSup' || key === 'loadingSup' || key === 'loading' || key === 'tow') && !isTruckUnitBattle(uOrd)) return;
               if (key === 'unloading') {
                 if (!isTruckUnitBattle(uOrd)) return;
                 const carried = getCarriedUnitsFromTruck(uOrd);

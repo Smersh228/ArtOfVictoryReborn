@@ -21,7 +21,7 @@ import {
   type RoomMember,
   type RoomPublic,
 } from '../api/rooms';
-import type { EditorMapPayloadLobby } from '../api/maps';
+import { mapEnvironmentLabels, type EditorMapPayloadLobby } from '../api/maps';
 import { resolveEditorImageUrl } from '../api/editorCatalog';
 
 const PREVIEW_MAX_W = 520;
@@ -209,6 +209,7 @@ const Lobby: React.FC = () => {
   const allyTasksText = savedMapPayload?.conditions?.allyTasks?.trim() ?? '';
   const axisTasksText = savedMapPayload?.conditions?.axisTasks?.trim() ?? '';
   const maxTurnsMission = savedMapPayload?.conditions?.maxTurns?.trim() ?? '';
+  const environmentLabels = mapEnvironmentLabels(savedMapPayload?.conditions?.environment);
 
   const scenarioPhotos = savedMapPayload?.scenario?.photos;
   const photo0 =
@@ -336,6 +337,7 @@ const Lobby: React.FC = () => {
         <LobbyMissionPanels
           room={room}
           maxTurnsMission={maxTurnsMission}
+          environmentLabels={environmentLabels}
           allyTasksText={allyTasksText}
           axisTasksText={axisTasksText}
           previewCells={previewCells}

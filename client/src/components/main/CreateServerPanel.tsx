@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import styles from '../styleModules/listMain.module.css'
 import Button from '../Button'
-import { fetchSavedMaps, normalizeTeamLimit, TEAM_LIMITS, type SavedMapListItem } from '../../api/maps'
+import { fetchSavedMaps, normalizeTeamLimit, type SavedMapListItem } from '../../api/maps'
 
 interface CreateServerPanelProps {
   onCancel: () => void
@@ -15,7 +15,6 @@ const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreat
   const [mapsLoading, setMapsLoading] = useState(true)
   const [mapsError, setMapsError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [maxPlayers, setMaxPlayers] = useState<(typeof TEAM_LIMITS)[number]>(2)
 
   useEffect(() => {
     let cancelled = false
@@ -46,11 +45,8 @@ const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreat
     }
   }, [])
 
-  useEffect(() => {
-    const selected = maps.find((m) => m.id === mapId)
-    if (!selected) return
-    setMaxPlayers(normalizeTeamLimit(selected.teamLimit))
-  }, [mapId, maps])
+  const selectedMap = maps.find((m) => m.id === mapId) ?? null
+  const maxPlayers = selectedMap ? normalizeTeamLimit(selectedMap.teamLimit) : 2
 
   const canSubmit = !mapsLoading && maps.length > 0 && mapId != null && !mapsError
 
@@ -100,21 +96,8 @@ const CreateServerPanel: React.FC<CreateServerPanelProps> = ({ onCancel, onCreat
           </select>
         </label>
         <label className={styles.fieldLabel}>
-          Лимит игроков
-          <select
-            className={styles.fieldSelect}
-            value={maxPlayers}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              if (n === 2 || n === 4 || n === 6) setMaxPlayers(n)
-            }}
-          >
-            {TEAM_LIMITS.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
+          Количество игроков
+          <input className={styles.fieldInput} value={selectedMap ? String(maxPlayers) : '—'} readOnly tabIndex={-1} />
         </label>
         {mapsError ? <p className={styles.listError}>{mapsError}</p> : null}
         {!mapsLoading && maps.length === 0 && !mapsError ? (

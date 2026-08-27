@@ -101,15 +101,18 @@ function intensityArrayFor(attacker, target, fireTables) {
   const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
   const key = targetTypeToFireKey(target.type)
   const arr = ft[key] && ft[key].length ? ft[key] : ft.inf
-  return arr && arr.length ? arr : [1, 2, 2, 3]
+  const raw = arr && arr.length ? arr : [1, 2, 2, 3]
+  return raw
 }
 
 function rangeArrayFor(attacker, fireTables) {
   const dotMod = require('./lib/map/battleDot')
+  const { applyAccuracyRangeShift } = require('./lib/scenario/battleEnvironment')
   const dotRa = dotMod.dotRangeArrayForUnit(attacker, isInfantryUnit, isArtilleryUnit)
-  if (dotRa) return dotRa
+  if (dotRa) return applyAccuracyRangeShift(dotRa)
   const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
-  return ft.range && ft.range.length ? ft.range.slice() : [3, 2, 1]
+  const raw = ft.range && ft.range.length ? ft.range.slice() : [3, 2, 1]
+  return applyAccuracyRangeShift(raw)
 }
 
 function rangeArrayForAtCell(attacker, shooterCell, fireTables) {
@@ -130,14 +133,17 @@ function getDiceCount(unit, intensityArray) {
   const first = intensityArray[0]
   const last = intensityArray[len - 1]
   const descending = Number(first) > Number(last)
+  let raw
   if (strength > len) {
-    return descending ? intensityArray[0] ?? 1 : intensityArray[len - 1] ?? 1
-  }
-  if (descending) {
+    raw = descending ? intensityArray[0] ?? 1 : intensityArray[len - 1] ?? 1
+  } else if (descending) {
     const idx = len - strength
-    return intensityArray[idx] ?? 1
+    raw = intensityArray[idx] ?? 1
+  } else {
+    raw = intensityArray[strength - 1] ?? 1
   }
-  return intensityArray[strength - 1] ?? 1
+  const { applyIntensityPenalty } = require('./lib/scenario/battleEnvironment')
+  return applyIntensityPenalty(raw)
 }
 
 

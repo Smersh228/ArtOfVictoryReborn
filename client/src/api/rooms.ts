@@ -87,6 +87,18 @@ export type RoomDetailResponse = {
   members: RoomMember[]
   youAreHost?: boolean
   lobbyChat?: LobbyRoomChatMessage[]
+  battleEnvironment?: {
+    nightEnabled?: boolean
+    nightFromFirst?: boolean
+    isNight?: boolean
+    fogActive?: boolean
+    rainActive?: boolean
+    strongWindActive?: boolean
+    visionPenalty?: number
+    accuracyShift?: number
+    intensityPenalty?: number
+    labels?: string[]
+  }
   battleStartedAt?: number | null
 
   battleSurrenderSeq?: number
@@ -144,9 +156,9 @@ export type RoomDetailResponse = {
         rollResults?: number[]
       }
       logisticsLine?: {
-        orderKey: 'getSup' | 'loading' | 'tow' | 'unloading'
+        orderKey: 'getSup' | 'loadingSup' | 'loading' | 'tow' | 'unloading'
         fromInstanceId?: number
-        toInstanceId: number
+        toInstanceId?: number
         amount?: number
         toCellId?: number
       }

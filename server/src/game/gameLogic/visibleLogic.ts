@@ -343,9 +343,14 @@ function getUnitStrength(u: UnitFogFields): number {
 }
 
 function readVisionRange(u: UnitFogFields): number {
-  if (u.tactical?.fireSuppression) return 1;
-  const n = Number(u.vis ?? u.visible ?? u.visibleRange);
-  return Number.isFinite(n) && n > 0 ? n : 6;
+  let base = 6;
+  if (u.tactical?.fireSuppression) base = 1;
+  else {
+    const n = Number(u.vis ?? u.visible ?? u.visibleRange);
+    base = Number.isFinite(n) && n > 0 ? n : 6;
+  }
+  const pen = Number((globalThis as { __aovBattleEnv?: { visionPenalty?: number } }).__aovBattleEnv?.visionPenalty) || 0;
+  return Math.max(0, base - pen);
 }
 
 /**

@@ -6,6 +6,7 @@ import { hexDistCells, maxAirMissionHexStepsForUnit } from './battleFirePreview'
 import { findUnitCellByInstanceId } from './battleMovePreview'
 import { battleOrderLabelForKey } from './battleOrderIcons'
 import { visibleCellIdsInRange } from './hexVisibility'
+import { applyVisionPenalty } from './battleEnvironment'
 
 /** Юниты малой/большой авиации на карте редактора не показываются на гексах боя — только в панели «Авиаподдержка». */
 export function isBattleAirUnitType(type: unknown): boolean {
@@ -94,16 +95,16 @@ export function readAirMissionPreviewDecalCellId(
 /** Дальность видимости юнита (как на сервере в `battleUnitVision.js`). */
 export function readBattleVisionRange(unit: Record<string, unknown>): number {
   const tac = unit.tactical as Record<string, unknown> | undefined
-  if (tac?.fireSuppression === true) return 1
+  if (tac?.fireSuppression === true) return applyVisionPenalty(1)
   for (const k of ['visibleRange', 'vis', 'visible']) {
     const v = unit[k]
-    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v
+    if (typeof v === 'number' && Number.isFinite(v) && v > 0) return applyVisionPenalty(v)
     if (v != null && String(v).trim() !== '') {
       const n = Number(String(v).split(/[/,]/)[0].trim())
-      if (Number.isFinite(n) && n > 0) return n
+      if (Number.isFinite(n) && n > 0) return applyVisionPenalty(n)
     }
   }
-  return 6
+  return applyVisionPenalty(6)
 }
 
 function parseReconRangeCsv(raw: unknown): number[] {

@@ -25,6 +25,7 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
     if (room.battleStartedAt == null) {
       return res.status(400).json({ error: 'Бой ещё не начат' })
     }
+    const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
     if ((room.battleScenarioEndSeq ?? 0) > 0) {
       return res.status(400).json({ error: 'Сценарий завершён — бой остановлен' })
     }
@@ -41,7 +42,7 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       })
     }
     const cells = room.battleCells
-    const err = validateSubmittedOrders(room, mem, orders, cells)
+    const err = withBattleEnv(room, () => validateSubmittedOrders(room, mem, orders, cells))
     if (err) return res.status(400).json({ error: err })
     if (!room.battleOrdersDraft || typeof room.battleOrdersDraft !== 'object') room.battleOrdersDraft = {}
     room.battleOrdersDraft[key] = { turn, orders: Array.isArray(orders) ? orders : [] }
@@ -61,6 +62,7 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
     if (room.battleStartedAt == null) {
       return res.status(400).json({ error: 'Бой ещё не начат' })
     }
+    const { withBattleEnv, tickWeather } = require('../../game/lib/scenario/battleEnvironment')
     if ((room.battleScenarioEndSeq ?? 0) > 0) {
       return res.status(400).json({ error: 'Сценарий завершён — бой остановлен' })
     }
@@ -87,11 +89,13 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       const cells = room.battleCells
       const merged = buildMergedOrders(room, needAck)
       const turnIdx = room.battleTurnIndex
-      const log = buildTurnResolutionLog(cells, merged, turnIdx, {
-        makeLogMeta: battleLogMeta,
-        formatOrderLine: formatSubmittedOrderLine,
-        room,
-      })
+      const log = withBattleEnv(room, () =>
+        buildTurnResolutionLog(cells, merged, turnIdx, {
+          makeLogMeta: battleLogMeta,
+          formatOrderLine: formatSubmittedOrderLine,
+          room,
+        }),
+      )
       resolutionLog = log
       if (!Array.isArray(room.battleLog)) room.battleLog = []
       room.battleLog.push(...log)
@@ -102,6 +106,12 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       room.battleTurnIndex += 1
       room.battleTurnAck = new Set()
       advanced = true
+
+      tickWeather(room)
+      withBattleEnv(room, () => {
+        const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
+        syncBattleReconByFaction(room, room.battleCells)
+      })
 
       applyScenarioResolution(room, {
         turnMeta: room.battleTurnIndex - 1,

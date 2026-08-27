@@ -154,6 +154,24 @@ export function useBattleUiActions(params: {
   const onConfirmAmmoTransfer = useCallback(() => {
     if (!battleAmmoModal || apiRoomId == null || !Number.isFinite(apiRoomId)) return;
     const give = Math.max(1, Math.min(battleAmmoModal.maxTransfer, Math.floor(ammoPickCount) || 1));
+    const warehouseCellId = Number(battleAmmoModal.warehouseCellId);
+    if (battleAmmoModal.warehouseCellId != null && Number.isFinite(warehouseCellId)) {
+      const truckId = Number(battleAmmoModal.receiver.instanceId);
+      if (!Number.isFinite(truckId)) return;
+      setPendingOrders((prev) => {
+        const next = prev.filter((x) => x.unitInstanceId !== truckId);
+        next.push({
+          unitInstanceId: truckId,
+          orderKey: 'loadingSup',
+          targetCellId: warehouseCellId,
+          transferAmmo: give,
+        });
+        return next;
+      });
+      setBattleAmmoModal(null);
+      dismissOrderPicking();
+      return;
+    }
     const giverId = Number(battleAmmoModal.giver.instanceId);
     const recvId = Number(battleAmmoModal.receiver.instanceId);
     if (!Number.isFinite(giverId) || !Number.isFinite(recvId)) return;

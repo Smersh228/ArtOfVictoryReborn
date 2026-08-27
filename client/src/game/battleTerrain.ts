@@ -1,5 +1,6 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { effectiveElevationLevel } from './cellElevation';
+import { applyRainEntryCost } from './battleEnvironment';
 
 type HexExtra = Record<string, unknown>;
 
@@ -208,9 +209,14 @@ export function readHqZoneRadiusWithHill(
 export function terrainEntryCost(cell: Cell, unit: { type?: unknown; properties?: unknown }): number {
   if (isRavine(cell) && unitCannotCrossRavine(unit)) return 0;
   const base = readBaseTerrainEntryCost(cell, unit);
-  if (base > 0) return base;
-  const bypass = terrainPropBypassEntryCost(cell, unit);
-  return bypass != null ? bypass : 0;
+  let cost = 0;
+  if (base > 0) cost = base;
+  else {
+    const bypass = terrainPropBypassEntryCost(cell, unit);
+    cost = bypass != null ? bypass : 0;
+  }
+  if (cost <= 0) return 0;
+  return applyRainEntryCost(cell, unit, cost);
 }
 
 export function normalizeUnitTypeForHexExtra(unitType: unknown): string {

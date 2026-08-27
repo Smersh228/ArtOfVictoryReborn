@@ -61,6 +61,9 @@ function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrd
   const displayTurn = turnIdx + 1
   const log = []
   log.push(makeLogMeta(turnIdx, `—— Ход ${displayTurn} ——`))
+  const { environmentLogText } = require('./battleEnvironment')
+  const envLine = environmentLogText(room)
+  if (envLine) log.push(makeLogMeta(turnIdx, envLine))
   const sortedOrders = [...merged.entries()].sort((a, b) => a[0] - b[0])
   if (sortedOrders.length === 0) {
     log.push(makeLogMeta(turnIdx, 'Приказов не подано'))

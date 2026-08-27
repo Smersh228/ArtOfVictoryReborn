@@ -73,7 +73,7 @@ const EditorMapGuideModal: React.FC<EditorMapGuideModalProps> = ({ isOpen, onClo
               <div>
                 <div className={styles.manualStepTitle}>Сценарий</div>
                 <p className={styles.manualStepText}>
-                  Вкладки «Условия игры» и «Сценарий» — победа, задачи сторон, лимит ходов, название и описание миссии,
+                  Вкладки «Условия игры» и «Сценарий» — победа, погода и время суток, задачи сторон, лимит ходов, название и описание миссии,
                   фото.
                 </p>
               </div>

@@ -865,6 +865,9 @@ export function buildBattleReportReplayHighlight(
     if (r.orderKey === 'unloading' && r.toCellId != null && Number.isFinite(r.toCellId)) {
       return { glowInstanceIds: ids, unloadCellDecalId: r.toCellId as number };
     }
+    if (r.orderKey === 'loadingSup' && r.toCellId != null && Number.isFinite(r.toCellId)) {
+      return { glowInstanceIds: ids, unloadCellDecalId: r.toCellId as number };
+    }
     const recipientDecalId =
       r.orderKey === 'getSup' ? (r.toInstanceId as number) : (r.fromInstanceId ?? r.toInstanceId) as number;
     const ok = r.orderKey === 'tow' ? 'tow' : r.orderKey === 'loading' ? 'loading' : 'getSup';

@@ -7,6 +7,7 @@ import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
 interface LobbyMissionPanelsProps {
   room: RoomPublic | null;
   maxTurnsMission: string;
+  environmentLabels: string[];
   allyTasksText: string;
   axisTasksText: string;
   previewCells: Cell[];
@@ -19,6 +20,7 @@ interface LobbyMissionPanelsProps {
 const LobbyMissionPanels: React.FC<LobbyMissionPanelsProps> = ({
   room,
   maxTurnsMission,
+  environmentLabels,
   allyTasksText,
   axisTasksText,
   previewCells,
@@ -34,9 +36,15 @@ const LobbyMissionPanels: React.FC<LobbyMissionPanelsProps> = ({
         {maxTurnsMission ? (
           <p className={styles.lobbyMissionTurns}>
             Ходов на всю миссию: <strong>{maxTurnsMission}</strong>
+            {environmentLabels.some((l) => l.startsWith('Ночь')) ? ' (в бою ×2 из‑за ночи/дня)' : ''}
           </p>
         ) : room?.mapId != null ? (
           <p className={styles.lobbyMissionTurnsMuted}>Лимит ходов не задан в редакторе (поле «Макс. ходов»).</p>
+        ) : null}
+        {environmentLabels.length > 0 ? (
+          <p className={styles.lobbyMissionTurns}>
+            Условия: <strong>{environmentLabels.join(', ')}</strong>
+          </p>
         ) : null}
         <div className={styles.lobbyTaskSplit}>
           <div className={styles.lobbyTaskColumn}>

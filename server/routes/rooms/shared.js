@@ -49,6 +49,10 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
     const r = spec.transferAmmo
     return `Юнит ${id}: загрузка припасов (передача БК) → юнит ${tid}, до ${r} шт.`
   }
+  if (k === 'loadingSup') {
+    const r = spec.transferAmmo
+    return `Юнит ${id}: загрузка припасов со склада → кл. ${cid}, до ${r} шт.`
+  }
   if (k === 'loading') return `Юнит ${id}: погрузка пехоты → юнит ${tid}`
   if (k === 'unloading') return `Юнит ${id}: выгрузка юнит ${tid} → клетка ${cid}`
   if (k === 'tow') return `Юнит ${id}: буксир → орудие ${tid}`
@@ -264,6 +268,7 @@ const SUBMITTABLE_ORDER_KEYS = new Set([
   'move',
   'moveWar',
   'getSup',
+  'loadingSup',
   'loading',
   'unloading',
   'tow',
@@ -452,6 +457,8 @@ async function addRoomChatMessage(room, mem, memKey, rawText, rawChannel) {
 
 async function roomDetailPayload(room, selfKey) {
   ensureMemberSlots(room)
+  const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
+  return withBattleEnv(room, async () => {
   const needAck = battleMembersNeedingTurnAck(room)
   const ackCount = room.battleTurnAck && typeof room.battleTurnAck.size === 'number' ? room.battleTurnAck.size : 0
   const labels = await resolveMemberLabels(room.members.map((m) => m.key))
@@ -497,7 +504,12 @@ async function roomDetailPayload(room, selfKey) {
       room,
       room.members.find((m) => selfKey && m.key === selfKey) || null,
     ),
+    battleEnvironment:
+      room.battleStartedAt != null
+        ? require('../../game/lib/scenario/battleEnvironment').publicSnapshot(room)
+        : undefined,
   }
+  })
 }
 
 async function sendRoomDetailOr500(res, room, selfKey) {

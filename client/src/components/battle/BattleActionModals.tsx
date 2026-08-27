@@ -15,6 +15,7 @@ interface BattleActionModalsProps {
     giver: BattleUnitLite;
     receiver: BattleUnitLite;
     maxTransfer: number;
+    warehouseCellId?: number;
   } | null;
   ammoPickCount: number;
   onChangeAmmoPickCount: (count: number) => void;
@@ -66,23 +67,46 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
         ? createPortal(
             <div
               role="dialog"
-              aria-label="Сколько боеприпасов передать"
+              aria-label={battleAmmoModal.warehouseCellId != null ? 'Сколько боеприпасов взять со склада' : 'Сколько боеприпасов передать'}
               className={styles.battleModalBackdrop}
               onMouseDown={(e) => {
                 if (e.target === e.currentTarget) onCloseAmmoModal();
               }}
             >
               <div className={styles.battleModalPanel} onMouseDown={(e) => e.stopPropagation()}>
-                <h3 className={styles.battleModalTitle}>Передача боеприпасов</h3>
+                <h3 className={styles.battleModalTitle}>
+                  {battleAmmoModal.warehouseCellId != null ? 'Загрузка со склада' : 'Передача боеприпасов'}
+                </h3>
                 <p className={styles.battleModalMeta}>
-                  Кому: <strong>{battleAmmoModal.receiver.name ?? 'юнит'}</strong>
+                  {battleAmmoModal.warehouseCellId != null ? (
+                    <>
+                      Склад кл. {battleAmmoModal.warehouseCellId} →{' '}
+                      <strong>{battleAmmoModal.receiver.name ?? 'грузовик'}</strong>
+                    </>
+                  ) : (
+                    <>
+                      Кому: <strong>{battleAmmoModal.receiver.name ?? 'юнит'}</strong>
+                    </>
+                  )}
                 </p>
                 <p className={styles.battleModalMetaMuted}>
-                  В грузовике: {readAmmoCountUi(battleAmmoModal.giver)} БК · У получателя:{' '}
-                  {readAmmoCountUi(battleAmmoModal.receiver)} / {getAmmoCapacityMaxUi(battleAmmoModal.receiver)} (лимит)
+                  {battleAmmoModal.warehouseCellId != null ? (
+                    <>
+                      На складе: {readAmmoCountUi(battleAmmoModal.giver)} БК · У грузовика:{' '}
+                      {readAmmoCountUi(battleAmmoModal.receiver)} / {getAmmoCapacityMaxUi(battleAmmoModal.receiver)}{' '}
+                      (лимит)
+                    </>
+                  ) : (
+                    <>
+                      В грузовике: {readAmmoCountUi(battleAmmoModal.giver)} БК · У получателя:{' '}
+                      {readAmmoCountUi(battleAmmoModal.receiver)} / {getAmmoCapacityMaxUi(battleAmmoModal.receiver)}{' '}
+                      (лимит)
+                    </>
+                  )}
                 </p>
                 <label className={styles.battleModalLabel}>
-                  Сколько передать: <strong>{ammoPickCount}</strong>
+                  Сколько {battleAmmoModal.warehouseCellId != null ? 'взять' : 'передать'}:{' '}
+                  <strong>{ammoPickCount}</strong>
                   <input
                     type="range"
                     className={styles.battleModalRange}
@@ -99,7 +123,11 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
                 </label>
                 <div className={styles.battleModalActions}>
                   <Button name="Отмена" className={styles.battleModalBtn} onClick={onCloseAmmoModal} />
-                  <Button name="Передать" className={styles.battleModalBtn} onClick={onConfirmAmmoTransfer} />
+                  <Button
+                    name={battleAmmoModal.warehouseCellId != null ? 'Загрузить' : 'Передать'}
+                    className={styles.battleModalBtn}
+                    onClick={onConfirmAmmoTransfer}
+                  />
                 </div>
               </div>
             </div>,

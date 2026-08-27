@@ -53,9 +53,15 @@ function terrainPropBypassEntryCost(cell, unit) {
 function terrainEntryCost(cell, unit) {
   if (isRavine(cell) && unitCannotCrossRavine(unit)) return 0
   const base = readBaseTerrainEntryCost(cell, unit)
-  if (base > 0) return base
-  const bypass = terrainPropBypassEntryCost(cell, unit)
-  return bypass != null ? bypass : 0
+  let cost = 0
+  if (base > 0) cost = base
+  else {
+    const bypass = terrainPropBypassEntryCost(cell, unit)
+    cost = bypass != null ? bypass : 0
+  }
+  if (cost <= 0) return 0
+  const { applyRainEntryCost } = require('../scenario/battleEnvironment')
+  return applyRainEntryCost(cell, unit, cost)
 }
 
 function normalizeUnitTypeForHexExtra(unitType) {

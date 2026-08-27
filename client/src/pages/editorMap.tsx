@@ -9,7 +9,7 @@ import EditorMapGuideModal from '../components/editorMap/EditorMapGuideModal'
 import EditorMapSaveConfirmModal from '../components/editorMap/EditorMapSaveConfirmModal'
 import EditorMapExportModal from '../components/editorMap/EditorMapExportModal'
 import EditorMapObjectPalette from '../components/editorMap/EditorMapObjectPalette'
-import { ConditionsPanel, ScenarioPanel, UnitsFilters, type ScenarioPhotoSlot } from '../components/editorMap/EditorMapSidePanels'
+import { ConditionsPanel, ScenarioPanel, UnitsFilters, type ScenarioPhotoSlot, DEFAULT_MAP_ENVIRONMENT, type MapEnvironmentFlags, parseEnvironmentFromPayload, environmentToPayload } from '../components/editorMap/EditorMapSidePanels'
 import { Cell } from './../../../server/src/game/gameLogic/cells/cell'
 import { generateEmptyGrid, computeEdgeCellIds } from '../game/hexGrid'
 import { getCellCenter } from '../components/map/cellsInteraction'
@@ -326,6 +326,7 @@ const EditorMap: React.FC = () => {
   const [allyTasks, setAllyTasks] = useState('')
   const [axisTasks, setAxisTasks] = useState('')
   const [maxTurns, setMaxTurns] = useState('20')
+  const [environment, setEnvironment] = useState<MapEnvironmentFlags>(DEFAULT_MAP_ENVIRONMENT)
   const [missionBrief, setMissionBrief] = useState('')
   const [historyText, setHistoryText] = useState('')
   const [teamLimit, setTeamLimit] = useState<2 | 4 | 6>(2)
@@ -784,7 +785,7 @@ const EditorMap: React.FC = () => {
     const attached = scenarioPhotos.filter((p) => p.trim() !== '')
     return {
       cells: JSON.parse(JSON.stringify(cells)) as unknown[],
-      conditions: { axisCapture, axisElimination, struggleFaction, allyTasks, axisTasks, maxTurns },
+      conditions: { axisCapture, axisElimination, struggleFaction, allyTasks, axisTasks, maxTurns, environment: environmentToPayload(environment) },
       scenario: { missionBrief, historyText, photos: attached, teamLimit },
     }
   }
@@ -855,6 +856,7 @@ const EditorMap: React.FC = () => {
     if (typeof cond.axisTasks === 'string') setAxisTasks(cond.axisTasks)
     if (typeof cond.maxTurns === 'string') setMaxTurns(cond.maxTurns)
     else if (typeof cond.maxTurns === 'number' && Number.isFinite(cond.maxTurns)) setMaxTurns(String(Math.trunc(cond.maxTurns)))
+    setEnvironment(parseEnvironmentFromPayload(cond.environment))
 
     const scen =
       p.scenario != null && typeof p.scenario === 'object'
@@ -1105,6 +1107,8 @@ const EditorMap: React.FC = () => {
                   setAxisTasks={setAxisTasks}
                   maxTurns={maxTurns}
                   setMaxTurns={setMaxTurns}
+                  environment={environment}
+                  setEnvironment={setEnvironment}
                 />
               )}
               {activeTab === 'scenario' && (

@@ -2,6 +2,7 @@ import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { visibleCellIdsInRange } from './hexVisibility';
 import { battleUnitHasPropKey } from './battleFirePreview';
 import { unitFactionKey } from './battleHqMorale';
+import { applyVisionPenalty } from './battleEnvironment';
 
 function getStr(u: Record<string, unknown>): number {
   const n = Number(u.str ?? u.strength);
@@ -10,9 +11,9 @@ function getStr(u: Record<string, unknown>): number {
 
 function readVisionRange(u: Record<string, unknown>): number {
   const tac = u.tactical as { fireSuppression?: boolean } | undefined;
-  if (tac?.fireSuppression) return 1;
+  if (tac?.fireSuppression) return applyVisionPenalty(1);
   const n = Number(u.vis ?? u.visible ?? u.visibleRange);
-  return Number.isFinite(n) && n > 0 ? n : 6;
+  return applyVisionPenalty(Number.isFinite(n) && n > 0 ? n : 6);
 }
 
 function isBattleAirUnit(u: Record<string, unknown>): boolean {

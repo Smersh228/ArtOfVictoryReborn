@@ -441,6 +441,38 @@
   margin-bottom: 15px;
 }
 
+.conditionsWeather {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.conditionsWeatherNested {
+  margin-left: 22px;
+}
+
+.weatherSpecBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.weatherSpecFields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-left: 22px;
+}
+
+.weatherSpecField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .conditionsNested {
   margin-left: 22px;
   margin-top: 10px;

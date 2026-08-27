@@ -718,6 +718,15 @@ export function parseLogisticsMetaFromText(text) {
       amount: Number(gs[3])
     };
   }
+  const ls = text.match(/^Загрузка со склада: грузовик (\d+) ← кл\. (\d+), \+(\d+)/);
+  if (ls) {
+    return {
+      orderKey: "loadingSup",
+      fromInstanceId: Number(ls[1]),
+      toCellId: Number(ls[2]),
+      amount: Number(ls[3])
+    };
+  }
   const ld = text.match(/^Погрузка: пехота (\d+) в кузов (\d+)/);
   if (ld) {
     return { orderKey: "loading", fromInstanceId: Number(ld[2]), toInstanceId: Number(ld[1]) };
@@ -1137,6 +1146,10 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
   if (desantFormatted) return desantFormatted;
   const flightProgressFormatted = formatAirFlightProgressReportLines(entry, cells, text, m);
   if (flightProgressFormatted) return flightProgressFormatted;
+  if (/^Условия:/.test(text.trim())) {
+    const detail = text.replace(/^Условия:\s*/, "").trim() || "—";
+    return { order: "Условия", detail };
+  }
   if (entry.phase === -1) return null;
   const vf = reportCtx?.viewerFaction;
   const fog = reportCtx?.fogRevealedCellIds;
@@ -1480,6 +1493,15 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
       return {
         order: battleOrderLabel("getSup"),
         detail: `${truck ? battleUnitDisplayName(truck.unit) : "—"} → ${recv ? battleUnitDisplayName(recv.unit) : "—"}${amt ? ` · +${amt} БК` : ""}`
+      };
+    }
+    if (ll.orderKey === "loadingSup") {
+      const truck = ll.fromInstanceId != null ? findBattleUnitByInstanceId(cells, ll.fromInstanceId) : null;
+      const amt = "amount" in ll && ll.amount != null ? String(ll.amount) : text.match(/\+\s*(\d+)/)?.[1] ?? "";
+      const cellLabel = ll.toCellId != null ? String(ll.toCellId) : "—";
+      return {
+        order: battleOrderLabel("loadingSup"),
+        detail: `${truck ? battleUnitDisplayName(truck.unit) : "—"} ← склад кл. ${cellLabel}${amt ? ` · +${amt} БК` : ""}`
       };
     }
     if (ll.orderKey === "loading") {

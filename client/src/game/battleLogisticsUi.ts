@@ -1,6 +1,7 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { hasDotOnCell, unitInDot } from './cellDot';
 import { findUnitCellByInstanceId } from './battleMovePreview';
+import { hasStorageOnCell, STORAGE_DEFAULT_AMMO } from './editorMapFortifications';
 
 export function hexDistCells(a: Cell, b: Cell): number {
   return Math.max(
@@ -303,6 +304,38 @@ export function computeUnloadCellIds(
     if (hexDistCells(c, truckLoc.cell) !== 1) continue;
     if (!canUnloadToCellClient(c, pf, pid)) continue;
     out.add(c.id);
+  }
+  return out;
+}
+
+export function readStorageAmmo(cell: Cell): number {
+  if (!hasStorageOnCell(cell.builds)) return 0;
+  const n = Number(cell.builds?.storageAmmo);
+  if (!Number.isFinite(n)) return STORAGE_DEFAULT_AMMO;
+  return Math.max(0, Math.floor(n));
+}
+
+export function maxAmmoLoadFromWarehouse(
+  truck: Record<string, unknown>,
+  warehouseCell: Cell,
+): number {
+  const stock = readStorageAmmo(warehouseCell);
+  const cap = getAmmoCapacityMaxUi(truck);
+  const have = readAmmoCountUi(truck);
+  const headroom = Math.max(0, cap - have);
+  return Math.min(stock, headroom);
+}
+
+export function computeLoadingSupTargetCellIds(
+  cells: Cell[],
+  truckUnit: Record<string, unknown>,
+  truckCell: Cell,
+): Set<number> {
+  const out = new Set<number>();
+  for (const cell of cells) {
+    if (hexDistCells(cell, truckCell) > 1) continue;
+    if (maxAmmoLoadFromWarehouse(truckUnit, cell) < 1) continue;
+    out.add(cell.id);
   }
   return out;
 }
