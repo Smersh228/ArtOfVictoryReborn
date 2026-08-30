@@ -60,7 +60,7 @@ function moveStepCost(fromCell, toCell, unit) {
   return terrainEntryCost(toCell, unit)
 }
 
-function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counters) {
+function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counters, allowSmoke) {
   if (!cell) return false
   const us = cell.units || []
   let liveOnHex = 0
@@ -78,6 +78,13 @@ function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counte
     }
   }
   if (allCells && cellForbidsThirdPartyMeleeEntry(allCells, cell, unit)) return false
+  const smoke = require('./battleSmoke')
+  if (!allowSmoke && smoke.hasSmokeOnCell(cell.builds)) return false
+  const railway = require('./battleRailway')
+  if (railway.isRailwayUnit(unit)) {
+    if (!railway.isRailwayCell(cell)) return false
+    if (fromCell && !railway.isRailwayCell(fromCell)) return false
+  }
   if (fromCell && counters) {
     if (!canTraverseMoveEdge(fromCell, cell, unit, counters)) return false
   }
@@ -121,7 +128,7 @@ function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds) {
   return result
 }
 
-function findPath(start, target, allCells, unit, fogRevealedCellIds) {
+function findPath(start, target, allCells, unit, fogRevealedCellIds, allowSmoke) {
   if (start.id === target.id) return [start]
   const visited = Object.create(null)
   const prev = Object.create(null)
@@ -143,7 +150,7 @@ function findPath(start, target, allCells, unit, fogRevealedCellIds) {
       const neighbor = findCellByCoor(allCells, nb)
       if (
         !neighbor ||
-        !canEnterCell(neighbor, unit, fogRevealedCellIds, allCells, current.cell, current.counters)
+        !canEnterCell(neighbor, unit, fogRevealedCellIds, allCells, current.cell, current.counters, allowSmoke)
       ) {
         continue
       }

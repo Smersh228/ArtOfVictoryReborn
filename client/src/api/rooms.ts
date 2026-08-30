@@ -65,9 +65,35 @@ export type BattleOrderPayload = {
   bombardmentAreaCellIds?: number[]
   /** Патруль: радиус зоны патрулирования (шаги от центра, ≤ дальность видимости) */
   patrolRangeSteps?: number
+  reconRangeSteps?: number
   transferAmmo?: number
   defendFacingCellId?: number
   defendMaxRangeSteps?: number
+  /** Приказ «Окопаться»: сторона гекса 0–5 */
+  trenchEdgeDir?: number
+  /** Приказ «Снятие проволоки»: грань на своём гексе 0–5 */
+  wireEdgeDir?: number
+  /** Гекс выстрела на пути приказа «Стрельба в движении» */
+  fireFromCellId?: number
+}
+
+export type BattleHqRevealedOrder = {
+  unitInstanceId: number
+  unitName?: string
+  cellId?: number
+  orderKey: string
+  orderLabel?: string
+}
+
+export type BattleHqRewriteState = {
+  pending: boolean
+  seq?: number
+  youCanRewrite?: boolean
+  rewriteMax?: number
+  revealedOrders?: BattleHqRevealedOrder[]
+  yourDraftOrders?: BattleOrderPayload[]
+  hqUnitInstanceId?: number
+  hqRoll?: number
 }
 
 export type LobbyRoomChatChannel = 'all' | 'team'
@@ -110,6 +136,7 @@ export type RoomDetailResponse = {
   battleFieldRevision?: number
   battleTurnAckCount?: number
   battleTurnAckNeed?: number
+  battleHqRewrite?: BattleHqRewriteState | null
   battleCells?: unknown[]
   battleReconByFaction?: { rkka?: number[]; wehrmacht?: number[] }
   battleLog?: {
@@ -155,8 +182,20 @@ export type RoomDetailResponse = {
         damages?: number
         rollResults?: number[]
       }
+      mineLine?: {
+        unitInstanceId: number
+        cellId: number
+        mineKind?: 'infantry' | 'tank'
+        intensity?: number
+        accuracy?: number
+        hits?: number
+        damages?: number
+        rollResults?: number[]
+        diceCount?: number
+        reason?: string
+      }
       logisticsLine?: {
-        orderKey: 'getSup' | 'loadingSup' | 'loading' | 'tow' | 'unloading'
+        orderKey: 'getSup' | 'loadingSup' | 'loading' | 'tow' | 'unloading' | 'railLoading' | 'railUnloading'
         fromInstanceId?: number
         toInstanceId?: number
         amount?: number
@@ -216,6 +255,7 @@ function normalizeRoomDetail(raw: RoomDetailResponse): RoomDetailResponse {
     battleFieldRevision: raw.battleFieldRevision ?? 0,
     battleTurnAckCount: raw.battleTurnAckCount ?? 0,
     battleTurnAckNeed: raw.battleTurnAckNeed ?? 0,
+    battleHqRewrite: raw.battleHqRewrite ?? null,
     members: raw.members ?? [],
     lobbyChat: Array.isArray(raw.lobbyChat) ? raw.lobbyChat : [],
   }
@@ -372,7 +412,15 @@ export async function postBattleOrders(roomId: number, turn: number, orders: Bat
   if (!res.ok) throw new Error(parseRoomsError(res, text))
 }
 
-export async function postBattleTurnReady(roomId: number, turn: number): Promise<void> {
+export type BattleTurnReadyResponse = {
+  ok: boolean
+  battleTurnIndex?: number
+  battleFieldRevision?: number
+  waitingForOthers?: boolean
+  battleHqRewrite?: BattleHqRewriteState | null
+}
+
+export async function postBattleTurnReady(roomId: number, turn: number): Promise<BattleTurnReadyResponse> {
   const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/turn-ready`), {
     method: 'POST',
     credentials: 'include',
@@ -381,4 +429,29 @@ export async function postBattleTurnReady(roomId: number, turn: number): Promise
   })
   const text = await res.text()
   if (!res.ok) throw new Error(parseRoomsError(res, text))
+  try {
+    return JSON.parse(text) as BattleTurnReadyResponse
+  } catch {
+    return { ok: true }
+  }
+}
+
+export async function postBattleHqRewrite(
+  roomId: number,
+  turn: number,
+  body: { skip?: boolean; orders?: BattleOrderPayload[] },
+): Promise<BattleTurnReadyResponse> {
+  const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/hq-rewrite`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: roomHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ turn, skip: body.skip, orders: body.orders }),
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(parseRoomsError(res, text))
+  try {
+    return JSON.parse(text) as BattleTurnReadyResponse
+  } catch {
+    return { ok: true }
+  }
 }

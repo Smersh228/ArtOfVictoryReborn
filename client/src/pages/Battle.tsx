@@ -7,6 +7,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './styleModules/battle.module.css';
 import BattleMapStage from '../components/battle/BattleMapStage';
 import BattleCenterModals from '../components/battle/BattleCenterModals';
+import BattleHqRewritePanel from '../components/battle/BattleHqRewritePanel';
 import BattleActionModals from '../components/battle/BattleActionModals';
 import BattleSidePanel from '../components/battle/BattleSidePanel';
 import BattleAirSupportPanel from '../components/battle/BattleAirSupportPanel';
@@ -17,7 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import BattleUnitOrdersPanel from '../components/battle/BattleUnitOrdersPanel';
 import BattleUnitTipCard from '../components/battle/BattleUnitTipCard';
 import BattleDotTipCard from '../components/battle/BattleDotTipCard';
-import type { DotHoverTip } from '../game/cellDot';
+import type { BattleHoverTipView } from '../components/battle/BattleDotTipCard';
 import { useBattleDerivedState } from './hooks/useBattleDerivedState';
 import { useBattleHudLayout } from './hooks/useBattleHudLayout';
 import { useBattleReportRows } from './hooks/useBattleReportRows';
@@ -95,7 +96,8 @@ type BattleDotTipState = {
   cell: Cell;
   clientX: number;
   clientY: number;
-  tip: DotHoverTip;
+  tip: BattleHoverTipView;
+  pinned?: boolean;
 };
 
 type BattleUnitOrdersState = {
@@ -119,6 +121,10 @@ type OrderPickState = {
   patrolTargetCellId?: number;
   patrolFlightPathCellIds?: number[];
   useFireAdjustment?: boolean;
+  fireMoveStep?: 'target' | 'dest' | 'shot';
+  fireMoveTargetUnitId?: number;
+  fireMoveDestCellId?: number;
+  reconRangeStep?: 'radius';
 };
 
 const battlePointerCursor =
@@ -156,6 +162,7 @@ const Battle: React.FC = () => {
     dismissScenarioOutcome,
     broadcastSurrender,
     confirmNextTurn,
+    confirmHqRewrite,
     myBattleFaction,
     roomDetail,
     setRoomDetail,
@@ -173,7 +180,12 @@ const Battle: React.FC = () => {
     readonlyBattle &&
     Number(roomDetail?.battleTurnAckNeed || 0) > 0 &&
     Number(roomDetail?.battleTurnAckCount || 0) > 0;
-  const showResolvingOverlay = (waitingNextTurn || spectatorResolving) && !battleEndedOverlay;
+  const hqRewrite = roomDetail?.battleHqRewrite ?? null;
+  const waitingHqRewrite = Boolean(hqRewrite?.pending && !hqRewrite.youCanRewrite);
+  const showResolvingOverlay =
+    (waitingNextTurn || spectatorResolving || waitingHqRewrite) &&
+    !battleEndedOverlay &&
+    !hqRewrite?.youCanRewrite;
   const spectatorNames = useMemo(() => {
     const out: { rkka?: string; wehrmacht?: string } = {}
     for (const m of roomDetail?.members ?? []) {
@@ -255,26 +267,24 @@ const Battle: React.FC = () => {
     setChatSeen((prev) => (prev[channel] >= lastId ? prev : { ...prev, [channel]: lastId }));
   }, []);
 
-  useEffect(() => {
-    const env = roomDetail?.battleEnvironment
-    setLiveBattleEnvironment(
-      env
-        ? {
-            nightEnabled: Boolean(env.nightEnabled),
-            nightFromFirst: env.nightFromFirst !== false,
-            isNight: Boolean(env.isNight),
-            fogActive: Boolean(env.fogActive),
-            rainActive: Boolean(env.rainActive),
-            strongWindActive: Boolean(env.strongWindActive),
-            visionPenalty: Number(env.visionPenalty) || 0,
-            accuracyShift: Number(env.accuracyShift) || 0,
-            intensityPenalty: Number(env.intensityPenalty) || 0,
-            labels: Array.isArray(env.labels) ? env.labels.map(String) : [],
-          }
-        : null,
-    )
-    return () => setLiveBattleEnvironment(null)
-  }, [roomDetail?.battleEnvironment, roomDetail?.battleTurnIndex])
+  const envSnap = roomDetail?.battleEnvironment
+    ? {
+        nightEnabled: Boolean(roomDetail.battleEnvironment.nightEnabled),
+        nightFromFirst: roomDetail.battleEnvironment.nightFromFirst !== false,
+        isNight: Boolean(roomDetail.battleEnvironment.isNight),
+        fogActive: Boolean(roomDetail.battleEnvironment.fogActive),
+        rainActive: Boolean(roomDetail.battleEnvironment.rainActive),
+        strongWindActive: Boolean(roomDetail.battleEnvironment.strongWindActive),
+        visionPenalty: Number(roomDetail.battleEnvironment.visionPenalty) || 0,
+        accuracyShift: Number(roomDetail.battleEnvironment.accuracyShift) || 0,
+        intensityPenalty: Number(roomDetail.battleEnvironment.intensityPenalty) || 0,
+        labels: Array.isArray(roomDetail.battleEnvironment.labels)
+          ? roomDetail.battleEnvironment.labels.map(String)
+          : [],
+      }
+    : null
+  setLiveBattleEnvironment(envSnap)
+  useEffect(() => () => setLiveBattleEnvironment(null), [])
 
   const runSendChat = useCallback(
     async (text: string, channel: LobbyRoomChatChannel) => {
@@ -307,6 +317,14 @@ const Battle: React.FC = () => {
   const [battleMapPayload, setBattleMapPayload] = useState<EditorMapPayloadLobby | null>(null);
   const lastBattleFieldRevisionRef = useRef<number>(0);
   const [pendingOrders, setPendingOrders] = useState<BattleOrderPayload[]>([]);
+  const hqRewriteLoadedSeqRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!hqRewrite?.youCanRewrite || !Array.isArray(hqRewrite.yourDraftOrders)) return;
+    const seq = hqRewrite.seq ?? 0;
+    if (hqRewriteLoadedSeqRef.current === seq) return;
+    hqRewriteLoadedSeqRef.current = seq;
+    setPendingOrders(hqRewrite.yourDraftOrders);
+  }, [hqRewrite?.youCanRewrite, hqRewrite?.seq, hqRewrite?.yourDraftOrders]);
   const [orderPick, setOrderPick] = useState<OrderPickState | null>(null);
   const orderPickRef = useRef<OrderPickState | null>(null);
   orderPickRef.current = orderPick;
@@ -447,7 +465,7 @@ const Battle: React.FC = () => {
     battleCellSize,
     battleFogRevealedCellIds,
     moveReachableCellIds,
-    cutWireTargetCellIds,
+    sapperHexTargetCellIds,
     enterDotTargetCellIds,
     exitDotTargetCellIds,
     loadingSupTargetCellIds,
@@ -471,6 +489,7 @@ const Battle: React.FC = () => {
     battlePatrolVisibilityCellIds,
     battlePatrolCenterCellId,
     patrolRangePickCellIds,
+    reconRangePickCellIds,
     battleBombardmentAreaCellIds,
     bombardmentDirectionPickCellIds,
     bombardmentApproachCellId,
@@ -478,6 +497,7 @@ const Battle: React.FC = () => {
     battleAirInterceptionTargets,
     battleAirUnitsInFlight,
     fireAdjustmentToggleAvailable,
+    hiddenBattleInstanceIds,
   } = useBattleDerivedState({
     cells,
     mapViewport,
@@ -497,6 +517,7 @@ const Battle: React.FC = () => {
     airSupportHoverUnitInstanceId: airSupportPanelHover?.instanceId ?? null,
     airSupportOpen,
     battleReconByFaction: roomDetail?.battleReconByFaction ?? null,
+    visionPenalty: Number(roomDetail?.battleEnvironment?.visionPenalty) || 0,
   });
 
   const handleHoverReportRow = useCallback(
@@ -584,6 +605,8 @@ const Battle: React.FC = () => {
     backdropMouseDown: hookBackdropMouseDown,
     onConfirmSurrender,
     onConfirmNextTurn,
+    onKeepHqOrders,
+    onConfirmHqRewrite,
     onExitAfterScenario,
     onExitAfterVictory,
     onLeaveOrSurrender: hookLeaveOrSurrender,
@@ -606,6 +629,7 @@ const Battle: React.FC = () => {
     missionMaxTurns,
     pendingOrders,
     confirmNextTurn,
+    confirmHqRewrite,
     setPendingOrders,
     dismissOrderPicking,
     broadcastSurrender,
@@ -632,7 +656,7 @@ const Battle: React.FC = () => {
     [hookBackdropMouseDown],
   );
 
-  const { battleReportRows, destroyedSummary, battleReportLatestTurn, battleReportActionCount } =
+  const { battleReportRows, weatherRows, destroyedSummary, battleReportLatestTurn, battleReportActionCount } =
     useBattleReportRows({
       battleLog: roomDetail?.battleLog,
       battleTurnIndex: turn,
@@ -718,6 +742,7 @@ const Battle: React.FC = () => {
           apiRoomId={apiRoomId}
           battleStartedAt={roomDetail?.battleStartedAt}
           battleReportRows={battleReportRows}
+          weatherRows={weatherRows}
           destroyedSummary={destroyedSummary}
           onHoverReportRow={handleHoverReportRow}
           onCloseLeftMenu={closeLeftMenu}
@@ -770,12 +795,22 @@ const Battle: React.FC = () => {
           scenarioBattleOutcome={scenarioBattleOutcome as any}
           opponentVictory={opponentVictory}
           myBattleFaction={myBattleFaction}
+          hqRewriteMode={Boolean(hqRewrite?.youCanRewrite)}
+          rewriteMax={hqRewrite?.rewriteMax ?? 0}
           onCloseCenterModal={closeCenterModal}
           onConfirmSurrender={onConfirmSurrender}
-          onConfirmNextTurn={onConfirmNextTurn}
+          onConfirmNextTurn={hqRewrite?.youCanRewrite ? onConfirmHqRewrite : onConfirmNextTurn}
           onExitAfterScenario={onExitAfterScenario}
           onExitAfterVictory={onExitAfterVictory}
         />
+        {hqRewrite?.youCanRewrite ? (
+          <BattleHqRewritePanel
+            rewriteMax={hqRewrite.rewriteMax ?? 0}
+            revealedOrders={hqRewrite.revealedOrders ?? []}
+            hqRoll={hqRewrite.hqRoll}
+            onKeepOrders={onKeepHqOrders}
+          />
+        ) : null}
       </>,
       document.body,
     );
@@ -906,6 +941,7 @@ const Battle: React.FC = () => {
           battleAreaFireCellIds={battleAreaFireCellIds ? Array.from(battleAreaFireCellIds) : null}
           battleDotSectorCellIds={battleDotSectorCellIds}
           enterDotGlowCellIds={enterDotTargetCellIds ? Array.from(enterDotTargetCellIds) : null}
+          loadingSupGlowCellIds={loadingSupTargetCellIds ? Array.from(loadingSupTargetCellIds) : null}
           cells={cells}
           mapViewport={mapViewport}
           battleCellSize={battleCellSize}
@@ -918,15 +954,15 @@ const Battle: React.FC = () => {
           setBattleDotTip={setBattleDotTip}
           setBattleHoverCellId={setBattleHoverCellId}
           moveReachableCellIds={
-            cutWireTargetCellIds
-              ? Array.from(cutWireTargetCellIds)
-              : exitDotTargetCellIds
+            sapperHexTargetCellIds
+              ? Array.from(sapperHexTargetCellIds)
+              : reconRangePickCellIds
+                ? Array.from(reconRangePickCellIds)
+                : exitDotTargetCellIds
                 ? Array.from(exitDotTargetCellIds)
-                : loadingSupTargetCellIds
-                  ? Array.from(loadingSupTargetCellIds)
-                  : moveReachableCellIds
-                    ? Array.from(moveReachableCellIds)
-                    : null
+                : moveReachableCellIds
+                  ? Array.from(moveReachableCellIds)
+                  : null
           }
           defendPickHighlightCellIds={defendPickHighlightCellIds ? Array.from(defendPickHighlightCellIds) : null}
           defendRangeOrderPreview={defendRangeOrderPreview}
@@ -956,6 +992,10 @@ const Battle: React.FC = () => {
           setOrderPick={setOrderPick}
           setBattleAmmoModal={setBattleAmmoModal}
           showResolvingOverlay={showResolvingOverlay}
+          resolvingTitle={
+            waitingHqRewrite ? 'Противник связывается со штабом' : undefined
+          }
+          resolvingHint={waitingHqRewrite ? 'Дождитесь смены приказов' : undefined}
           battleAirDepartureHoverCellId={airSupportPanelHover?.cellId ?? null}
           battleAirDeparturePickCellId={battleAirDeparturePickCellId}
           battleAirMissionPreview={battleAirMissionPreview}
@@ -976,6 +1016,7 @@ const Battle: React.FC = () => {
           battleAirInterceptionTargets={battleAirInterceptionTargets}
           battleAirUnitsInFlight={battleAirUnitsInFlight}
           fireAdjustmentToggleAvailable={fireAdjustmentToggleAvailable}
+          hiddenBattleInstanceIds={hiddenBattleInstanceIds}
         />
       </div>
       <LobbyRoomChat

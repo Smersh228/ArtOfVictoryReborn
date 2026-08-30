@@ -80,12 +80,10 @@ function sumEmbarkedArtilleryStrengthForTruck(cells, truckInstanceId, deps) {
 }
 
 function isUnitInAnyCarriedUnits(cells, instanceId, deps) {
-  const { isTruckUnit } = deps
   const id = Number(instanceId)
   if (!Number.isFinite(id)) return false
   for (const c of cells) {
     for (const u of c.units || []) {
-      if (!isTruckUnit(u)) continue
       const tac = u.tactical
       if (!tac || !Array.isArray(tac.carriedUnits)) continue
       if (tac.carriedUnits.some((x) => Number(x.instanceId) === id)) return true
@@ -155,7 +153,11 @@ function syncCargoAfterTransportMove(cells, truckInstanceId, deps) {
     addUnitToCell,
   } = deps
   const truck = findUnitOnField(cells, truckInstanceId)
-  if (!truck || !isTruckUnit(truck.unit)) return
+  if (!truck) return
+  const carried = truck.unit.tactical && Array.isArray(truck.unit.tactical.carriedUnits)
+    ? truck.unit.tactical.carriedUnits
+    : []
+  if (!isTruckUnit(truck.unit) && !carried.length) return
   const tid = Number(truckInstanceId)
   const tcell = truck.cell
   const tacTr = truck.unit.tactical

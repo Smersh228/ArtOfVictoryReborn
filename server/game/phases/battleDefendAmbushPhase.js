@@ -1,5 +1,22 @@
 'use strict'
 
+const trench = require('../lib/map/battleTrench')
+
+function maybeOccupyTrench(cur, facingCell, cells, deps, le, ph) {
+  const occupied = trench.tryOccupyTrenchFromDefend(cur.unit, cur.cell, facingCell, cells, {
+    findUnitOnField: deps.findUnitOnField,
+    isArtilleryDeployedForBattle: deps.isArtilleryDeployedForBattle,
+  })
+  if (!occupied) return
+  if (!cur.unit.tactical) cur.unit.tactical = {}
+  cur.unit.tactical.defendOrder = true
+  le(ph, `Окоп: юнит ${cur.unit.instanceId} занял окоп на кл. ${cur.cell.id}`, {
+    unitInstanceId: Number(cur.unit.instanceId),
+    trenchOccupied: true,
+    trenchCellId: Number(cur.cell.id),
+  })
+}
+
 function processDefendPhase(cells, list, le, ph, deps) {
   const {
     findUnitOnField,
@@ -65,6 +82,7 @@ function processDefendPhase(cells, list, le, ph, deps) {
         unitInstanceId: Number(o.unitId),
         artilleryFireSector: true,
       })
+      maybeOccupyTrench(cur, fCellA, cells, deps, le, ph)
       continue
     }
     const fid = o.defendFacingCellId
@@ -101,6 +119,7 @@ function processDefendPhase(cells, list, le, ph, deps) {
       unitInstanceId: Number(o.unitId),
       isAmbush: false,
     })
+    maybeOccupyTrench(cur, fCell, cells, deps, le, ph)
   }
 }
 

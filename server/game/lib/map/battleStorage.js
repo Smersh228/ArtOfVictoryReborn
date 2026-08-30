@@ -3,7 +3,9 @@
 const DEFAULT_STORAGE_AMMO = 40
 
 function hasStorage(cell) {
-  return Number(cell && cell.builds && cell.builds.storage) > 0
+  if (Number(cell && cell.builds && cell.builds.storage) > 0) return true
+  const mb = cell && cell.mapBuilding
+  return Boolean(mb && /склад/i.test(String(mb.name || '')))
 }
 
 function getStorageAmmo(cell) {

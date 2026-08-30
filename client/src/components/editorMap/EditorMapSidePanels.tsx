@@ -86,14 +86,13 @@ export function environmentToPayload(env: MapEnvironmentFlags) {
     nightFromFirst: env.nightFromFirst,
     fog: weatherSpecToPayload(env.fog),
     rain: weatherSpecToPayload(env.rain),
-    strongWind: weatherSpecToPayload(env.strongWind),
+    strongWind: { enabled: false, chance: 30, duration: 3 },
   }
 }
 
-const WEATHER_ROWS: { key: 'fog' | 'rain' | 'strongWind'; label: string }[] = [
+const WEATHER_ROWS: { key: 'fog' | 'rain'; label: string }[] = [
   { key: 'fog', label: 'Туман' },
   { key: 'rain', label: 'Дождь' },
-  { key: 'strongWind', label: 'Сильный ветер' },
 ];
 
 const factions: { id: FactionId; label: string }[] = [

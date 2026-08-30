@@ -1,5 +1,7 @@
 'use strict'
 
+const trench = require('../map/battleTrench')
+
 function resolveGroupedDirectFire({
   groupedDirectFire,
   cells,
@@ -29,7 +31,16 @@ function resolveGroupedDirectFire({
     if (!defLive || getStr(defLive.unit) <= 0) continue
     const warDefGrouped = moveWarDefenseBonus(defLive.unit.instanceId, ordersByUnit)
     const terrainDefGrouped = terrainDefenseBonusFromCell(defLive.cell, defLive.unit)
-    const defenseGrouped = getDef(defLive.unit) + warDefGrouped + terrainDefGrouped
+    let coverAttackerCell = null
+    const firstShooterId = Number(grouped.shooterIds && grouped.shooterIds[0])
+    if (Number.isFinite(firstShooterId)) {
+      const sh = findUnitOnField(cells, firstShooterId)
+      if (sh) coverAttackerCell = sh.cell
+    }
+    const coverGrouped = trench.unitCoverDefenseBonus(defLive.unit, coverAttackerCell, defLive.cell)
+    const defenseGrouped = trench.isTrenchDigging(defLive.unit)
+      ? 0
+      : getDef(defLive.unit) + warDefGrouped + terrainDefGrouped + coverGrouped
     const totalHitsGrouped = Math.max(0, Number(grouped.totalHits) || 0)
     const totalDamageGrouped = Math.max(0, totalHitsGrouped - defenseGrouped)
     const tagGrouped = warDefGrouped ? ' [бой +1 З]' : ''

@@ -10,6 +10,7 @@ const {
   addAllowlistUsername,
   removeAllowlistUsername,
   listRegisteredUsersForAdmin,
+  setOnlineBoost,
 } = require('../../maintenance')
 
 const router = express.Router()
@@ -77,6 +78,16 @@ router.delete('/allowlist/:username', async (req, res, next) => {
     if (!result.ok) return res.status(400).json({ success: false, error: result.error })
     const state = await getMaintenanceAdminState()
     res.json({ success: true, removed: result.username, ...state })
+  } catch (err) {
+    next(err)
+  }
+})
+
+router.put('/online-boost', async (req, res, next) => {
+  try {
+    const onlineBoost = await setOnlineBoost(req.body?.boost)
+    const state = await getMaintenanceAdminState()
+    res.json({ success: true, onlineBoost, ...state })
   } catch (err) {
     next(err)
   }

@@ -27,6 +27,7 @@ const DEFAULT_BATTLE_ORDERS = [
   ['Мощная атака', 'hardMove'],
   ['Подрыв сооружения', 'explomost'],
   ['Стрельба в движение', 'fireMove'],
+  ['Лечение', 'medical'],
   ['Разведка', 'razvedka'],
   ['Радиоперехват', 'svzy'],
   ['Строительство понтонного моста', 'buildPonton'],
@@ -37,6 +38,9 @@ const DEFAULT_BATTLE_ORDERS = [
   ['Окопаться', 'trenches'],
   ['Занять ДОТ', 'enterDot'],
   ['Покинуть ДОТ', 'exitDot'],
+  ['Дымовая завеса', 'smoke'],
+  ['Погрузка на ЖД', 'railLoading'],
+  ['Выгрузка на ЖД', 'railUnloading'],
 ]
 
 const DEFAULT_UNIT_PROPERTIES = [
@@ -54,15 +58,14 @@ const DEFAULT_UNIT_PROPERTIES = [
   ['Подрыв колючего заграждения', 'destructionOfBarbedWire'],
   ['Корректировка огня', 'fireAdjustment'],
   ['Скрытый отряд', 'hiddenState'],
-  ['Лечение', 'medical'],
   ['Обнаружение мин', 'mineDetection'],
   ['Преодоление болота', 'movementThroughTheSwamp'],
   ['Поднятие боевого духа', 'raisingMorale'],
   ['Горные части', 'mountainTroops'],
-  ['Стрельба в движении', 'shootingInMotion'],
   ['Снайпер', 'sniper'],
   ['Зона действия штаба — 2', 'hqZoneOfAction2'],
   ['Зона действия штаба — 3', 'hqZoneOfAction3'],
+  ['Железнодорожный отряд', 'railwayDetachment'],
 ]
 
 async function ensureDefaultUnitProperties() {

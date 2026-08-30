@@ -58,7 +58,7 @@ export function applyAccuracyRangeShift(rangeArray: number[]): number[] {
 export function applyIntensityPenalty(dice: number): number {
   const base = Number.isFinite(dice) ? dice : 0
   const pen = Number(getLiveBattleEnvironment().intensityPenalty) || 0
-  return Math.max(0, base - pen)
+  return Math.max(1, base - pen)
 }
 
 function isRoadCell(cell: { type?: unknown } | null | undefined): boolean {
@@ -89,4 +89,45 @@ export function applyRainEntryCost(
   const base = Number(baseCost)
   if (!Number.isFinite(base) || base <= 0) return base > 0 ? base : 0
   return base + rainEntryExtra(cell, unit)
+}
+
+export const WEATHER_REPORT_TITLE = 'Погодные и временные условия'
+
+const ENVIRONMENT_DEBUFFS: Record<string, string[]> = {
+  Ночь: ['обзор −2', 'дальность точности −1 клетка', 'интенсивность огня −2 (не ниже 1)'],
+  День: ['штрафов нет'],
+  Туман: ['обзор −1', 'дальность точности −1 клетка', 'интенсивность огня −1 (не ниже 1)'],
+  Дождь: ['вход в клетку: +0,5 ОД пехота и дорога, +1 остальные'],
+}
+
+export function parseEnvironmentLabelList(raw: string): string[] {
+  return String(raw || '')
+    .split(/[,;]/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+export function environmentDebuffText(labels: string[]): string {
+  return labels
+    .map((name) => {
+      const fx = ENVIRONMENT_DEBUFFS[name]
+      if (!fx?.length) return null
+      return `${name}: ${fx.join('; ')}`
+    })
+    .filter((row): row is string => Boolean(row))
+    .join('\n')
+}
+
+export function formatEnvironmentReport(labelsOrRaw: string[] | string): {
+  order: string
+  detail: string
+  stats?: string
+} {
+  const labels = Array.isArray(labelsOrRaw) ? labelsOrRaw : parseEnvironmentLabelList(labelsOrRaw)
+  const stats = environmentDebuffText(labels)
+  return {
+    order: WEATHER_REPORT_TITLE,
+    detail: labels.join(', ') || '—',
+    stats: stats || undefined,
+  }
 }

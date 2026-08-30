@@ -173,3 +173,9 @@ export function adjacentCellsWithWire(fromCell: Cell, allCells: Cell[]): Cell[] 
   }
   return out;
 }
+
+export function cellsEligibleForCutWire(fromCell: Cell, allCells: Cell[]): Cell[] {
+  const out = adjacentCellsWithWire(fromCell, allCells);
+  if (hasWireOnCell(fromCell.builds)) out.unshift(fromCell);
+  return out;
+}

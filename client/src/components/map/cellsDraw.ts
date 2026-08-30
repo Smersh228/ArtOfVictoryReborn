@@ -8,9 +8,11 @@ import {
 import {
   battleEmptyDotDropShadowFilter,
   battleHoverDropShadowFilter,
+  dotDrawLayout,
   drawImageCoverInCircle,
   drawImageCoverInCircleWithTransform,
   getTerrainColor,
+  hexSharesDotWithUnits,
   traceHexPath,
 } from './cellsDrawBase'
 import { readTileMirror, readTileRotationSteps, tileRotationRadians } from '../../game/cellTileTransform'
@@ -24,12 +26,19 @@ import {
   STORAGE_SPRITE_URL,
   ANTITANK_SPRITE_URL,
   TRENCH_SPRITE_URL,
+  PONTON_SPRITE_URL,
   ensureCellBuilds,
+  hasMineOnCell,
+  isMineVisibleOnBattleMap,
 } from '../../game/editorMapFortifications'
 import { dotOccupancySide, hasDotOnCell, unitInDot } from '../../game/cellDot'
+import { battleUnitsVisibleOnMap } from '../../game/battleAirSupport'
 import type { LobbyFaction } from '../../api/rooms'
 import { getTrenchEdgesMask } from '../../game/cellTrenchEdges'
 import { getAntiTankEdgesMask } from '../../game/cellAntiTankEdges'
+import { cellHasWarehouse, isLoadingSupHoverLink } from '../../game/battleLogisticsUi'
+import { hasPontonOnCell, pontonDrawOpacity } from '../../game/cellPonton'
+import { hasSmokeOnCell, SMOKE_SPRITE_URL } from '../../game/cellSmoke'
 
 interface CachedImageState {
   ready: HTMLImageElement | null
@@ -236,9 +245,11 @@ function drawCenterFortification(
     cellSize: number
     img: HTMLImageElement
     scale?: number
+    offsetX?: number
+    offsetY?: number
   },
 ) {
-  const { center, cellSize, img, scale = 0.88 } = params
+  const { center, cellSize, img, scale = 0.88, offsetX = 0, offsetY = 0 } = params
   const sw = img.naturalWidth
   const sh = img.naturalHeight
   if (!sw || !sh) return
@@ -246,7 +257,7 @@ function drawCenterFortification(
   const aspect = sw / sh
   const drawW = aspect >= 1 ? maxDim : maxDim * aspect
   const drawH = aspect >= 1 ? maxDim / aspect : maxDim
-  ctx.drawImage(img, center.x - drawW / 2, center.y - drawH / 2, drawW, drawH)
+  ctx.drawImage(img, center.x - drawW / 2 + offsetX, center.y - drawH / 2 + offsetY, drawW, drawH)
 }
 
 function drawWireEdges(
@@ -372,6 +383,21 @@ function dotHoverGlowFilter(side: 'friendly' | 'enemy' | 'empty'): string {
   return battleEmptyDotDropShadowFilter()
 }
 
+function fillMinefieldHex(
+  ctx: CanvasRenderingContext2D,
+  corners: { x: number; y: number }[],
+) {
+  ctx.beginPath()
+  traceHexPath(ctx, corners)
+  ctx.fillStyle = 'rgba(220, 40, 40, 0.42)'
+  ctx.fill()
+  ctx.beginPath()
+  traceHexPath(ctx, corners)
+  ctx.strokeStyle = 'rgba(176, 20, 20, 0.95)'
+  ctx.lineWidth = 2.5
+  ctx.stroke()
+}
+
 function battleBuildingHiddenByFog(
   mode: 'editor' | 'battle',
   lobbyPreview: boolean,
@@ -392,9 +418,13 @@ function drawCenterBuildFortifications(
     cellSize: number
     dotImg?: HTMLImageElement | null
     storageImg?: HTMLImageElement | null
+    pontonImg?: HTMLImageElement | null
+    smokeImg?: HTMLImageElement | null
     resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
     dotHoverGlow?: boolean
     dotHoverSide?: 'friendly' | 'enemy' | 'empty'
+    storageGlow?: boolean
+    shareWithUnits?: boolean
   },
 ) {
   const {
@@ -403,9 +433,13 @@ function drawCenterBuildFortifications(
     cellSize,
     dotImg,
     storageImg,
+    pontonImg,
+    smokeImg,
     resolveEditorCachedImage,
     dotHoverGlow,
     dotHoverSide,
+    storageGlow = false,
+    shareWithUnits = false,
   } = params
   const builds = ensureCellBuilds(cell.builds)
 
@@ -415,11 +449,19 @@ function drawCenterBuildFortifications(
         ? dotImg
         : resolveEditorCachedImage(DOT_SPRITE_URL).ready
     if (img?.naturalWidth) {
+      const layout = dotDrawLayout(cellSize, shareWithUnits)
       ctx.save()
       if (dotHoverGlow && dotHoverSide) {
         ctx.filter = dotHoverGlowFilter(dotHoverSide)
       }
-      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.92 })
+      drawCenterFortification(ctx, {
+        center,
+        cellSize,
+        img,
+        scale: layout.scale,
+        offsetX: layout.offsetX,
+        offsetY: layout.offsetY,
+      })
       ctx.restore()
     }
   }
@@ -431,7 +473,35 @@ function drawCenterBuildFortifications(
         : resolveEditorCachedImage(STORAGE_SPRITE_URL).ready
     if (img?.naturalWidth) {
       ctx.save()
+      if (storageGlow) {
+        ctx.filter = battleEmptyDotDropShadowFilter()
+      }
       drawCenterFortification(ctx, { center, cellSize, img, scale: 0.85 })
+      ctx.restore()
+    }
+  }
+
+  if (hasPontonOnCell(builds)) {
+    const img =
+      pontonImg?.complete && pontonImg.naturalWidth > 0
+        ? pontonImg
+        : resolveEditorCachedImage(PONTON_SPRITE_URL).ready
+    if (img?.naturalWidth) {
+      ctx.save()
+      ctx.globalAlpha = pontonDrawOpacity(builds)
+      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.92 })
+      ctx.restore()
+    }
+  }
+
+  if (hasSmokeOnCell(builds)) {
+    const img =
+      smokeImg?.complete && smokeImg.naturalWidth > 0
+        ? smokeImg
+        : resolveEditorCachedImage(SMOKE_SPRITE_URL).ready
+    if (img?.naturalWidth) {
+      ctx.save()
+      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.78 })
       ctx.restore()
     }
   }
@@ -445,9 +515,10 @@ function drawMapBuilding(
     cellSize: number
     mode: 'editor' | 'battle'
     resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
+    glow?: boolean
   },
 ) {
-  const { cell, center, cellSize, mode, resolveEditorCachedImage } = params
+  const { cell, center, cellSize, mode, resolveEditorCachedImage, glow = false } = params
   const cellExtras = cell as CellExtras
   const mapBuilding = cellExtras.mapBuilding
   if (!mapBuilding || (mode !== 'editor' && mode !== 'battle')) {
@@ -458,7 +529,10 @@ function drawMapBuilding(
 
   if (bState.ready) {
     const bw = cellSize * 1.15
+    ctx.save()
+    if (glow) ctx.filter = battleEmptyDotDropShadowFilter()
     ctx.drawImage(bState.ready, center.x - bw / 2, center.y - bw / 2, bw, bw)
+    ctx.restore()
     return
   }
 
@@ -500,6 +574,7 @@ export function drawCellsCanvas(params: {
   battleAreaFireCellIds: number[] | null
   battleDotSectorCellIds?: number[] | null
   enterDotGlowCellIds?: number[] | null
+  loadingSupGlowCellIds?: number[] | null
   battlePatrolVisibilityCellIds?: number[] | null
   battlePatrolCenterCellId?: number | null
   battleAirInterceptionTargetCellIds?: number[] | null
@@ -528,6 +603,8 @@ export function drawCellsCanvas(params: {
   changeSectorOrderDecalImg: HTMLImageElement | null
   clottingOrderDecalImg: HTMLImageElement | null
   unloadCellDecalImg: HTMLImageElement | null
+  getSupDecalImg?: HTMLImageElement | null
+  loadingSupDecalImg?: HTMLImageElement | null
   shootOrderDecals: ShootOrderDecals
   airMissionOrderDecals?: Record<string, HTMLImageElement>
   airDepartureDecalImg?: HTMLImageElement | null
@@ -539,8 +616,11 @@ export function drawCellsCanvas(params: {
   antiTankImg?: HTMLImageElement | null
   dotImg?: HTMLImageElement | null
   storageImg?: HTMLImageElement | null
+  pontonImg?: HTMLImageElement | null
+  smokeImg?: HTMLImageElement | null
   viewerBattleFaction?: LobbyFaction
   battleFogRevealedCellIds?: number[] | null
+  extraHiddenInstanceIds?: ReadonlySet<number> | null
 }) {
   const {
     canvas,
@@ -558,6 +638,7 @@ export function drawCellsCanvas(params: {
     battleAreaFireCellIds,
     battleDotSectorCellIds = null,
     enterDotGlowCellIds = null,
+    loadingSupGlowCellIds = null,
     battlePatrolVisibilityCellIds = null,
     battlePatrolCenterCellId = null,
     battleAirInterceptionTargetCellIds = null,
@@ -583,6 +664,8 @@ export function drawCellsCanvas(params: {
     changeSectorOrderDecalImg,
     clottingOrderDecalImg,
     unloadCellDecalImg,
+    getSupDecalImg = null,
+    loadingSupDecalImg = null,
     shootOrderDecals,
     editorAviationEdgeHighlight = false,
     editorAviationEdgeCellIds,
@@ -591,10 +674,13 @@ export function drawCellsCanvas(params: {
     antiTankImg = null,
     dotImg = null,
     storageImg = null,
+    pontonImg = null,
+    smokeImg = null,
     battleFogRevealedCellIds = null,
     airDepartureDecalImg = null,
     fireAirGunDecalImg = null,
     viewerBattleFaction = 'none',
+    extraHiddenInstanceIds = null,
   } = params
 
   if (!canvas) return
@@ -660,6 +746,10 @@ export function drawCellsCanvas(params: {
         } else {
           strokeHexEdges(ctx, corners, edgeMask, 'rgba(0, 0, 0, 0.45)', 1)
         }
+      }
+
+      if (hasMineOnCell(cell.builds)) {
+        fillMinefieldHex(ctx, corners)
       }
 
       if (
@@ -766,6 +856,10 @@ export function drawCellsCanvas(params: {
         } else {
           strokeHexEdges(ctx, corners, edgeMask, 'black', 1)
         }
+      }
+
+      if (isMineVisibleOnBattleMap(cell.builds, viewerBattleFaction)) {
+        fillMinefieldHex(ctx, corners)
       }
 
       const showBattleHexHoverRing =
@@ -1040,6 +1134,47 @@ export function drawCellsCanvas(params: {
 
     }
 
+    if (
+      !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIds, cell.id, viewerBattleFaction)
+    ) {
+      const visibleUnits = battleUnitsVisibleOnMap(cell, mode, extraHiddenInstanceIds)
+      const hoveringDot =
+        mode === 'battle' &&
+        hoverCell?.id === cell.id &&
+        hasDotOnCell(cell.builds) &&
+        (!hoveredUnit || unitInDot(hoveredUnit.unit as Record<string, unknown>))
+      const enterDotGlow = Boolean(
+        enterDotGlowCellIds?.some((id) => Number(id) === Number(cell.id)) && hasDotOnCell(cell.builds),
+      )
+      const glowDot = hoveringDot || enterDotGlow
+      const warehousePickGlow = Boolean(
+        loadingSupGlowCellIds?.some((id) => Number(id) === Number(cell.id)),
+      )
+      const warehouseOrderLink =
+        battlePendingLogisticsPreview?.kind === 'loadingSup' &&
+        Number(battlePendingLogisticsPreview.targetCellId) === Number(cell.id) &&
+        isLoadingSupHoverLink(battlePendingLogisticsPreview, hoverCell, hoveredUnit)
+      const hoveringWarehouse =
+        mode === 'battle' &&
+        hoverCell != null &&
+        Number(hoverCell.id) === Number(cell.id) &&
+        cellHasWarehouse(cell)
+      drawCenterBuildFortifications(ctx, {
+        cell,
+        center,
+        cellSize,
+        dotImg,
+        storageImg,
+        pontonImg,
+        smokeImg,
+        resolveEditorCachedImage,
+        dotHoverGlow: glowDot,
+        dotHoverSide: glowDot ? dotOccupancySide(cell, cells, viewerBattleFaction) : undefined,
+        storageGlow: hoveringWarehouse || warehousePickGlow || warehouseOrderLink,
+        shareWithUnits: hexSharesDotWithUnits(hasDotOnCell(cell.builds), visibleUnits.length),
+      })
+    }
+
     drawUnits(ctx, cell, center)
 
     if (mode === 'battle' && battleDefendHover && cell.id === battleDefendHover.facingCellId) {
@@ -1098,6 +1233,20 @@ export function drawCellsCanvas(params: {
         const r = Math.max(8, cellSize * 0.14)
         ctx.save()
         drawImageCoverInCircle(ctx, unloadCellDecalImg, center.x, center.y, r)
+        ctx.restore()
+      }
+    }
+    if (
+      mode === 'battle' &&
+      ((battlePendingLogisticsPreview?.kind === 'loadingSup' &&
+        Number(battlePendingLogisticsPreview.targetCellId) === Number(cell.id) &&
+        isLoadingSupHoverLink(battlePendingLogisticsPreview, hoverCell, hoveredUnit)) ||
+        Number(battleReportReplayHighlight?.loadingSupCellDecalId) === Number(cell.id))
+    ) {
+      if (loadingSupDecalImg?.naturalWidth) {
+        const r = Math.max(8, cellSize * 0.12)
+        ctx.save()
+        drawImageCoverInCircle(ctx, loadingSupDecalImg, center.x, center.y, r)
         ctx.restore()
       }
     }
@@ -1201,7 +1350,21 @@ export function drawCellsCanvas(params: {
     if (
       !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIds, cell.id, viewerBattleFaction)
     ) {
-      drawMapBuilding(ctx, { cell, center, cellSize, mode, resolveEditorCachedImage })
+      drawMapBuilding(ctx, {
+        cell,
+        center,
+        cellSize,
+        mode,
+        resolveEditorCachedImage,
+        glow:
+          mode === 'battle' &&
+          cellHasWarehouse(cell) &&
+          (Boolean(loadingSupGlowCellIds?.some((id) => Number(id) === Number(cell.id))) ||
+            (hoverCell != null && Number(hoverCell.id) === Number(cell.id)) ||
+            (battlePendingLogisticsPreview?.kind === 'loadingSup' &&
+              Number(battlePendingLogisticsPreview.targetCellId) === Number(cell.id) &&
+              isLoadingSupHoverLink(battlePendingLogisticsPreview, hoverCell, hoveredUnit))),
+      })
     }
 
     const reportDepartureId = battleReportReplayHighlight?.airDepartureCellId
@@ -1256,25 +1419,6 @@ export function drawCellsCanvas(params: {
       getCellCorners,
       antiTankImg,
       resolveEditorCachedImage,
-    })
-    const hoveringDot =
-      mode === 'battle' &&
-      hoverCell?.id === cell.id &&
-      hasDotOnCell(cell.builds) &&
-      (!hoveredUnit || unitInDot(hoveredUnit.unit as Record<string, unknown>))
-    const enterDotGlow = Boolean(
-      enterDotGlowCellIds?.some((id) => Number(id) === Number(cell.id)) && hasDotOnCell(cell.builds),
-    )
-    const glowDot = hoveringDot || enterDotGlow
-    drawCenterBuildFortifications(ctx, {
-      cell,
-      center,
-      cellSize,
-      dotImg,
-      storageImg,
-      resolveEditorCachedImage,
-      dotHoverGlow: glowDot,
-      dotHoverSide: glowDot ? dotOccupancySide(cell, cells, viewerBattleFaction) : undefined,
     })
   }
 

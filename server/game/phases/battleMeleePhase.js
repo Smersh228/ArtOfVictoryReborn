@@ -1,10 +1,38 @@
 'use strict'
 
 const { terrainAccuracyBonusFromCell } = require('../lib/map/battleTerrain')
-const {
-  hillMeleeDefenseBonus,
-  hillMeleeAccuracyPenalty,
-} = require('../lib/map/battleElevation')
+const { hillMeleeDefenseBonus, hillMeleeAccuracyPenalty, isBattleAirUnitType } = require('../lib/map/battleElevation')
+const mines = require('../lib/map/battleMines')
+const trench = require('../lib/map/battleTrench')
+const analog = require('../lib/unit/battleMeleeAnalog')
+const flank = require('../lib/map/battleFlank')
+const suppression = require('../core/battleSuppression')
+const { isTruckUnit, isInfantryUnit } = require('../core/battleUnitType')
+
+function orderKeyOf(id, ordersByUnit) {
+  const spec = ordersByUnit && typeof ordersByUnit.get === 'function' ? ordersByUnit.get(Number(id)) : null
+  return spec ? String(spec.orderKey || '').trim() : ''
+}
+
+function afterMeleeRoundDisembark(cells, idA, idB, le, ph, deps) {
+  const { findUnitOnField } = deps
+  const A = findUnitOnField(cells, idA)
+  const B = findUnitOnField(cells, idB)
+  if (A && isTruckUnit(A.unit) && B) {
+    analog.disembarkInfantryAfterTransportMelee(cells, A.unit, B.unit, le, ph, {
+      ...deps,
+      isInfantryUnit,
+      linkMeleeOpponents,
+    })
+  }
+  if (B && isTruckUnit(B.unit) && A) {
+    analog.disembarkInfantryAfterTransportMelee(cells, B.unit, A.unit, le, ph, {
+      ...deps,
+      isInfantryUnit,
+      linkMeleeOpponents,
+    })
+  }
+}
 
 function syncMeleeLinksAfterCasualties(cells, deps) {
   const { getStr, findUnitOnField, hexDistCells } = deps
@@ -55,20 +83,41 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
     applyCargoDamageFromTruckHit,
     sweepCorpses,
   } = deps
+  const raAt =
+    typeof rangeArrayForAtCell === 'function' ? rangeArrayForAtCell : (u) => (typeof rangeArrayFor === 'function' ? rangeArrayFor(u) : [3, 2, 1])
   const A = findUnitOnField(cells, idA)
   const B = findUnitOnField(cells, idB)
-  if (!A || !B) return
-  if (hexDistCells(A.cell, B.cell) > 1) return
+  if (!A || !B) return { dmgToA: 0, dmgToB: 0 }
+  if (isBattleAirUnitType(A.unit) || isBattleAirUnitType(B.unit)) return { dmgToA: 0, dmgToB: 0 }
+  if (hexDistCells(A.cell, B.cell) > 1) return { dmgToA: 0, dmgToB: 0 }
 
   const warDefA = moveWarDefenseBonus(idA, ordersByUnit)
   const warDefB = moveWarDefenseBonus(idB, ordersByUnit)
-  const ambDefA = A.unit.tactical?.defendOrder || A.unit.tactical?.ambushOrder ? 1 : 0
-  const ambDefB = B.unit.tactical?.defendOrder || B.unit.tactical?.ambushOrder ? 1 : 0
+  const ambushDefA = A.unit.tactical?.ambushOrder ? 1 : 0
+  const ambushDefB = B.unit.tactical?.ambushOrder ? 1 : 0
+  const coverOptsB = {
+    ignoreTrench: flank.trenchCoverIgnoredForAttack(B.unit, A.cell, B.cell, {
+      getStr,
+      unitFaction: deps.unitFaction,
+    }),
+  }
+  const coverOptsA = {
+    ignoreTrench: flank.trenchCoverIgnoredForAttack(A.unit, B.cell, A.cell, {
+      getStr,
+      unitFaction: deps.unitFaction,
+    }),
+  }
+  const coverA = trench.unitCoverDefenseBonus(A.unit, B.cell, A.cell, coverOptsA)
+  const coverB = trench.unitCoverDefenseBonus(B.unit, A.cell, B.cell, coverOptsB)
 
-  const raA = rangeArrayForAtCell(A.unit, A.cell)
-  const raB = rangeArrayForAtCell(B.unit, B.cell)
-  const closeA = A.unit.tactical?.fireSuppression ? 1 : raA[0] ?? 3
-  const closeB = B.unit.tactical?.fireSuppression ? 1 : raB[0] ?? 3
+  const raA = raAt(A.unit, A.cell)
+  const raB = raAt(B.unit, B.cell)
+  const closeA = A.unit.tactical?.fireSuppression
+    ? suppression.suppressionMeleeAccuracy(A.unit, raAt, A.cell)
+    : raA[0] ?? 3
+  const closeB = B.unit.tactical?.fireSuppression
+    ? suppression.suppressionMeleeAccuracy(B.unit, raAt, B.cell)
+    : raB[0] ?? 3
   const hillDefB = hillMeleeDefenseBonus(B.cell)
   const hillDefA = hillMeleeDefenseBonus(A.cell)
   const hillPenOnB = hillMeleeAccuracyPenalty(B.cell)
@@ -79,28 +128,26 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
   const rollsA = []
   const rollsB = []
 
-  if (getAmmo(A.unit) >= 1) {
+  const silentId = Number(deps.retreatSilentId)
+  const aShoots = getAmmo(A.unit) >= 1 && Number(idA) !== silentId
+  const bShoots = getAmmo(B.unit) >= 1 && Number(idB) !== silentId
+
+  if (aShoots) {
     const ia = intensityArrayFor(A.unit, B.unit)
     const accBonusA = terrainAccuracyBonusFromCell(A.cell, A.unit, B.unit, true) - hillPenOnB
-    const res = computeShoot(A.unit, B.unit, B.cell, 1, ia, [closeA], false, undefined, warDefB + ambDefB + hillDefB, accBonusA, undefined, 1)
+    const res = computeShoot(A.unit, B.unit, B.cell, 1, ia, [closeA], false, undefined, warDefB + coverB + ambushDefB + hillDefB, accBonusA, undefined, 1)
     dmgToB = res.damages
     for (const r of res.rollResults) rollsA.push(r)
     setAmmo(A.unit, getAmmo(A.unit) - 1)
-  } else {
-    setStr(A.unit, 0)
-    le(ph, `Ближний бой: юнит ${idA} без БК — выбытие`)
   }
 
-  if (getStr(A.unit) > 0 && getAmmo(B.unit) >= 1) {
+  if (getStr(A.unit) > 0 && bShoots) {
     const ia = intensityArrayFor(B.unit, A.unit)
     const accBonusB = terrainAccuracyBonusFromCell(B.cell, B.unit, A.unit, true) - hillPenOnA
-    const res = computeShoot(B.unit, A.unit, A.cell, 1, ia, [closeB], false, undefined, warDefA + ambDefA + hillDefA, accBonusB, undefined, 1)
+    const res = computeShoot(B.unit, A.unit, A.cell, 1, ia, [closeB], false, undefined, warDefA + coverA + ambushDefA + hillDefA, accBonusB, undefined, 1)
     dmgToA = res.damages
     for (const r of res.rollResults) rollsB.push(r)
     setAmmo(B.unit, getAmmo(B.unit) - 1)
-  } else if (getStr(B.unit) > 0 && getAmmo(B.unit) < 1) {
-    setStr(B.unit, 0)
-    le(ph, `Ближний бой: юнит ${idB} без БК — выбытие`)
   }
 
   if (getStr(B.unit) > 0) {
@@ -130,12 +177,14 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
 
   sweepCorpses(cells)
   syncMeleeLinksAfterCasualties(cells, deps)
+  afterMeleeRoundDisembark(cells, idA, idB, le, ph, deps)
 
   const aLive = findUnitOnField(cells, idA)
   const bLive = findUnitOnField(cells, idB)
   if (aLive && bLive && hexDistCells(aLive.cell, bLive.cell) <= 1 && getStr(aLive.unit) > 0 && getStr(bLive.unit) > 0) {
     linkMeleeOpponents(aLive.unit, bLive.unit, deps)
   }
+  return { dmgToA, dmgToB }
 }
 
 function attackMoveAlongPath(cells, unitId, path, ordersByUnit, le, ph, movedInstanceIds, deps) {
@@ -166,11 +215,14 @@ function attackMoveAlongPath(cells, unitId, path, ordersByUnit, le, ph, movedIns
     maxSteps = i
   }
   if (maxSteps < 1) return { ok: true, interrupted: false, noMp: true }
+  trench.leaveTrench(cur0.unit, cur0.cell)
   const subPath = path.slice(0, maxSteps + 1)
-  const ow = tryDefendOverwatchOnMovePath(cells, unitId, subPath, ordersByUnit, le, ph)
+  const minePlan = mines.planMinePath(subPath, cur0.unit, 'attack', isTruckUnit)
+  const mineCappedPath = subPath.slice(0, minePlan.endIndex + 1)
+  const ow = tryDefendOverwatchOnMovePath(cells, unitId, mineCappedPath, ordersByUnit, le, ph)
   const afterOw = findUnitOnField(cells, unitId)
   if (!afterOw || getStr(afterOw.unit) <= 0) return { ok: false, died: true }
-  const endStepIndex = ow.fired && ow.stopStepIndex != null ? ow.stopStepIndex : maxSteps
+  const endStepIndex = ow.fired && ow.stopStepIndex != null ? ow.stopStepIndex : minePlan.endIndex
   const finalCell = subPath[endStepIndex]
   let spent = 0
   for (let i = 1; i <= endStepIndex; i++) {
@@ -180,12 +232,19 @@ function attackMoveAlongPath(cells, unitId, path, ordersByUnit, le, ph, movedIns
   addUnitToCell(finalCell, afterOw.unit)
   syncUnitCoor(afterOw.unit, finalCell)
   setMovePoint(afterOw.unit, getMovePoint(afterOw.unit) - spent)
-  if (isTruckUnit(afterOw.unit)) syncCargoAfterTransportMove(cells, unitId)
-  const note = ow.fired ? ', прерван обороной/засадой' : ''
+  const mineStop =
+    (minePlan.blasts.length > 0 || (minePlan.reveals || []).some((r) => r.reason === 'enter')) &&
+    endStepIndex < subPath.length - 1
+  const note = ow.fired ? ', прерван обороной/засадой' : mineStop ? ', остановлено минным полем' : ''
   le(ph, `Атака-подход: юнит ${unitId} → кл. ${finalCell.id} (−${spent} ОД)${note}`)
-  revealAmbushesAdjacentToCell(cells, afterOw.unit, finalCell, le, ph)
+  mines.resolveMineBlastsAfterMove(cells, afterOw.unit, subPath, minePlan, endStepIndex, le, ph, deps)
+  mines.resolveMineRevealsAfterMove(cells, afterOw.unit, subPath, minePlan, endStepIndex, le, ph)
+  const afterMine = findUnitOnField(cells, unitId)
+  if (!afterMine || getStr(afterMine.unit) <= 0) return { ok: false, died: true }
+  if (isTruckUnit(afterMine.unit)) syncCargoAfterTransportMove(cells, unitId)
+  revealAmbushesAdjacentToCell(cells, afterMine.unit, afterMine.cell, le, ph)
   if (movedInstanceIds) movedInstanceIds.add(Number(unitId))
-  return { ok: true, interrupted: !!ow.fired }
+  return { ok: true, interrupted: !!ow.fired || mineStop }
 }
 
 function runOngoingMeleeRounds(cells, ordersByUnit, le, ph, deps) {
@@ -204,6 +263,7 @@ function runOngoingMeleeRounds(cells, ordersByUnit, le, ph, deps) {
       if (Number(o.unit.tactical?.meleeOpponentInstanceId) !== ida) continue
       if (hexDistCells(c, o.cell) > 1) continue
       if (done.has(k)) continue
+      if (orderKeyOf(ida, ordersByUnit) === 'move' || orderKeyOf(oid, ordersByUnit) === 'move') continue
       done.add(k)
       resolveMutualMeleeRound(cells, ordersByUnit, le, ph, ida, oid, deps)
     }
@@ -219,6 +279,8 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
     isSolitaryMeleeTargetCell,
     isAmbushConcealed,
     canSpotAmbushTarget,
+    isHiddenConcealed,
+    canSpotHiddenTarget,
     getMeleeOpponentId,
     hexDistCells,
     computeRevealedCellIdsForFaction,
@@ -233,8 +295,16 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
   const atk = findUnitOnField(cells, o.unitId)
   const def = findUnitOnField(cells, o.targetUnitInstanceId)
   if (!atk || !def) return
+  if (isBattleAirUnitType(atk.unit) || isBattleAirUnitType(def.unit)) {
+    le(ph, `Атака: ближний бой с авиацией не проводится`)
+    return
+  }
   if (!opposing(unitFaction(atk.unit), unitFaction(def.unit))) return
-  const atkSt = validateUnitOrdersAllowed(atk.unit)
+  if (require('../lib/map/battleSmoke').hasSmokeOnCell(def.cell.builds)) {
+    le(ph, `Атака: юнит ${o.unitId} — цель в дымовой завесе`)
+    return
+  }
+  const atkSt = validateUnitOrdersAllowed(atk.unit, o.orderKey)
   if (atkSt) {
     le(ph, `Атака: юнит ${o.unitId} — ${atkSt}`)
     return
@@ -247,6 +317,10 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
     le(ph, `Атака: юнит ${o.unitId} — цель в засаде, не обнаружена (нужен соседний гекс, союзник рядом с ней или огонь по площади)`)
     return
   }
+  if (isHiddenConcealed && isHiddenConcealed(def.unit) && canSpotHiddenTarget && !canSpotHiddenTarget(atk.unit, atk.cell, def.unit, def.cell, cells)) {
+    le(ph, `Атака: юнит ${o.unitId} — скрытый отряд не обнаружен`)
+    return
+  }
 
   const tid = Number(o.targetUnitInstanceId)
   const oppid = getMeleeOpponentId(atk.unit)
@@ -257,24 +331,22 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
   if (oppid === tid && hexDistCells(atk.cell, def.cell) <= 1) return
 
   const fog = computeRevealedCellIdsForFaction(cells, unitFaction(atk.unit))
-  const ce0 = cheapestEngagePath(cells, atk.cell, atk.unit, def.cell, fog)
-  if (!ce0 || ce0.cost > attackReachBudget(atk.unit)) {
-    le(ph, `Атака: ${o.unitId} — цель вне досягаемости (ОП−1)`)
-    return
+  let approachPath = Array.isArray(o.collisionPath) ? o.collisionPath : null
+  if (!approachPath) {
+    const ce0 = cheapestEngagePath(cells, atk.cell, atk.unit, def.cell, fog)
+    if (!ce0 || ce0.cost > attackReachBudget(atk.unit)) {
+      le(ph, `Атака: ${o.unitId} — цель вне досягаемости (ОП−1)`)
+      return
+    }
+    approachPath = ce0.path
   }
-
-  let guard = 0
-  while (guard++ < 32) {
-    const cur = findUnitOnField(cells, o.unitId)
-    const dfc = findUnitOnField(cells, tid)
-    if (!cur || !dfc) return
-    if (hexDistCells(cur.cell, dfc.cell) <= 1) break
-    if (getMovePoint(cur.unit) <= 0) break
-    const ce = cheapestEngagePath(cells, cur.cell, cur.unit, dfc.cell, fog)
-    if (!ce) break
-    const r = attackMoveAlongPath(cells, o.unitId, ce.path, ordersByUnit, le, ph, movedInstanceIds)
+  if (hexDistCells(atk.cell, def.cell) > 1) {
+    if (!approachPath || approachPath.length < 2) {
+      le(ph, `Атака: ${o.unitId} — маршрут подхода прерван`)
+      return
+    }
+    const r = attackMoveAlongPath(cells, o.unitId, approachPath, ordersByUnit, le, ph, movedInstanceIds)
     if (!r.ok || r.died) return
-    if (r.interrupted || r.noMp) break
   }
 
   const aEnd = findUnitOnField(cells, o.unitId)
@@ -286,12 +358,23 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
   }
   if (hexDistCells(aEnd.cell, dEnd.cell) <= 1) {
     revealAmbushesAdjacentToCell(cells, aEnd.unit, aEnd.cell, le, ph)
-    if (!tryAttackMoraleTests(le, ph, aEnd, dEnd)) return
+    if (isHiddenConcealed && isHiddenConcealed(dEnd.unit) && canSpotHiddenTarget && !canSpotHiddenTarget(aEnd.unit, aEnd.cell, dEnd.unit, dEnd.cell, cells)) {
+      le(ph, `Атака: юнит ${o.unitId} — скрытый отряд не обнаружен`)
+      return
+    }
+    if (!tryAttackMoraleTests(le, ph, aEnd, dEnd, o.orderKey)) return
+    const approachCell = aEnd.cell
+    analog.tryFlankSteadfastness(le, ph, dEnd.unit, dEnd.cell, approachCell, { ...deps, cells })
+    const suppressedTarget = Boolean(dEnd.unit.tactical && dEnd.unit.tactical.fireSuppression)
     moveAttackerOntoMeleeTargetCell(cells, Number(aEnd.unit.instanceId), Number(dEnd.unit.instanceId))
     const a2 = findUnitOnField(cells, o.unitId)
     const d2 = findUnitOnField(cells, tid)
     if (!a2 || !d2) return
     resolveMutualMeleeRound(cells, ordersByUnit, le, ph, Number(a2.unit.instanceId), Number(d2.unit.instanceId), deps)
+    const d3 = findUnitOnField(cells, tid)
+    if (suppressedTarget && d3 && deps.getStr(d3.unit) > 0 && d3.unit.tactical && d3.unit.tactical.fireSuppression) {
+      analog.tryForcedRetreat(cells, d3.unit, approachCell, le, ph, { ...deps, cells })
+    }
   }
 }
 
@@ -302,4 +385,36 @@ module.exports = {
   attackMoveAlongPath,
   runOngoingMeleeRounds,
   processSingleAttackOrder,
+  applyAttackApproachCollisions,
+}
+
+function applyAttackApproachCollisions(cells, list, le, ph, deps) {
+  const {
+    findUnitOnField,
+    unitFaction,
+    hexDistCells,
+    computeRevealedCellIdsForFaction,
+    cheapestEngagePath,
+    attackReachBudget,
+  } = deps
+  const collision = require('../lib/map/battleMoveCollision')
+  const intents = []
+  for (const o of list) {
+    const atk = findUnitOnField(cells, o.unitId)
+    const def = findUnitOnField(cells, o.targetUnitInstanceId)
+    if (!atk || !def) continue
+    if (hexDistCells(atk.cell, def.cell) <= 1) continue
+    const fog = computeRevealedCellIdsForFaction(cells, unitFaction(atk.unit))
+    const ce = cheapestEngagePath(cells, atk.cell, atk.unit, def.cell, fog)
+    if (!ce || !ce.path || ce.cost > attackReachBudget(atk.unit)) continue
+    intents.push({
+      unitId: o.unitId,
+      faction: unitFaction(atk.unit),
+      path: ce.path.slice(),
+      unit: atk.unit,
+      order: o,
+    })
+  }
+  collision.resolveMovementCollisions(intents, le, ph, { cells, findUnitOnField })
+  for (const it of intents) it.order.collisionPath = it.path
 }

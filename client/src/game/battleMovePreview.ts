@@ -9,10 +9,12 @@ import {
   slopeCountersAllow,
   slopeTransition,
   terrainEntryCost,
+  unitHasPropKey,
 } from './battleTerrain';
 import { wireBlocksGroundMove } from './cellWireEdges';
 import { antiTankBlocksGroundMove } from './cellAntiTankEdges';
 import { hasDotOnCell, unitInDot } from './cellDot';
+import { hasSmokeOnCell } from './cellSmoke';
 
 /** Совпадает с сервером: для авиации ОД не ограничивают дальность превью хода. */
 const AIR_BATTLE_EFFECTIVE_MOVE_POINTS = 99999999;
@@ -21,6 +23,8 @@ export type BattleMovePreviewUnit = {
   type: string;
   faction: string;
   properties?: unknown;
+  instanceId?: unknown;
+  tactical?: { meleeOpponentInstanceId?: unknown };
 };
 
 export function normalizeBattleInstanceId(raw: unknown): number | null {
@@ -56,6 +60,15 @@ function unitFaction(u: { faction?: string }): 'wehrmacht' | 'rkka' | 'none' {
 function opposing(a: 'wehrmacht' | 'rkka' | 'none', b: 'wehrmacht' | 'rkka' | 'none'): boolean {
   if (a === 'none' || b === 'none') return false;
   return a !== b;
+}
+
+function cellHasEnemy(cell: Cell, faction: 'wehrmacht' | 'rkka' | 'none'): boolean {
+  for (const u of cell.units || []) {
+    const occ = u as { faction?: string; str?: unknown; strength?: unknown };
+    if (getStr(occ) <= 0) continue;
+    if (opposing(faction, unitFaction(occ))) return true;
+  }
+  return false;
 }
 
 function getStr(u: { str?: unknown; strength?: unknown }): number {
@@ -165,7 +178,25 @@ function canEnterCell(
     if (!canTraverseMoveEdge(fromCell, cell, unit, counters)) return false;
   }
   if (terrainEntryCost(cell, unit) === 0) return false;
+  if (hasSmokeOnCell(cell.builds)) return false;
+  if (String(unit.type || '').toLowerCase() === 'tech' && unitHasPropKey(unit, 'railwayDetachment')) {
+    if (!isRailwayCellPreview(cell)) return false;
+    if (fromCell && !isRailwayCellPreview(fromCell)) return false;
+  }
   return true;
+}
+
+function isRailwayCellPreview(cell: Cell): boolean {
+  const t = String(cell.type || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, '');
+  if (t === 'railway' || t === 'railroad' || t === 'rail' || t === 'train') return true;
+  const blob = `${String(cell.type || '')} ${String((cell as { name?: string }).name || '')}`;
+  if (/железн|railway|railroad|жд(?![а-я])/i.test(blob)) return true;
+  const ex = (cell as Cell & { hexExtra?: { railway?: boolean; rail?: boolean } }).hexExtra;
+  if (ex && (ex.railway === true || ex.rail === true)) return true;
+  return false;
 }
 
 function getNeighbor(hex: { x: number; y: number; z: number }, dir: number) {
@@ -404,6 +435,38 @@ export function findBattleUnitByInstanceId(
   }
   return null;
 }
+
+export function isValidMeleeRetreatCell(
+  from: Cell,
+  to: Cell,
+  unit: BattleMovePreviewUnit & { instanceId?: unknown },
+  allCells: Cell[],
+): boolean {
+  if (!from || !to) return false;
+  if (hexDistCells(from, to) !== 1) return false;
+  if (terrainEntryCost(to, unit) === 0) return false;
+  if (cellHasEnemy(to, unitFaction(unit))) return false;
+  const mid = Number(unit.instanceId);
+  if (Number.isFinite(mid) && cellForbidsThirdPartyMeleeEntry(allCells, to, unit)) return false;
+  return true;
+}
+
+export function findMeleeRetreatCells(
+  from: Cell,
+  unit: BattleMovePreviewUnit & { instanceId?: unknown },
+  allCells: Cell[],
+): Cell[] {
+  const out: Cell[] = [];
+  for (let dir = 0; dir < 6; dir++) {
+    const nb = findCellByCoor(allCells, getNeighbor(from.coor, dir));
+    if (nb && isValidMeleeRetreatCell(from, nb, unit, allCells)) out.push(nb);
+  }
+  return out;
+}
+
+
+
+
 
 
 

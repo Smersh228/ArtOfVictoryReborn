@@ -98,6 +98,14 @@ function enrichUnitFromCatalogRow(u, row) {
     const n = Number(row.smoke_shells)
     if (Number.isFinite(n)) u.smokeShells = n
   }
+  if (u.mines == null && row.mines != null) {
+    const n = Number(row.mines)
+    if (Number.isFinite(n) && n >= 0) {
+      u.mines = Math.floor(n)
+      if (!u.ammunition || typeof u.ammunition !== 'object') u.ammunition = {}
+      if (u.ammunition.mine == null) u.ammunition.mine = u.mines
+    }
+  }
   const rawFire = row.fire && typeof row.fire === 'object' ? row.fire : {}
   const pack = {}
   for (const k of ['range', 'inf', 'art', 'tech', 'armor', 'lt', 'mt', 'ht', 'sa', 'ba', 'build']) {
@@ -200,7 +208,7 @@ async function enrichBattleCells(pool, cells) {
   let r
   try {
     r = await pool.query(
-      `SELECT u.id_unit, u.name, u.type, u.count, u.defend, u.morale, u.op, u.ammo, u.visible, u.explosives, u.smoke_shells,
+      `SELECT u.id_unit, u.name, u.type, u.count, u.defend, u.morale, u.op, u.ammo, u.visible, u.explosives, u.smoke_shells, u.mines,
         u.standard_image,
         ud.intelligence_air_range AS intelligence_air_range,
         ud.razvedka_range AS razvedka_range,

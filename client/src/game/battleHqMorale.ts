@@ -118,7 +118,9 @@ export function getEffectiveMorDisplay(
   const base = Number(unit.mor ?? unit.morale);
   if (!Number.isFinite(base)) return null;
   const zone = getHqMoraleZoneBonus(unit, unitCell, cells);
-  if (zone > 0) return `${base} +${zone}`;
+  const cover = unit.tactical && (unit.tactical as { infantryCover?: boolean }).infantryCover ? 1 : 0;
+  const extra = zone + cover;
+  if (extra > 0) return `${base} +${extra}`;
   return String(base);
 }
 

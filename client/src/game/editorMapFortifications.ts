@@ -1,5 +1,6 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import type { IBuildCell } from '../../../server/src/game/gameLogic/cells/cell';
+import { normalizeUnitTeam, teamSideLabel } from './editorMapTeam';
 import dotImg from '../img/build/dot.png';
 import minesImg from '../img/build/mines.png';
 import storageImg from '../img/build/storage.png';
@@ -55,11 +56,130 @@ export const DOT_SPRITE_URL = dotImg;
 export const STORAGE_SPRITE_URL = storageImg;
 export const ANTITANK_SPRITE_URL = tankHedgehogImg;
 export const TRENCH_SPRITE_URL = trenchImg;
+export const PONTON_SPRITE_URL = pontonReadyImg;
 
 export const STORAGE_DEFAULT_AMMO = 40;
 export const STORAGE_DEFAULT_SMOKE = 2;
 export const STORAGE_DEFAULT_EXPLOSIVES = 2;
 export const STORAGE_DEFAULT_MINES = 4;
+
+export type MineKind = 'infantry' | 'tank';
+
+export function hasMineOnCell(builds: IBuildCell | undefined | null): boolean {
+  return Number(builds?.mine) > 0;
+}
+
+export function isMineRevealed(builds: IBuildCell | undefined | null): boolean {
+  return hasMineOnCell(builds) && Boolean(builds?.mineRevealed);
+}
+
+export function getMineKind(builds: IBuildCell | undefined | null): MineKind {
+  return builds?.mineKind === 'tank' ? 'tank' : 'infantry';
+}
+
+export function readMineTeam(builds: IBuildCell | undefined | null): number | null {
+  const n = Math.floor(Number(builds?.mineTeam));
+  if (!Number.isFinite(n) || n < 1) return null;
+  return n;
+}
+
+export function getMineTeam(builds: IBuildCell | undefined | null, limit: unknown = 6): number {
+  return normalizeUnitTeam(readMineTeam(builds) ?? 1, limit);
+}
+
+export function mineOwnerBattleFaction(
+  builds: IBuildCell | undefined | null,
+): 'rkka' | 'wehrmacht' | 'none' {
+  const team = readMineTeam(builds);
+  if (team == null) return 'none';
+  return team % 2 === 1 ? 'rkka' : 'wehrmacht';
+}
+
+export function isMineFriendlyToFaction(
+  builds: IBuildCell | undefined | null,
+  faction: unknown,
+): boolean {
+  const mf = mineOwnerBattleFaction(builds);
+  const raw = String(faction || '').toLowerCase();
+  const vf =
+    raw === 'ussr' || raw === 'rkka' ? 'rkka' : raw === 'germany' || raw === 'wehrmacht' ? 'wehrmacht' : 'none';
+  return mf !== 'none' && vf !== 'none' && mf === vf;
+}
+
+export function isMineVisibleOnBattleMap(
+  builds: IBuildCell | undefined | null,
+  viewerFaction: unknown,
+): boolean {
+  if (!hasMineOnCell(builds)) return false;
+  if (isMineRevealed(builds)) return true;
+  return isMineFriendlyToFaction(builds, viewerFaction);
+}
+
+const CUBE_NEIGHBOR_DIRS = [
+  { x: 1, y: -1, z: 0 },
+  { x: 1, y: 0, z: -1 },
+  { x: 0, y: 1, z: -1 },
+  { x: -1, y: 1, z: 0 },
+  { x: -1, y: 0, z: 1 },
+  { x: 0, y: -1, z: 1 },
+] as const;
+
+export function cellsEligibleForDemining(
+  fromCell: Cell,
+  allCells: Cell[],
+  viewerFaction: unknown,
+): Cell[] {
+  const out: Cell[] = [];
+  if (isMineVisibleOnBattleMap(fromCell.builds, viewerFaction)) out.push(fromCell);
+  for (const d of CUBE_NEIGHBOR_DIRS) {
+    const nb = allCells.find(
+      (c) =>
+        c.coor.x === fromCell.coor.x + d.x &&
+        c.coor.y === fromCell.coor.y + d.y &&
+        c.coor.z === fromCell.coor.z + d.z,
+    );
+    if (!nb || !isMineVisibleOnBattleMap(nb.builds, viewerFaction)) continue;
+    out.push(nb);
+  }
+  return out;
+}
+
+export function mineKindLabel(kind: MineKind): string {
+  return kind === 'tank' ? 'Танковая' : 'Пехотная';
+}
+
+export function buildMineHoverTip(builds: IBuildCell | undefined | null): {
+  title: string;
+  rows: { key: string; val: string }[];
+} {
+  const team = readMineTeam(builds);
+  const rows = [{ key: 'Тип', val: mineKindLabel(getMineKind(builds)) }];
+  if (team != null) {
+    rows.push({ key: 'Сторона', val: `Команда ${team} (${teamSideLabel(team)})` });
+  }
+  return { title: 'Мина', rows };
+}
+
+export function applyMineDefaults(
+  builds: IBuildCell,
+  kind: MineKind = 'infantry',
+  team: unknown = 1,
+): IBuildCell {
+  return {
+    ...builds,
+    mine: 1,
+    mineKind: kind,
+    mineTeam: normalizeUnitTeam(team ?? readMineTeam(builds) ?? 1, 6),
+  };
+}
+
+export function clearMineFields(builds: IBuildCell): IBuildCell {
+  const next = { ...builds, mine: 0 };
+  delete next.mineKind;
+  delete next.mineRevealed;
+  delete next.mineTeam;
+  return next;
+}
 
 export function hasStorageOnCell(builds: IBuildCell | undefined | null): boolean {
   return Number(builds?.storage) > 0;
@@ -119,6 +239,11 @@ export function ensureCellBuilds(builds: IBuildCell | undefined | null): IBuildC
   }
   if (Number(merged.storage) > 0) {
     return applyStorageSupplyDefaults(merged);
+  }
+  if (Number(merged.mine) > 0) {
+    merged.mineKind = merged.mineKind === 'tank' ? 'tank' : 'infantry';
+    const team = Math.floor(Number(merged.mineTeam));
+    if (Number.isFinite(team) && team >= 1) merged.mineTeam = team;
   }
   return merged;
 }

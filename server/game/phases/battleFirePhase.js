@@ -8,6 +8,8 @@ const {
 const desantCombat = require('../lib/air/battleDesantCombat')
 const { isInfantryUnit, isArmoredVehicleTarget } = require('../core/battleUnitType')
 const { tryDestroyBarbedWireFromFire } = require('../lib/map/battleWireEdges')
+const ponton = require('../lib/map/battlePonton')
+const smoke = require('../lib/map/battleSmoke')
 const dotMod = require('../lib/map/battleDot')
 
 function infantryAreaFireTargetsOrSkip(atk, targetsAll, le, ph) {
@@ -52,6 +54,8 @@ function processFirePhase(
     isArmoredVehicleTarget,
     isAmbushConcealed,
     canSpotAmbushTarget,
+    isHiddenConcealed,
+    canSpotHiddenTarget,
     hexDist,
     rangeArrayFor,
     rangeArrayForAtCell,
@@ -86,7 +90,21 @@ function processFirePhase(
     resolveGroupedDirectFire,
     terrainDefenseBonusFromCell,
     getDef,
+    revealHiddenUnit,
+    rollTankFearSteadfastness,
+    ensureTacticalBattle,
+    clearDefendOnUnit,
   } = deps
+
+  function canSeeConcealedEnemy(atkUnit, atkCell, tgtUnit, tgtCell) {
+    if (isAmbushConcealed(tgtUnit) && !canSpotAmbushTarget(atkUnit, atkCell, tgtUnit, tgtCell, cells)) {
+      return false
+    }
+    if (isHiddenConcealed && isHiddenConcealed(tgtUnit) && canSpotHiddenTarget && !canSpotHiddenTarget(atkUnit, atkCell, tgtUnit, tgtCell, cells)) {
+      return false
+    }
+    return true
+  }
 
   const isSup = ph === PHASE_KEYS.fireHard
   const ammoCost = isSup ? 3 : 1
@@ -116,7 +134,16 @@ function processFirePhase(
   function tryDotFireDamage(targetCell, attacker, shooterCell, distance) {
     dotMod.tryDamageDotFromFire(targetCell, attacker, shooterCell, distance, dotFireDeps, le, ph)
   }
+  function tryStructureFire(targetCell, attacker, shooterCell, distance) {
+    tryDestroyBarbedWireFromFire(targetCell, attacker, unitHasPropKey, le, ph)
+    ponton.tryDestroyPontonFromFire(targetCell, attacker, shooterCell, distance, {
+      intensityArrayFor,
+      rangeArrayForAtCell,
+      computeShoot,
+    }, le, ph)
+  }
   for (const o of list) {
+    if (String(o.orderKey || '').trim() === 'smoke') continue
     const atk = findUnitOnField(cells, o.unitId)
     if (!atk) continue
     if (!dotMod.dotShooterCanFire(atk.unit)) {
@@ -138,10 +165,24 @@ function processFirePhase(
       }
       const tcOnly = cells.find((c) => Number(c.id) === Number(tcidRaw))
       if (!tcOnly) continue
+      if (smoke.hasSmokeOnCell(tcOnly.builds)) {
+        const dSm = hexDist(
+          atk.cell.coor.x,
+          atk.cell.coor.y,
+          atk.cell.coor.z,
+          tcOnly.coor.x,
+          tcOnly.coor.y,
+          tcOnly.coor.z,
+        )
+        deductShooterAmmo(atk, ammoCost)
+        tryStructureFire(tcOnly, atk.unit, atk.cell, dSm)
+        tryDotFireDamage(tcOnly, atk.unit, atk.cell, dSm)
+        le(ph, `Огонь: юнит ${atk.unit.instanceId} → кл. ${tcOnly.id} (дым, цели не видны)`)
+        continue
+      }
       const nOpp = countOpposingHostilesOnCell(tcOnly, atk.unit)
       if (nOpp === 0) {
         deductShooterAmmo(atk, ammoCost)
-        tryDestroyBarbedWireFromFire(tcOnly, atk.unit, unitHasPropKey, le, ph)
         const dDot0 = hexDist(
           atk.cell.coor.x,
           atk.cell.coor.y,
@@ -150,6 +191,7 @@ function processFirePhase(
           tcOnly.coor.y,
           tcOnly.coor.z,
         )
+        tryStructureFire(tcOnly, atk.unit, atk.cell, dDot0)
         tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDot0)
         le(
           ph,
@@ -177,7 +219,6 @@ function processFirePhase(
       let targetsAll = collectOpposingHostilesOnCell(tcOnly, atk.unit)
       if (!targetsAll.length) {
         deductShooterAmmo(atk, ammoCost)
-        tryDestroyBarbedWireFromFire(tcOnly, atk.unit, unitHasPropKey, le, ph)
         const dDot0 = hexDist(
           atk.cell.coor.x,
           atk.cell.coor.y,
@@ -186,6 +227,7 @@ function processFirePhase(
           tcOnly.coor.y,
           tcOnly.coor.z,
         )
+        tryStructureFire(tcOnly, atk.unit, atk.cell, dDot0)
         tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDot0)
         le(
           ph,
@@ -216,7 +258,7 @@ function processFirePhase(
         targetsAll = poolAf
       }
       const targets = targetsAll.filter(
-        (t) => !isAmbushConcealed(t) || canSpotAmbushTarget(atk.unit, atk.cell, t, tcOnly, cells),
+        (t) => canSeeConcealedEnemy(atk.unit, atk.cell, t, tcOnly),
       )
       if (!targets.length) {
         le(
@@ -304,7 +346,7 @@ function processFirePhase(
         })
       }
       deductShooterAmmo(atk, ammoCost)
-      tryDestroyBarbedWireFromFire(tcOnly, atk.unit, unitHasPropKey, le, ph)
+      tryStructureFire(tcOnly, atk.unit, atk.cell, dAf)
       const dDotAf = hexDist(
         atk.cell.coor.x,
         atk.cell.coor.y,
@@ -351,11 +393,15 @@ function processFirePhase(
     if (tid == null) continue
     const def = findUnitOnField(cells, tid)
     if (!def) continue
+    if (smoke.hasSmokeOnCell(def.cell.builds)) {
+      le(ph, `Юнит ${atk.unit.instanceId}: цель в дымовой завесе`)
+      continue
+    }
     if (!opposing(unitFaction(atk.unit), unitFaction(def.unit))) continue
-    if (isAmbushConcealed(def.unit) && !canSpotAmbushTarget(atk.unit, atk.cell, def.unit, def.cell, cells)) {
+    if (!canSeeConcealedEnemy(atk.unit, atk.cell, def.unit, def.cell)) {
       le(
         ph,
-        `Юнит ${atk.unit.instanceId}: цель в засаде — не обнаружена (соседний гекс, огонь по площади или уже вела огонь)`,
+        `Юнит ${atk.unit.instanceId}: цель скрыта — не обнаружена (соседний гекс, огонь по площади или уже вела огонь)`,
       )
       continue
     }
@@ -442,7 +488,7 @@ function processFirePhase(
         targetsAll = poolDir
       }
       const targets = targetsAll.filter(
-        (t) => !isAmbushConcealed(t) || canSpotAmbushTarget(atk.unit, atk.cell, t, def.cell, cells),
+        (t) => canSeeConcealedEnemy(atk.unit, atk.cell, t, def.cell),
       )
       if (!targets.length) {
         le(
@@ -472,8 +518,7 @@ function processFirePhase(
         })
       }
       deductShooterAmmo(atk, ammoCost)
-      tryDestroyBarbedWireFromFire(def.cell, atk.unit, unitHasPropKey, le, ph)
-      const atkIdArea = Number(atk.unit.instanceId)
+      tryStructureFire(def.cell, atk.unit, atk.cell, d)
       const areaKeyDir = Number(def.cell.id)
       const areaGroupedDir = ensureGroupedAreaFireBucket(
         groupedAreaFire,
@@ -537,7 +582,26 @@ function processFirePhase(
         `Огонь: ${atk.unit.instanceId} → ${def.unit.instanceId}, попаданий ${res.hits} (выпало: ${res.rollResults.join(',')})${tag}`,
       )
       deductShooterAmmo(atk, ammoCost)
-      tryDestroyBarbedWireFromFire(def.cell, atk.unit, unitHasPropKey, le, ph)
+      tryStructureFire(def.cell, atk.unit, atk.cell, d)
+      if (isHiddenConcealed && isHiddenConcealed(def.unit) && revealHiddenUnit) {
+        revealHiddenUnit(def.unit)
+      }
+      if (unitHasPropKey(atk.unit, 'sniper')) {
+        le(ph, `Снайпер: юнит ${atk.unit.instanceId} — урон по ОЖ не наносится`, {
+          unitInstanceId: Number(atk.unit.instanceId),
+          sniper: true,
+        })
+        const wouldDmg = Number(res.damages) || 0
+        if (wouldDmg >= 1 && rollTankFearSteadfastness) {
+          rollTankFearSteadfastness(le, ph, def.unit, 'Снайпер', true, false, {
+            ensureTacticalBattle,
+            clearDefendOnUnit,
+            cells,
+            findUnitOnField,
+          })
+        }
+        continue
+      }
       const defId = Number(tid)
       const grouped = groupedDirectFire.get(defId) || {
         targetId: defId,

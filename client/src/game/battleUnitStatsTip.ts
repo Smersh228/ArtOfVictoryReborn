@@ -16,6 +16,27 @@ export function readUnitStatNumber(unit: Record<string, unknown>, ...keys: strin
   return null;
 }
 
+export function getUnitMinesStock(unit: Record<string, unknown>): number {
+  const am = (unit.ammunition as { mine?: unknown } | undefined)?.mine;
+  const fromAmmo = Number(am);
+  if (Number.isFinite(fromAmmo) && fromAmmo >= 0) return Math.floor(fromAmmo);
+  const n = readUnitStatNumber(unit, 'mines');
+  return n != null && n >= 0 ? Math.floor(n) : 0;
+}
+
+export function getUnitExplosivesStock(unit: Record<string, unknown>): number {
+  const am = (unit.ammunition as { explosives?: unknown } | undefined)?.explosives;
+  const fromAmmo = Number(am);
+  if (Number.isFinite(fromAmmo) && fromAmmo >= 0) return Math.floor(fromAmmo);
+  const n = readUnitStatNumber(unit, 'explosives');
+  return n != null && n >= 0 ? Math.floor(n) : 0;
+}
+
+export function getUnitSmokeShellsStock(unit: Record<string, unknown>): number {
+  const n = readUnitStatNumber(unit, 'smokeShells');
+  return n != null && n >= 0 ? Math.floor(n) : 0;
+}
+
 function desantHalfCombatActive(unit: Record<string, unknown>): boolean {
   const tac = unit.tactical as { desantHalfCombat?: boolean; desantEquipping?: boolean } | undefined;
   return tac?.desantHalfCombat === true || tac?.desantEquipping === true;
@@ -44,15 +65,33 @@ function collectDefenseBonusRows(
     | {
         desantHalfCombat?: boolean;
         desantEquipping?: boolean;
+        inTrench?: boolean;
+        defendOrder?: boolean;
+        medicalAidReceived?: boolean;
+        infantryCover?: boolean;
+        trenchDigTurnsLeft?: number;
+        sapperJob?: { key?: string; turnsLeft?: number };
       }
     | undefined;
 
   const rows: { key: string; val: string }[] = [];
 
+  if (Number(tac?.trenchDigTurnsLeft) > 0) {
+    rows.push({
+      key: 'Защита',
+      val: '0 (окапывается)',
+    });
+    return rows;
+  }
+
   const terrain = unitCell ? terrainDefenseBonusFromCell(unitCell, unit) : 0;
   const orderKey = String(opts?.pendingOrderKey ?? '').trim();
   const moveWar = orderKey === 'moveWar' ? 1 : 0;
-  const defenseBonuses = [terrain, moveWar].filter((b) => b > 0);
+  const trenchBonus = tac?.inTrench ? 2 : 0;
+  const defendBonus = tac?.defendOrder ? 1 : 0;
+  const medicalBonus = tac?.medicalAidReceived ? 1 : 0;
+  const coverBonus = tac?.infantryCover ? 1 : 0;
+  const defenseBonuses = [terrain, moveWar, trenchBonus, defendBonus, medicalBonus, coverBonus].filter((b) => b > 0);
   const desantHalf = desantHalfCombatActive(unit);
 
   rows.push({
@@ -85,9 +124,14 @@ export function formatUnitAmmoLine(unit: Record<string, unknown>): string {
   const live = readUnitStatNumber(unit, 'ammoCount');
   if (live != null) {
     const cap = unit.ammoSupply;
-    if (typeof cap === 'string' && cap.includes('/')) {
-      const max = cap.split('/')[1]?.trim();
-      if (max) return `${live}/${max}`;
+    if (typeof cap === 'string' && cap.trim()) {
+      const s = cap.trim();
+      if (s.includes('/')) {
+        const max = s.split('/')[1]?.trim();
+        if (max) return `${live}/${max}`;
+      } else if (/^\d+$/.test(s)) {
+        return `${live}/${s}`;
+      }
     }
     return String(live);
   }
@@ -120,15 +164,52 @@ export function unitStatsRowsForTip(
 
   out.push(...collectDefenseBonusRows(unit, unitCell, opts));
 
+  const tacTip = unit.tactical as {
+    inTrench?: boolean;
+    defendOrder?: boolean;
+    trenchDigTurnsLeft?: number;
+    sapperJob?: { key?: string; turnsLeft?: number };
+    fireSuppression?: boolean;
+    infantryCover?: boolean;
+    meleeOpponentInstanceId?: unknown;
+  } | undefined;
+  if (tacTip?.fireSuppression) {
+    out.push({ key: 'Состояние', val: 'Огневое подавление' });
+  }
+  if (tacTip?.infantryCover) {
+    out.push({ key: 'Прикрытие', val: '+1 З / +1 стойкость' });
+  }
+  const digLeft = Number(tacTip?.trenchDigTurnsLeft);
+  if (Number.isFinite(digLeft) && digLeft > 0) {
+    out.push({ key: 'Окоп', val: `Копает (${digLeft} ход.)` });
+  } else if (tacTip?.inTrench) {
+    out.push({
+      key: 'Окоп',
+      val: tacTip.defendOrder ? 'Занят, оборона (+3 З)' : 'Занят (+2 З)',
+    });
+  }
+  const jobLeft = Number(tacTip?.sapperJob?.turnsLeft);
+  if (Number.isFinite(jobLeft) && jobLeft > 0) {
+    const jk = String(tacTip?.sapperJob?.key || '');
+    const jobLabel =
+      jk === 'buildPonton'
+        ? 'Переправа'
+        : jk === 'cutEj'
+          ? 'Снятие ежей'
+          : jk === 'demining'
+            ? 'Разминирование'
+            : jk === 'mining'
+              ? 'Минирование'
+              : 'Сапёрные работы';
+    out.push({ key: jobLabel, val: `Выполняется (${jobLeft} ход.)` });
+  }
+
   const morDisplay = getEffectiveMorDisplay(unit, unitCell, cells);
   if (morDisplay != null) out.push({ key: 'Мораль', val: morDisplay });
   out.push({ key: 'Боезапас', val: formatUnitAmmoLine(unit) });
-  const mineStore = (unit.ammunition as { mine?: number } | undefined)?.mine;
-  const minesN = readUnitStatNumber(unit, 'mines');
-  if (typeof mineStore === 'number' && Number.isFinite(mineStore) && mineStore > 0) {
-    out.push({ key: 'Мины (запас)', val: String(mineStore) });
-  } else if (minesN != null && minesN > 0) {
-    out.push({ key: 'Мины', val: String(minesN) });
+  const mineStore = getUnitMinesStock(unit);
+  if (mineStore > 0) {
+    out.push({ key: 'Мины', val: String(mineStore) });
   }
   const expl = readUnitStatNumber(unit, 'explosives');
   if (expl != null && expl > 0) out.push({ key: 'Взрывчатка', val: String(expl) });
@@ -152,7 +233,7 @@ export function formatUnitBattleStatus(unit: Record<string, unknown>): string {
     return 'В ближнем бою';
   }
   if (tac?.fireSuppression === true) {
-    return 'Огневое положение';
+    return 'Огневое подавление';
   }
   if (tac?.desantEquipping === true || tac?.desantEquipScheduled === true) {
     return 'Снаряжение после десантирования';
@@ -164,6 +245,22 @@ export function formatUnitBattleStatus(unit: Record<string, unknown>): string {
   const emb = tac?.embarkedTransportInstanceId;
   if (emb != null && emb !== '' && Number.isFinite(Number(emb))) {
     return 'В транспорте';
+  }
+
+  if (Number(tac?.trenchDigTurnsLeft) > 0) {
+    return 'Окапывается';
+  }
+  const sapperLeft = Number((tac as { sapperJob?: { turnsLeft?: number; key?: string } } | undefined)?.sapperJob?.turnsLeft);
+  if (Number.isFinite(sapperLeft) && sapperLeft > 0) {
+    const jk = String((tac as { sapperJob?: { key?: string } }).sapperJob?.key || '');
+    if (jk === 'buildPonton') return 'Наводит переправу';
+    if (jk === 'cutEj') return 'Снимает противотанковые заграждения';
+    if (jk === 'demining') return 'Разминирует';
+    if (jk === 'mining') return 'Минирует';
+    return 'Сапёрные работы';
+  }
+  if (tac?.inTrench === true) {
+    return 'В окопе';
   }
 
   const ty = String(unit.type || '').toLowerCase();

@@ -15,6 +15,8 @@ interface BattleCenterModalsProps {
   } | null;
   opponentVictory: boolean;
   myBattleFaction: BattleFaction;
+  hqRewriteMode?: boolean;
+  rewriteMax?: number;
   onCloseCenterModal: () => void;
   onConfirmSurrender: () => void;
   onConfirmNextTurn: () => void;
@@ -29,6 +31,8 @@ const BattleCenterModals: React.FC<BattleCenterModalsProps> = ({
   scenarioBattleOutcome,
   opponentVictory,
   myBattleFaction,
+  hqRewriteMode = false,
+  rewriteMax = 0,
   onCloseCenterModal,
   onConfirmSurrender,
   onConfirmNextTurn,
@@ -68,8 +72,14 @@ const BattleCenterModals: React.FC<BattleCenterModalsProps> = ({
         <aside className={`${styles.leftMenuPanel} ${styles.leftMenuPanelSurrenderModal}`} aria-label="Следующий ход">
           <header className={styles.leftMenuHeader}>
             <div className={styles.leftMenuTitles}>
-              <h2 className={styles.leftMenuTitle}>Следующий ход</h2>
-              <p className={styles.leftMenuSubtitle}>Подтвердите завершение текущего хода</p>
+              <h2 className={styles.leftMenuTitle}>
+                {hqRewriteMode ? 'Приказы штаба' : 'Следующий ход'}
+              </h2>
+              <p className={styles.leftMenuSubtitle}>
+                {hqRewriteMode
+                  ? `Можно сменить до ${rewriteMax} приказов, затем подтвердить`
+                  : 'Подтвердите завершение текущего хода'}
+              </p>
             </div>
           </header>
           <div className={styles.leftMenuBody}>

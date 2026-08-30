@@ -4,11 +4,10 @@ const { AsyncLocalStorage } = require('async_hooks')
 
 const envAls = new AsyncLocalStorage()
 
-const WEATHER_KEYS = ['fog', 'rain', 'strongWind']
+const WEATHER_KEYS = ['fog', 'rain']
 const WEATHER_LABELS = {
   fog: 'Туман',
   rain: 'Дождь',
-  strongWind: 'Сильный ветер',
 }
 
 const EMPTY_LIVE = {
@@ -69,7 +68,7 @@ function parseEnvironmentConfig(conditions) {
     nightFromFirst: env.nightFromFirst !== false,
     fog: parseWeatherSpec(env.fog),
     rain: parseWeatherSpec(env.rain),
-    strongWind: parseWeatherSpec(env.strongWind),
+    strongWind: { enabled: false, chance: 30, duration: 3 },
   }
 }
 
@@ -130,7 +129,7 @@ function snapshotFromRoom(room) {
     isNight,
     fogActive: Boolean(weather.fog && weather.fog.active),
     rainActive: Boolean(weather.rain && weather.rain.active),
-    strongWindActive: Boolean(weather.strongWind && weather.strongWind.active),
+    strongWindActive: false,
     visionPenalty: 0,
     accuracyShift: 0,
     intensityPenalty: 0,
@@ -148,7 +147,6 @@ function publicSnapshot(room) {
   if (cfg.night) labels.push(snap.isNight ? 'Ночь' : 'День')
   if (snap.fogActive) labels.push('Туман')
   if (snap.rainActive) labels.push('Дождь')
-  if (snap.strongWindActive) labels.push('Сильный ветер')
   return {
     ...snap,
     labels,
@@ -183,7 +181,7 @@ function applyIntensityPenalty(dice) {
   const n = Number(dice)
   const base = Number.isFinite(n) ? n : 0
   const pen = Number(getLiveEnvironment().intensityPenalty) || 0
-  return Math.max(0, base - pen)
+  return Math.max(1, base - pen)
 }
 
 function isRoadCell(cell) {

@@ -63,3 +63,37 @@ export function antiTankBlocksGroundMove(
   const blockedEntry = hasAntiTankOnMoveDir(toCell.builds, oppDir);
   return blockedExit || blockedEntry;
 }
+
+const CUBE_NEIGHBOR_DIRS = [
+  { x: 1, y: -1, z: 0 },
+  { x: 1, y: 0, z: -1 },
+  { x: 0, y: 1, z: -1 },
+  { x: -1, y: 1, z: 0 },
+  { x: -1, y: 0, z: 1 },
+  { x: 0, y: -1, z: 1 },
+] as const;
+
+export function adjacentCellsWithAntiTank(fromCell: Cell, allCells: Cell[]): Cell[] {
+  const out: Cell[] = [];
+  for (let dir = 0; dir < 6; dir++) {
+    const d = CUBE_NEIGHBOR_DIRS[dir];
+    const nb = allCells.find(
+      (c) =>
+        c.coor.x === fromCell.coor.x + d.x &&
+        c.coor.y === fromCell.coor.y + d.y &&
+        c.coor.z === fromCell.coor.z + d.z,
+    );
+    if (!nb) continue;
+    const oppDir = (dir + 3) % 6;
+    if (hasAntiTankOnMoveDir(fromCell.builds, dir) || hasAntiTankOnMoveDir(nb.builds, oppDir)) {
+      out.push(nb);
+    }
+  }
+  return out;
+}
+
+export function cellsEligibleForCutEj(fromCell: Cell, allCells: Cell[]): Cell[] {
+  const out = adjacentCellsWithAntiTank(fromCell, allCells);
+  if (hasAntiTankOnCell(fromCell.builds)) out.unshift(fromCell);
+  return out;
+}

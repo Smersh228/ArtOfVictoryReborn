@@ -16,9 +16,9 @@ export function resolveBattleCellOnField(
   fieldCells: Cell[],
 ): Cell | null | undefined {
   if (!cell || !fieldCells.length) return cell;
-  const id = cell.id;
+  const id = Number(cell.id);
   if (!Number.isFinite(id)) return cell;
-  const found = fieldCells.find((c) => c.id === id);
+  const found = fieldCells.find((c) => Number(c.id) === id);
   return found ?? cell;
 }
 

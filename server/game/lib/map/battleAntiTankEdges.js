@@ -77,6 +77,28 @@ function hasAntiTankOnMoveDir(builds, moveDir) {
   return hasAntiTankOnEdge(builds, moveDirToVisualEdge(moveDir))
 }
 
+function cutAntiTankAlongSharedEdge(fromCell, toCell) {
+  const dir = findMoveDir(fromCell, toCell)
+  if (dir < 0) return false
+  const oppDir = (dir + 3) % 6
+  let cleared = false
+  if (hasAntiTankOnMoveDir(fromCell.builds, dir)) {
+    fromCell.builds = clearAntiTankEdgeOnBuilds(fromCell.builds, moveDirToVisualEdge(dir))
+    cleared = true
+  }
+  if (hasAntiTankOnMoveDir(toCell.builds, oppDir)) {
+    toCell.builds = clearAntiTankEdgeOnBuilds(toCell.builds, moveDirToVisualEdge(oppDir))
+    cleared = true
+  }
+  return cleared
+}
+
+function cutAntiTankOnCellEdge(cell, edgeDir) {
+  if (!cell || !hasAntiTankOnEdge(cell.builds, edgeDir)) return false
+  cell.builds = clearAntiTankEdgeOnBuilds(cell.builds, edgeDir)
+  return true
+}
+
 function isAntiTankBlockedUnitType(type) {
   const t = String(type || '').trim()
   return t === 'tech' || t === 'armor' || t === 'lightTank' || t === 'mediumTank' || t === 'heavyTank'
@@ -98,8 +120,11 @@ module.exports = {
   getAntiTankEdgesMask,
   hasAntiTankOnCell,
   hasAntiTankOnEdge,
+  hasAntiTankOnMoveDir,
   clearAllAntiTankOnBuilds,
   clearAntiTankEdgeOnBuilds,
   findMoveDir,
   antiTankBlocksGroundMove,
+  cutAntiTankAlongSharedEdge,
+  cutAntiTankOnCellEdge,
 }

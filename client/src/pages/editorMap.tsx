@@ -17,11 +17,12 @@ import {
   edgeIndexFromPoint,
   toggleWireEdgeOnBuilds,
 } from '../game/cellWireEdges'
-import { toggleTrenchEdgeOnBuilds } from '../game/cellTrenchEdges'
+import { toggleTrenchEdgeOnBuilds, isTrenchForbiddenOnCell } from '../game/cellTrenchEdges'
 import { toggleAntiTankEdgeOnBuilds } from '../game/cellAntiTankEdges'
 import { computeBombardmentDirectionPickCellIds } from '../game/battleAirSupport'
 import { patchUnitOrderEditorMeta, readArtilleryDeployMeta, readUnitOrderEditorMeta } from '../game/editorMapUnitOrderMeta'
 import {
+  applyMineDefaults,
   applyStorageSupplyDefaults,
   clearStorageSupplyFields,
   ensureCellBuilds,
@@ -497,6 +498,9 @@ const EditorMap: React.FC = () => {
         selectedItem.buildKey === 'trench' ||
         selectedItem.buildKey === 'antiTankBuild'
       ) {
+        if (selectedItem.buildKey === 'trench' && isTrenchForbiddenOnCell(cell)) {
+          return
+        }
         const center = getCellCenter(
           cell.coor.x,
           cell.coor.z,
@@ -559,6 +563,17 @@ const EditorMap: React.FC = () => {
               return { ...c, builds: clearStorageSupplyFields(builds) }
             }
             return { ...c, builds: applyStorageSupplyDefaults(builds) }
+          }),
+        )
+        return
+      }
+      if (selectedItem.buildKey === 'mine') {
+        setCells((prev) =>
+          prev.map((c) => {
+            if (c.id !== cell.id) return c
+            const builds = ensureCellBuilds(c.builds)
+            if (Number(builds.mine) > 0) return c
+            return { ...c, builds: applyMineDefaults(builds, 'infantry', selectedTeam) }
           }),
         )
         return
@@ -1031,7 +1046,10 @@ const EditorMap: React.FC = () => {
             cellSize={mapLayout.cellSize}
             onCellClick={handleCellClick}
             onUnitDelete={handleUnitDelete}
-            hideEditorCellHexMenu={selectedItem != null}
+            hideEditorCellHexMenu={
+              selectedItem != null &&
+              !(isCatalogFortification(selectedItem) && selectedItem.buildKey === 'mine')
+            }
             editorAviationEdgeHighlight={editorAviationPlacementActive}
             editorAviationEdgeCellIds={editorMapEdgeCellIds}
             editorCatalogUnits={catalogUnits}

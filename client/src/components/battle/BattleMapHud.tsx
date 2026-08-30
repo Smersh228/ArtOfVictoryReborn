@@ -9,6 +9,7 @@ type OrderPickLike = {
   defendStep?: 'facing' | 'range';
   bombardmentStep?: 'target' | 'direction';
   patrolStep?: 'target' | 'radius';
+  reconRangeStep?: 'radius';
   unloadCargoInstanceId?: number | null;
   useFireAdjustment?: boolean;
 };
@@ -39,8 +40,8 @@ function getOrderMetaText(
     }
     return ' — выберите направление сектора';
   }
-  if (orderPick.orderKey === 'getSup' || orderPick.orderKey === 'loading' || orderPick.orderKey === 'tow') {
-    return ' — клик по своему юниту или грузовику';
+  if (orderPick.orderKey === 'getSup' || orderPick.orderKey === 'loading' || orderPick.orderKey === 'tow' || orderPick.orderKey === 'railLoading') {
+    return ' — клик по подсвеченному союзнику (тот же гекс или соседний)';
   }
   if (orderPick.orderKey === 'loadingSup') {
     return ' — клик по складу (свой гекс или соседний)';
@@ -52,10 +53,16 @@ function getOrderMetaText(
   ) {
     return ' — зона огня по площади (туман не учитывается; цели не подсвечиваются)';
   }
-  if (orderPick.orderKey === 'unloading') {
+  if (orderPick.orderKey === 'unloading' || orderPick.orderKey === 'railUnloading') {
     return orderPick.unloadCargoInstanceId == null
       ? ' — выберите груз'
-      : ' — серая подсветка и иконка: клетки выгрузки (рядом с грузовиком)';
+      : ' — серая подсветка и иконка: клетки выгрузки (соседний гекс)';
+  }
+  if (orderPick.orderKey === 'smoke') {
+    return ' — клик по гексу в линии видимости и дальности стрельбы (своей или союзника)';
+  }
+  if (orderPick.orderKey === 'explomost') {
+    return ' — клик по гексу с понтонным мостом (свой или соседний)';
   }
   if (orderPick.orderKey === 'bombardment') {
     if ((orderPick.bombardmentStep ?? 'target') === 'target') {
@@ -69,6 +76,9 @@ function getOrderMetaText(
     }
     return ' — наведите курсор, чтобы увеличить зону; клик — подтвердить радиус';
   }
+  if (orderPick.orderKey === 'razvedka' || orderPick.orderKey === 'svzy') {
+    return ' — клик по гексу зоны: радиус = дистанция от юнита (порог — колонка таблицы)';
+  }
   if (orderPick.orderKey === 'interception') {
     return ' — клик по красному гексу: вражеская авиация в небе';
   }
@@ -79,7 +89,19 @@ function getOrderMetaText(
     return ' — клик по соседнему гексу (не ДОТ): выход, пехота — 1 ход';
   }
   if (orderPick.orderKey === 'cutWire') {
-    return ' — клик по соседнему гексу с проволокой';
+    return ' — клик по своему или соседнему гексу у грани с проволокой';
+  }
+  if (orderPick.orderKey === 'fireMove') {
+    const step = (orderPick as { fireMoveStep?: string }).fireMoveStep;
+    if (step === 'dest') return ' — клик по клетке назначения (путь хода)';
+    if (step === 'shot') return ' — клик по подсвеченному гексу пути: оттуда будет выстрел';
+    return ' — клик по цели, затем клетка хода и гекс выстрела на пути';
+  }
+  if (orderPick.orderKey === 'hardMove') {
+    return ' — клик по одиночной цели (мощная атака)';
+  }
+  if (orderPick.orderKey === 'trenches') {
+    return ' — клик по соседнему гексу: сторона окопа (защита с фронта)';
   }
   if (orderPick.orderKey === 'fire' && fireAdjustmentToggleAvailable) {
     return orderPick.useFireAdjustment

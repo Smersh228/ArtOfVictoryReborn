@@ -28,9 +28,10 @@ function phaseForOrderKey(key) {
   if (k === 'ambush') return PHASE_KEYS.ambush
   if (k === 'fireHard') return PHASE_KEYS.fireHard
   if (k === 'fire') return PHASE_KEYS.fire
+  if (k === 'smoke') return PHASE_KEYS.fire
   if (AIR_PHASE_ORDER_KEYS.has(k)) return PHASE_KEYS.air
-  if (k === 'attack') return PHASE_KEYS.attack
-  if (k === 'move' || k === 'moveWar') return PHASE_KEYS.move
+  if (k === 'attack' || k === 'hardMove') return PHASE_KEYS.attack
+  if (k === 'move' || k === 'moveWar' || k === 'fireMove') return PHASE_KEYS.move
   return PHASE_KEYS.special
 }
 function logEntry(phase, text, turnIndex, meta) {

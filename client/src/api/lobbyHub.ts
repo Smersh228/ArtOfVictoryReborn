@@ -23,6 +23,8 @@ export type LobbyHubState = {
   messages: LobbyChatMessage[]
   muted: boolean
   roleKey: LobbyRoleKey
+  onlineReal?: number
+  onlineBoost?: number
 }
 
 export type LobbyPlayerKills = Record<string, number>
@@ -135,12 +137,16 @@ export class LobbyHubError extends Error {
 }
 
 function parseState(data: Partial<LobbyHubState>): LobbyHubState {
+  const onlineBoostRaw = Number(data.onlineBoost)
+  const onlineRealRaw = Number(data.onlineReal)
   return {
     online: Number.isFinite(Number(data.online)) ? Number(data.online) : 0,
     inBattle: Number.isFinite(Number(data.inBattle)) ? Number(data.inBattle) : 0,
     messages: Array.isArray(data.messages) ? data.messages : [],
     muted: data.muted === true,
     roleKey: resolveLobbyRoleKey(data.roleKey),
+    onlineBoost: Number.isFinite(onlineBoostRaw) ? Math.max(0, Math.floor(onlineBoostRaw)) : undefined,
+    onlineReal: Number.isFinite(onlineRealRaw) ? Math.max(0, Math.floor(onlineRealRaw)) : undefined,
   }
 }
 

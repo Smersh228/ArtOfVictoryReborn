@@ -2,12 +2,34 @@ import React, { useMemo, useState } from 'react';
 import Button from '../Button';
 import styles from '../../pages/styleModules/battle.module.css';
 import { teamSideLabel } from '../../game/editorMapTeam';
+import { formatEnvironmentReport, parseEnvironmentLabelList } from '../../game/battleEnvironment';
 import type { BattleReportRow } from '../../pages/hooks/useBattleReportRows';
 
-type ReportGroup = 'general' | 'ally' | 'enemy';
+type ReportGroup = 'general' | 'ally' | 'enemy' | 'weather';
 
 type BattleLeftPanelId = 'report' | 'tasks';
 type BattleFaction = 'rkka' | 'wehrmacht' | 'none';
+
+function WeatherReportContent({
+  labels,
+  prefix,
+}: {
+  labels: string[];
+  prefix?: string;
+}) {
+  const formatted = formatEnvironmentReport(labels);
+  return (
+    <div className={styles.battleReportLineCol}>
+      <span className={styles.battleReportOrderLabel}>{formatted.order}</span>
+      <span className={styles.battleReportUnitNames}>
+        {prefix ? `${prefix} ${formatted.detail}` : formatted.detail}
+      </span>
+      {formatted.stats ? (
+        <span className={`${styles.battleReportStats} ${styles.battleReportWeatherDebuffs}`}>{formatted.stats}</span>
+      ) : null}
+    </div>
+  );
+}
 
 interface BattleSidePanelProps {
   leftMenu: BattleLeftPanelId | null;
@@ -19,6 +41,7 @@ interface BattleSidePanelProps {
   battleReportRows: {
     rows: BattleReportRow[];
   };
+  weatherRows?: BattleReportRow[];
   destroyedSummary: {
     rkka: string[];
     wehrmacht: string[];
@@ -39,6 +62,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
   apiRoomId,
   battleStartedAt,
   battleReportRows,
+  weatherRows = [],
   destroyedSummary,
   onHoverReportRow,
   onCloseLeftMenu,
@@ -57,12 +81,13 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
 
   const groupRows = useMemo(() => {
     const rows = battleReportRows.rows;
+    if (reportGroup === 'weather') return weatherRows;
     if (reportGroup === 'general') {
       return rows.filter((row) => row.bucket === 'general' || row.isMeta || row.isTurnHeader);
     }
     const fac = reportGroup === 'ally' ? allyFaction : enemyFaction;
     return rows.filter((row) => row.bucket === 'team' && row.actorFaction === fac);
-  }, [battleReportRows.rows, reportGroup, allyFaction, enemyFaction]);
+  }, [battleReportRows.rows, weatherRows, reportGroup, allyFaction, enemyFaction]);
 
   const teamOptions = useMemo(() => {
     const set = new Set<number>();
@@ -73,7 +98,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
   }, [groupRows]);
 
   const visibleRows = useMemo(() => {
-    if (reportGroup === 'general' || reportTeam === 'all') return groupRows;
+    if (reportGroup === 'general' || reportGroup === 'weather' || reportTeam === 'all') return groupRows;
     return groupRows.filter((row) => row.actorTeam === reportTeam);
   }, [groupRows, reportGroup, reportTeam]);
 
@@ -95,7 +120,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
           <div className={styles.battleReportWrap}>
             {apiRoomId == null || !Number.isFinite(apiRoomId) || battleStartedAt == null ? (
               <p className={styles.leftMenuText}>Журнал хода доступен в бою по сети: откройте комнату и начните сражение.</p>
-            ) : !battleReportRows.rows.length && !environmentLabels.length ? (
+            ) : !battleReportRows.rows.length && !environmentLabels.length && !weatherRows.length ? (
               <p className={styles.leftMenuText}>
                 Записей ещё нет. Когда оба игрока подтвердят ход, здесь появится сводка последнего хода.
               </p>
@@ -132,8 +157,18 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                 >
                   {enemyTitle}
                 </button>
+                <button
+                  type="button"
+                  className={`${styles.battleReportFilter} ${reportGroup === 'weather' ? styles.battleReportFilterActive : ''}`}
+                  onClick={() => {
+                    setReportGroup('weather');
+                    setReportTeam('all');
+                  }}
+                >
+                  Погода
+                </button>
               </div>
-              {reportGroup !== 'general' && teamOptions.length > 0 ? (
+              {reportGroup !== 'general' && reportGroup !== 'weather' && teamOptions.length > 0 ? (
                 <div className={styles.battleReportTeamFilters} aria-label="Команды">
                   <button
                     type="button"
@@ -155,13 +190,33 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                 </div>
               ) : null}
               <ul className={styles.battleReportList}>
-                {environmentLabels.length ? (
-                  <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineTurn}`}>
-                    <span className={styles.battleReportLineText}>
-                      Сейчас: {environmentLabels.join(', ')}
-                    </span>
-                  </li>
-                ) : null}
+                {reportGroup === 'weather' ? (
+                  <>
+                    {environmentLabels.length ? (
+                      <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineInteractive}`}>
+                        <WeatherReportContent labels={environmentLabels} prefix="Сейчас:" />
+                      </li>
+                    ) : null}
+                    {visibleRows.map((row) => (
+                      <li
+                        key={row.key}
+                        className={`${styles.battleReportLine} ${row.isMeta ? styles.battleReportLineMeta : ''} ${row.isTurnHeader ? styles.battleReportLineTurn : ''} ${row.formatted ? styles.battleReportLineInteractive : ''}`}
+                      >
+                        {row.formatted ? (
+                          <WeatherReportContent labels={parseEnvironmentLabelList(row.formatted.detail || '')} />
+                        ) : (
+                          <span className={styles.battleReportLineText}>{row.line}</span>
+                        )}
+                      </li>
+                    ))}
+                    {!environmentLabels.length && !visibleRows.length ? (
+                      <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta}`}>
+                        <span className={styles.battleReportLineText}>Погодные условия не заданы.</span>
+                      </li>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
                 <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineTurn}`}>
                   <span className={styles.battleReportLineText}>
                     Уничтожены юниты РККА: {destroyedSummary.rkka.length ? destroyedSummary.rkka.join(', ') : '—'}
@@ -172,7 +227,7 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                     Уничтожены юниты Вермахта: {destroyedSummary.wehrmacht.length ? destroyedSummary.wehrmacht.join(', ') : '—'}
                   </span>
                 </li>
-                {!visibleRows.length && (reportGroup !== 'general' || !environmentLabels.length) ? (
+                {!visibleRows.length ? (
                   <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta}`}>
                     <span className={styles.battleReportLineText}>Нет записей в этом фильтре</span>
                   </li>
@@ -200,6 +255,8 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                     )}
                   </li>
                 ))}
+                  </>
+                )}
               </ul>
               </>
             )}

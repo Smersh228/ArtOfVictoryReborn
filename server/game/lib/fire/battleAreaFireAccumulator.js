@@ -49,6 +49,8 @@ function accumulateAreaFireForShooter({
         ambushCleared: true,
       })
     }
+    const hidden = require('../unit/battleHiddenState')
+    if (hidden.isHiddenConcealed(tgtU)) hidden.revealHiddenUnit(tgtU)
     const dice = areaFireDiceForTargetByOrder(
       Array.isArray(salvoTarget.rollResults) ? salvoTarget.rollResults.length : 0,
       ti,

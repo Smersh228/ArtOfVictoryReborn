@@ -67,6 +67,8 @@ const {
 } = require('./core/battleUnitType')
 const transport = require('./core/battleTransport')
 const ambush = require('./core/battleAmbush')
+const hiddenState = require('./lib/unit/battleHiddenState')
+const medicalAid = require('./lib/unit/battleMedical')
 const fireAdj = require('./lib/fire/battleFireAdjustment')
 const artilleryValidation = require('./validation/battleArtilleryValidation')
 const specialPhase = require('./phases/battleSpecialPhase')
@@ -78,13 +80,19 @@ const morale = require('./core/battleMorale')
 
 /** Клетки текущего хода — для пассивного бонуса морали в зоне штаба. */
 let turnMoraleCells = null
+let turnOrdersByUnit = null
 
 function setTurnMoraleCells(cells) {
   turnMoraleCells = cells
 }
 
+function setTurnOrdersByUnit(orders) {
+  turnOrdersByUnit = orders
+}
+
 function clearTurnMoraleCells() {
   turnMoraleCells = null
+  turnOrdersByUnit = null
 }
 const engineHelpers = require('./core/battleEngineHelpers')
 const defendAmbushPhase = require('./phases/battleDefendAmbushPhase')
@@ -216,6 +224,10 @@ function computeShoot(
   if (desantHalfCombatActive(attacker)) {
     diceCount = Math.max(0, applyDesantHalfStat(diceCount))
   }
+  const shootOpts = arguments.length > 12 ? arguments[12] : null
+  if (shootOpts && shootOpts.intensityHalveCeil) {
+    diceCount = Math.max(0, Math.ceil(diceCount / 2))
+  }
   let accuracy = getAccuracy(rangeArray, distance, mode) + (Number(bonusAccuracy) || 0)
   if (accuracy < 0) accuracy = 0
   if (accuracy === 0) {
@@ -229,8 +241,12 @@ function computeShoot(
     }
   }
   const bonus = Math.max(0, Number(extraDefense) || 0)
-  const terrainDef = terrainDefenseBonusFromCell(targetCell, target)
-  let defense = getDef(target) + bonus + terrainDef
+  const trenchMod = require('./lib/map/battleTrench')
+  let defense = 0
+  if (!trenchMod.isTrenchDigging(target)) {
+    const terrainDef = terrainDefenseBonusFromCell(targetCell, target)
+    defense = getDef(target) + bonus + terrainDef
+  }
   if (desantHalfCombatActive(target)) {
     defense = applyDesantHalfStat(defense)
   }
@@ -287,6 +303,8 @@ function computeShootSalvoCore(
 }
 
 function areaFireDamageFromSalvo(hitSuccesses, target, targetCell, extraDefense) {
+  const trenchMod = require('./lib/map/battleTrench')
+  if (trenchMod.isTrenchDigging(target)) return Math.max(0, hitSuccesses)
   const bonus = Math.max(0, Number(extraDefense) || 0)
   const terrainDef = terrainDefenseBonusFromCell(targetCell, target)
   const defense = getDef(target) + bonus + terrainDef
@@ -312,8 +330,12 @@ function syncUnitCoor(unit, cell) {
 
 
 function sweepCorpses(cells) {
+  const trench = require('./lib/map/battleTrench')
   for (const c of cells) {
     if (!c.units) continue
+    for (const u of c.units) {
+      if (getStr(u) <= 0) trench.leaveTrench(u, c)
+    }
     c.units = c.units.filter((u) => getStr(u) > 0)
   }
   for (const c of cells) {
@@ -431,6 +453,34 @@ function canSpotAmbushTarget(attackerUnit, attackerCell, targetUnit, targetCell,
   })
 }
 
+function isHiddenConcealed(u) {
+  return hiddenState.isHiddenConcealed(u)
+}
+
+function canSpotHiddenTarget(attackerUnit, attackerCell, targetUnit, targetCell, cells) {
+  return hiddenState.canSpotHiddenTarget(attackerUnit, attackerCell, targetUnit, targetCell, cells, {
+    unitFaction,
+    hexDistCells,
+    isArtilleryUnit,
+    unitHasPropKey,
+    rangeArrayFor,
+    rangeArrayForAtCell,
+    fireRangeTableMode,
+    computeRevealedCellIdsForFaction,
+    getStr,
+  })
+}
+
+function canSpotConcealedTarget(attackerUnit, attackerCell, targetUnit, targetCell, cells) {
+  if (isAmbushConcealed(targetUnit) && !canSpotAmbushTarget(attackerUnit, attackerCell, targetUnit, targetCell, cells)) {
+    return false
+  }
+  if (isHiddenConcealed(targetUnit) && !canSpotHiddenTarget(attackerUnit, attackerCell, targetUnit, targetCell, cells)) {
+    return false
+  }
+  return true
+}
+
 
 function clearAmbushOrderFully(unit) {
   return ambush.clearAmbushOrderFully(unit)
@@ -438,7 +488,13 @@ function clearAmbushOrderFully(unit) {
 
 
 function revealAmbushesAdjacentToCell(cells, moverUnit, finalCell, le, ph) {
-  return ambush.revealAmbushesAdjacentToCell(cells, moverUnit, finalCell, le, ph, {
+  ambush.revealAmbushesAdjacentToCell(cells, moverUnit, finalCell, le, ph, {
+    unitFaction,
+    hexDistCells,
+    getStr,
+    opposing,
+  })
+  hiddenState.revealHiddenAdjacentToCell(cells, moverUnit, finalCell, le, ph, {
     unitFaction,
     hexDistCells,
     getStr,
@@ -607,6 +663,7 @@ function trySteadfastnessAfterOverwatchDamage(le, ph, unit, damageDealt, opts) {
     clearDefendOnUnit,
     cells: turnMoraleCells,
     findUnitOnField,
+    ordersByUnit: turnOrdersByUnit,
     ...(opts && typeof opts === 'object' ? opts : {}),
   })
 }
@@ -777,6 +834,11 @@ function isMoveOrderValid(cells, unitInstanceId, targetCellId, orderKey) {
     computeRevealedCellIdsForFaction,
     unitFaction,
     findReachable,
+    getMeleeOpponentId,
+    terrainEntryCost,
+    getStr,
+    opposing,
+    hexDistCells,
   })
 }
 
@@ -868,15 +930,22 @@ function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttac
     clearDefendOnUnit,
     cells: turnMoraleCells,
     findUnitOnField,
+    ordersByUnit: turnOrdersByUnit,
   })
 }
 
-function tryAttackMoraleTests(le, ph, atkPack, defPack) {
+function tryAttackMoraleTests(le, ph, atkPack, defPack, orderKey) {
   return morale.tryAttackMoraleTests(le, ph, atkPack, defPack, {
     isArmoredVehicleTarget,
     ensureTacticalBattle,
     clearDefendOnUnit,
     unitHasPropKey,
+    isInfantryUnit,
+    isArtilleryUnit,
+    cells: turnMoraleCells,
+    findUnitOnField,
+    ordersByUnit: turnOrdersByUnit,
+    orderKey,
   })
 }
 
@@ -894,6 +963,7 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB) {
     hexDistCells,
     moveWarDefenseBonus,
     rangeArrayFor,
+    rangeArrayForAtCell,
     getAmmo,
     intensityArrayFor,
     computeShoot,
@@ -905,6 +975,9 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB) {
     applyCargoDamageFromTruckHit,
     sweepCorpses,
     ensureTacticalBattle,
+    unitFaction,
+    addUnitToCell,
+    isInfantryUnit,
   })
 }
 
@@ -922,6 +995,10 @@ function attackMoveAlongPath(cells, unitId, path, ordersByUnit, le, ph, movedIns
     isTruckUnit,
     syncCargoAfterTransportMove,
     revealAmbushesAdjacentToCell,
+    logUnitDestroyed,
+    setStr,
+    applyCargoDamageFromTruckHit,
+    sweepCorpses,
   })
 }
 
@@ -933,6 +1010,7 @@ function runOngoingMeleeRounds(cells, ordersByUnit, le, ph) {
     hexDistCells,
     moveWarDefenseBonus,
     rangeArrayFor,
+    rangeArrayForAtCell,
     getAmmo,
     intensityArrayFor,
     computeShoot,
@@ -943,6 +1021,9 @@ function runOngoingMeleeRounds(cells, ordersByUnit, le, ph) {
     applyCargoDamageFromTruckHit,
     sweepCorpses,
     ensureTacticalBattle,
+    unitFaction,
+    addUnitToCell,
+    isInfantryUnit,
   })
 }
 
@@ -955,6 +1036,8 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
     isSolitaryMeleeTargetCell,
     isAmbushConcealed,
     canSpotAmbushTarget,
+    isHiddenConcealed,
+    canSpotHiddenTarget,
     getMeleeOpponentId,
     hexDistCells,
     computeRevealedCellIdsForFaction,
@@ -967,6 +1050,7 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
     moveAttackerOntoMeleeTargetCell,
     moveWarDefenseBonus,
     rangeArrayFor,
+    rangeArrayForAtCell,
     getAmmo,
     intensityArrayFor,
     computeShoot,
@@ -985,6 +1069,11 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
     syncUnitCoor,
     setMovePoint,
     syncCargoAfterTransportMove,
+    clearDefendOnUnit,
+    ordersByUnit: turnOrdersByUnit,
+    linkMeleeOpponents,
+    isInfantryUnit,
+    opposing,
   })
 }
 
@@ -1006,7 +1095,11 @@ function clearDefendOnUnit(unit) {
 
 function resolveTurn(cells, ordersByUnit, log, turnIndex) {
   setTurnMoraleCells(cells)
+  setTurnOrdersByUnit(ordersByUnit)
   resetTurnResources(cells)
+  hiddenState.tickHiddenStateAtTurnStart(cells)
+  medicalAid.applyMedicalAidFlags(cells, ordersByUnit)
+  require('./lib/unit/battleInfantryCover').applyInfantryCoverFlags(cells, ordersByUnit)
   const steadfastnessQueue = []
   
   const movedInstanceIds = new Set()
@@ -1016,6 +1109,19 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
   const sectorReturnFired = new Set()
   const tlog = turnIndex
   const le = (ph, text, meta) => log.push(logEntry(ph, text, tlog, meta))
+  require('./lib/map/battleSmoke').tickSmokeAtTurnStart(
+    cells,
+    tlog,
+    require('./lib/scenario/battleEnvironment').getLiveEnvironment(),
+    le,
+    PHASE_KEYS.defend,
+  )
+  hiddenState.revealHiddenAlreadyAdjacent(cells, le, PHASE_KEYS.defend, {
+    hexDistCells,
+    getStr,
+    unitFaction,
+    opposing,
+  })
   const sectorFireDeps = {
     findUnitOnField,
     getStr,
@@ -1181,7 +1287,28 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
       continue
     }
     if (ph === PHASE_KEYS.special) {
+      const reconOrders = []
       for (const o of list) {
+        if (String(o.orderKey || '').trim() === 'razvedka') reconOrders.push(o)
+        else if (String(o.orderKey || '').trim() === 'svzy') continue
+        else resolveSpecialPhaseOrder(cells, o, le, ph)
+      }
+      require('./lib/map/battleTrench').tickTrenchDigging(cells, le, ph)
+      require('./lib/map/battleSapperJobs').tickSapperJobs(cells, le, ph)
+      require('./lib/map/battleRailway').tickRailJobs(cells, le, ph, {
+        findUnitOnField,
+        removeUnitFromCell,
+        addUnitToCell,
+        syncUnitCoor,
+        ensureCarriedUnits,
+        ensureTacticalBattle,
+        canUnloadToCell,
+        unitFaction,
+        hexDistCells,
+        getStr,
+        isUnitInAnyCarriedUnits,
+      })
+      for (const o of reconOrders) {
         resolveSpecialPhaseOrder(cells, o, le, ph)
       }
       sweepCorpses(cells)
@@ -1189,6 +1316,18 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
     }
 
     if (ph === PHASE_KEYS.fireHard || ph === PHASE_KEYS.fire) {
+      if (ph === PHASE_KEYS.fire) {
+        require('./lib/map/battleSmoke').resolveSmokeOrders(cells, list, ordersByUnit, le, ph, tlog, {
+          findUnitOnField,
+          validateUnitOrdersAllowed,
+          getLiveEnvironment: require('./lib/scenario/battleEnvironment').getLiveEnvironment,
+          unitFaction,
+          getStr,
+          isHexVisible,
+          maxShootRangeStepsForUnit,
+          hexDistCells,
+        })
+      }
       firePhase.processFirePhase(
         cells,
         list,
@@ -1210,6 +1349,9 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
           isArmoredVehicleTarget,
           isAmbushConcealed,
           canSpotAmbushTarget,
+          isHiddenConcealed,
+          canSpotHiddenTarget,
+          revealHiddenUnit: hiddenState.revealHiddenUnit,
           hexDist,
       rangeArrayFor,
       rangeArrayForAtCell,
@@ -1245,12 +1387,34 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
           terrainDefenseBonusFromCell,
           getDef,
           ensureTacticalBattle,
+          clearDefendOnUnit,
+          rollTankFearSteadfastness,
         },
       )
       continue
     }
 
     if (ph === PHASE_KEYS.attack) {
+      const analog = require('./lib/unit/battleMeleeAnalog')
+      analog.captureMeleeWithoutAmmo(cells, ordersByUnit, le, ph, {
+        getMeleeOpponentId,
+        getAmmo,
+        getStr,
+        findUnitOnField,
+        setStr,
+        terrainEntryCost,
+        unitFaction,
+        opposing,
+        hexDistCells,
+      })
+      meleePhase.applyAttackApproachCollisions(cells, list, le, ph, {
+        findUnitOnField,
+        unitFaction,
+        hexDistCells,
+        computeRevealedCellIdsForFaction,
+        cheapestEngagePath,
+        attackReachBudget,
+      })
       runOngoingMeleeRounds(cells, ordersByUnit, le, ph)
       sweepCorpses(cells)
       for (const o of list) {
@@ -1296,6 +1460,39 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
         isTruckUnit,
         syncCargoAfterTransportMove,
         unitHasPropKey,
+        logUnitDestroyed,
+        setStr,
+        applyCargoDamageFromTruckHit,
+        sweepCorpses,
+        hexDist,
+        rangeArrayForAtCell,
+        fireRangeTableMode,
+        intensityArrayFor,
+        computeShoot,
+        isHexVisible,
+        artilleryAreaClosedIgnoresTerrainLos,
+        moveWarDefenseBonus,
+        ordersByUnit,
+        isAmbushConcealed,
+        canSpotAmbushTarget,
+        isHiddenConcealed,
+        canSpotHiddenTarget,
+        revealHiddenUnit: hiddenState.revealHiddenUnit,
+        getMeleeOpponentId,
+        getAmmo,
+        setAmmo,
+        unitFaction,
+        isArtilleryUnit,
+        rangeArrayFor,
+        hexDistCells,
+        computeRevealedCellIdsForFaction,
+        getStr,
+        ensureTacticalBattle,
+        clearDefendOnUnit,
+        trySteadfastnessAfterOverwatchDamage,
+        removeUnitFromCell,
+        addUnitToCell,
+        syncUnitCoor,
       })
     }
   }
@@ -1350,8 +1547,19 @@ module.exports = {
   isArtilleryFireTargetCellAllowed,
   getAmmoForValidate: getAmmo,
   canSpotAmbushTarget,
+  canSpotHiddenTarget,
+  isHiddenConcealed,
   unitHasPropKey,
   validateArtilleryAreaFireOnCellOnly,
   shootingAccuracyAtHexDistance,
   hexDistCells,
+  isMoveOrderValid,
+  getMovePoint,
+  computeRevealedCellIdsForFaction,
+  rangeArrayFor,
+  rangeArrayForAtCell,
+  fireRangeTableMode,
+  isHexVisible,
+  artilleryAreaClosedIgnoresTerrainLos,
+  getStr,
 }

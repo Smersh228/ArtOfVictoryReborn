@@ -6,6 +6,7 @@ import {
   fetchMaintenanceRegisteredUsers,
   removeMaintenanceAllowlistUser,
   setMaintenanceEnabled,
+  setOnlineBoost,
   type MaintenanceState,
   type RegisteredUserRow,
 } from '../../api/maintenance'
@@ -18,6 +19,7 @@ export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: b
   const [userFilter, setUserFilter] = useState('')
   const [pickUserId, setPickUserId] = useState('')
   const [busy, setBusy] = useState(false)
+  const [boostDraft, setBoostDraft] = useState('0')
 
   const reload = useCallback(async () => {
     setError(null)
@@ -27,6 +29,7 @@ export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: b
         fetchMaintenanceRegisteredUsers(),
       ])
       setState(next)
+      setBoostDraft(String(next.onlineBoost ?? 0))
       setRegistered(users)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить настройки')
@@ -112,6 +115,22 @@ export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: b
     }
   }
 
+  const saveOnlineBoost = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const next = await setOnlineBoost(Number(boostDraft))
+      setState(next)
+      setBoostDraft(String(next.onlineBoost ?? 0))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Не удалось сохранить подкрутку онлайна')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const removeLogin = async (username: string) => {
     if (busy) return
     setBusy(true)
@@ -151,6 +170,27 @@ export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: b
             />
             <span>{state?.enabled ? 'Включено — сайт закрыт для остальных' : 'Выключено — все могут играть'}</span>
           </label>
+
+          <div className={styles.maintenanceSubTitle}>Подкрутка онлайна</div>
+          <p className={styles.maintenanceHint}>
+            К настоящему числу игроков на сайте добавляется это значение. На сайте показывают сумму.
+          </p>
+          <form className={styles.maintenanceAddRow} onSubmit={saveOnlineBoost}>
+            <input
+              className={styles.maintenanceInput}
+              type="number"
+              min={0}
+              max={9999}
+              step={1}
+              value={boostDraft}
+              onChange={(e) => setBoostDraft(e.target.value)}
+              disabled={busy}
+              aria-label="Добавить к онлайну"
+            />
+            <button type="submit" className={styles.maintenanceBtn} disabled={busy}>
+              Сохранить
+            </button>
+          </form>
 
           <div className={styles.maintenanceSubTitle}>Добавить из зарегистрированных</div>
           <input

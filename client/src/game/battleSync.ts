@@ -4,7 +4,9 @@ import {
   postBattleOrders,
   postBattleSurrender,
   postBattleTurnReady,
+  postBattleHqRewrite,
   type BattleOrderPayload,
+  type BattleHqRewriteState,
   type LobbyFaction,
   type RoomDetailResponse,
 } from '../api/rooms';
@@ -15,6 +17,8 @@ export type ScenarioBattleOutcome = {
   winnerFaction: 'rkka' | 'wehrmacht';
   reason: 'objective' | 'timeout';
 };
+
+export type ConfirmTurnResult = { ok: boolean; hqRewrite?: BattleHqRewriteState | null };
 
 type BattleChannelMessage =
   | { type: 'surrender'; from: BattlePlayerId; tabId: string }
@@ -117,6 +121,13 @@ export function useBattleSync(
           setWaitingNextTurn(false);
         }
         lastBattleFieldRevisionRef.current = rev;
+
+        const hq = data.battleHqRewrite
+        if (hq?.pending && hq.youCanRewrite) {
+          setWaitingNextTurn(false)
+        } else if (hq?.pending) {
+          setWaitingNextTurn(true)
+        }
 
         const seq = data.battleSurrenderSeq ?? 0;
         const by = data.battleSurrenderBy ?? null;
@@ -232,32 +243,60 @@ export function useBattleSync(
     }
   }, [playerId, roomId, apiRoomId]);
 
-  const confirmNextTurn = useCallback(async (ordersPayload?: BattleOrderPayload[]): Promise<boolean> => {
+  const confirmNextTurn = useCallback(async (ordersPayload?: BattleOrderPayload[]): Promise<ConfirmTurnResult> => {
     if (solo) {
       const next = turnRef.current + 1;
       turnRef.current = next;
       setTurn(next);
-      return true;
+      return { ok: true };
     }
     if (apiRoomId != null && Number.isFinite(apiRoomId)) {
       setWaitingNextTurn(true);
       try {
         await postBattleOrders(apiRoomId, turnRef.current, ordersPayload ?? []);
-        await postBattleTurnReady(apiRoomId, turnRef.current);
-        return true;
+        const ready = await postBattleTurnReady(apiRoomId, turnRef.current);
+        if (ready.battleHqRewrite?.youCanRewrite) {
+          setWaitingNextTurn(false);
+          return { ok: true, hqRewrite: ready.battleHqRewrite };
+        }
+        if (ready.battleHqRewrite?.pending) {
+          return { ok: true, hqRewrite: ready.battleHqRewrite };
+        }
+        return { ok: true };
       } catch (err) {
         setWaitingNextTurn(false);
         const msg = err instanceof Error ? err.message : 'Не удалось отправить приказы';
         window.alert(msg);
-        return false;
+        return { ok: false };
       }
     }
     setWaitingNextTurn(true);
     const t = turnRef.current;
     chRef.current?.postMessage({ type: 'turnReady', tabId: tabIdRef.current, turn: t } satisfies BattleChannelMessage);
     tryAddReadyTab(tabIdRef.current, t);
-    return true;
+    return { ok: true };
   }, [apiRoomId, solo, tryAddReadyTab]);
+
+  const confirmHqRewrite = useCallback(
+    async (opts: { skip?: boolean; orders?: BattleOrderPayload[] }): Promise<ConfirmTurnResult> => {
+      if (apiRoomId == null || !Number.isFinite(apiRoomId)) return { ok: false };
+      setWaitingNextTurn(true);
+      try {
+        const ready = await postBattleHqRewrite(apiRoomId, turnRef.current, opts);
+        if (ready.battleHqRewrite?.youCanRewrite) {
+          setWaitingNextTurn(false);
+          return { ok: true, hqRewrite: ready.battleHqRewrite };
+        }
+        return { ok: true, hqRewrite: ready.battleHqRewrite ?? null };
+      } catch (err) {
+        setWaitingNextTurn(false);
+        const msg = err instanceof Error ? err.message : 'Не удалось связаться со штабом';
+        window.alert(msg);
+        return { ok: false };
+      }
+    },
+    [apiRoomId],
+  );
 
   const dismissVictory = useCallback(() => setOpponentVictory(false), []);
   const dismissScenarioOutcome = useCallback(() => setScenarioBattleOutcome(null), []);
@@ -271,6 +310,7 @@ export function useBattleSync(
     dismissScenarioOutcome,
     broadcastSurrender,
     confirmNextTurn,
+    confirmHqRewrite,
     myBattleFaction,
     roomDetail,
     setRoomDetail,

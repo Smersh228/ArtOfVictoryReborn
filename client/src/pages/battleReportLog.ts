@@ -2,6 +2,7 @@
 import { findBattleUnitByInstanceId, findMovementPath } from "../game/battleMovePreview";
 import { EDITOR_BATTLE_ORDER_DEFS } from "../game/battleOrderIcons";
 import { isAirUnitInboundInSkyForTurn, readFlightPathCellIdsFromUnit } from "../game/battleAirSupport";
+import { formatEnvironmentReport } from "../game/battleEnvironment";
 import {
   buildReconReplayFromLogEntry,
   buildAirCombatReplayFromLogEntry,
@@ -1138,6 +1139,136 @@ function formatArtilleryAirSectorReportLines(entry, cells, text, m) {
   };
 }
 
+export function isBattleWeatherLogText(text: string): boolean {
+  return /^Условия:/.test(String(text ?? "").trim());
+}
+
+function formatMineBlastReportLines(entry, cells, text, m) {
+  const ml = m?.mineLine;
+  const fromText = String(text || "").match(/^Подрыв: юнит (\d+) на кл\. (\d+)/);
+  if (!ml && !fromText) return null;
+  const uid = Number(ml?.unitInstanceId ?? fromText?.[1]);
+  const cellId = Number(ml?.cellId ?? fromText?.[2]);
+  const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+  const kind = String(ml?.mineKind || "").trim() === "tank" ? "танковая" : "пехотная";
+  const rolls = Array.isArray(ml?.rollResults)
+    ? ml.rollResults.map((x) => Number(x)).filter((n) => Number.isFinite(n))
+    : [];
+  const statsParts = [];
+  if (ml) {
+    statsParts.push(`урон: ${Number(ml.damages) || 0}`);
+    if (Number.isFinite(Number(ml.intensity))) statsParts.push(`интенсивность: ${Number(ml.intensity)}`);
+    if (Number.isFinite(Number(ml.accuracy))) statsParts.push(`меткость: ${Number(ml.accuracy)}`);
+    if (rolls.length) statsParts.push(`числа: ${rolls.join(", ")}`);
+  }
+  return {
+    order: "Подрыв",
+    detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} · кл. ${Number.isFinite(cellId) ? cellId : "—"} · ${kind}`,
+    stats: statsParts.length ? statsParts.join(" · ") : undefined,
+  };
+}
+
+function formatTrenchReportLines(entry, cells, text, m) {
+  if (m?.trenchOccupied) {
+    const uid = Number(m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const cellId = Number(m.trenchCellId);
+    return {
+      order: "Окоп",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} занял окоп · кл. ${Number.isFinite(cellId) ? cellId : "—"}`,
+    };
+  }
+  if (m?.trenchDigging) {
+    const uid = Number(m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const left = Number(m.trenchDigTurnsLeft);
+    return {
+      order: "Окопаться",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} копает окоп${Number.isFinite(left) ? ` · осталось ${left} ход.` : ""}`,
+    };
+  }
+  if (m?.trenchPlaced) {
+    const uid = Number(m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const cellId = Number(m.trenchCellId);
+    return {
+      order: "Окопаться",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} установил окоп · кл. ${Number.isFinite(cellId) ? cellId : "—"}`,
+    };
+  }
+  const occupiedText = String(text || "").match(/^Окоп: юнит (\d+) занял окоп на кл\. (\d+)/);
+  if (occupiedText) {
+    const uid = Number(occupiedText[1]);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    return {
+      order: "Окоп",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} занял окоп · кл. ${occupiedText[2]}`,
+    };
+  }
+  const placedText = String(text || "").match(/^Окопаться: юнит (\d+) установил окоп на кл\. (\d+)/);
+  if (placedText) {
+    const uid = Number(placedText[1]);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    return {
+      order: "Окопаться",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} установил окоп · кл. ${placedText[2]}`,
+    };
+  }
+  return null;
+}
+
+function sapperJobOrderLabel(key: unknown): string {
+  const k = String(key || "");
+  if (k === "buildPonton") return "Наведение переправы";
+  if (k === "cutEj") return "Снятие ежей";
+  if (k === "demining") return "Разминирование";
+  if (k === "mining") return "Минирование";
+  return "Сапёрные работы";
+}
+
+function formatSapperReportLines(entry, cells, text, m) {
+  if (m?.mineReveal) {
+    const uid = Number(m.mineReveal.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const cellId = Number(m.mineReveal.cellId);
+    const kind = String(m.mineReveal.mineKind || "").trim() === "tank" ? "танковая" : "пехотная";
+    return {
+      order: "Обнаружение мин",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} · кл. ${Number.isFinite(cellId) ? cellId : "—"} · ${kind}`,
+    };
+  }
+  if (m?.sapperJobDone) {
+    const uid = Number(m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const cellId = Number(m.sapperWorkCellId);
+    return {
+      order: sapperJobOrderLabel(m.sapperJobDone),
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} завершил · кл. ${Number.isFinite(cellId) ? cellId : "—"}`,
+    };
+  }
+  if (m?.pontonSections != null) {
+    const uid = Number(m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const cellId = Number(m.sapperWorkCellId);
+    const n = Number(m.pontonSections);
+    return {
+      order: "Наведение переправы",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} · секция ${Number.isFinite(n) ? n : "—"} · кл. ${Number.isFinite(cellId) ? cellId : "—"}`,
+    };
+  }
+  if (m?.sapperJob) {
+    const uid = Number(m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const left = Number(m.sapperJobTurnsLeft);
+    const cellId = Number(m.sapperWorkCellId);
+    return {
+      order: sapperJobOrderLabel(m.sapperJob),
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`}${Number.isFinite(cellId) ? ` · кл. ${cellId}` : ""}${Number.isFinite(left) ? ` · осталось ${left} ход.` : ""}`,
+    };
+  }
+  return null;
+}
+
 export function formatBattleReportLines(entry, cells, reportCtx) {
   const ph = entry.phase ?? 0;
   const text = String(entry.text ?? "");
@@ -1146,10 +1277,15 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
   if (desantFormatted) return desantFormatted;
   const flightProgressFormatted = formatAirFlightProgressReportLines(entry, cells, text, m);
   if (flightProgressFormatted) return flightProgressFormatted;
-  if (/^Условия:/.test(text.trim())) {
-    const detail = text.replace(/^Условия:\s*/, "").trim() || "—";
-    return { order: "Условия", detail };
+  if (isBattleWeatherLogText(text)) {
+    return formatEnvironmentReport(text.replace(/^Условия:\s*/, "").trim());
   }
+  const mineFormatted = formatMineBlastReportLines(entry, cells, text, m);
+  if (mineFormatted) return mineFormatted;
+  const trenchFormatted = formatTrenchReportLines(entry, cells, text, m);
+  if (trenchFormatted) return trenchFormatted;
+  const sapperFormatted = formatSapperReportLines(entry, cells, text, m);
+  if (sapperFormatted) return sapperFormatted;
   if (entry.phase === -1) return null;
   const vf = reportCtx?.viewerFaction;
   const fog = reportCtx?.fogRevealedCellIds;
@@ -1720,6 +1856,15 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
   if (airCombatReplay) return airCombatReplay;
   const desantReplay = buildDesantParatrooperReplayFromLogEntry(entry, cells);
   if (desantReplay) return desantReplay;
+  if (m?.mineLine) {
+    const uid = Number(m.mineLine.unitInstanceId);
+    const cid = Number(m.mineLine.cellId);
+    return {
+      kind: "loss",
+      unitInstanceId: Number.isFinite(uid) ? uid : undefined,
+      lossCellId: Number.isFinite(cid) ? cid : undefined,
+    };
+  }
   if (ph === 8 && m?.movePath?.length) {
     const path = [];
     for (const id of m.movePath) {

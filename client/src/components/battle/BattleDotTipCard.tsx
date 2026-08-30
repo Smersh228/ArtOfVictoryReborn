@@ -2,11 +2,26 @@ import React from 'react';
 import styles from '../../pages/styleModules/battle.module.css';
 import type { DotHoverTip } from '../../game/cellDot';
 
+export type BattleHoverTipView = {
+  title: string;
+  rows: { key: string; val: string }[];
+};
+
+export function hoverTipFromDot(tip: DotHoverTip): BattleHoverTipView {
+  const rows = [
+    { key: 'Защита', val: String(tip.defense) },
+    { key: 'Боезапас', val: String(tip.ammo) },
+    { key: 'Статус', val: tip.statusLabel },
+  ];
+  if (tip.occupantLabel) rows.push({ key: 'Гарнизон', val: tip.occupantLabel });
+  return { title: tip.title, rows };
+}
+
 interface BattleDotTipCardProps {
   battleTipRef: React.RefObject<HTMLDivElement | null>;
   left: number;
   top: number;
-  tip: DotHoverTip;
+  tip: BattleHoverTipView;
 }
 
 const BattleDotTipCard: React.FC<BattleDotTipCardProps> = ({ battleTipRef, left, top, tip }) => {
@@ -18,24 +33,12 @@ const BattleDotTipCard: React.FC<BattleDotTipCardProps> = ({ battleTipRef, left,
       role="status"
     >
       <div className={styles.battleUnitTipTitle}>{tip.title}</div>
-      <div className={styles.battleUnitTipRow}>
-        <span className={styles.battleUnitTipKey}>Защита</span>
-        <span className={styles.battleUnitTipVal}>{tip.defense}</span>
-      </div>
-      <div className={styles.battleUnitTipRow}>
-        <span className={styles.battleUnitTipKey}>Боезапас</span>
-        <span className={styles.battleUnitTipVal}>{tip.ammo}</span>
-      </div>
-      <div className={styles.battleUnitTipRow}>
-        <span className={styles.battleUnitTipKey}>Статус</span>
-        <span className={styles.battleUnitTipVal}>{tip.statusLabel}</span>
-      </div>
-      {tip.occupantLabel ? (
-        <div className={styles.battleUnitTipRow}>
-          <span className={styles.battleUnitTipKey}>Гарнизон</span>
-          <span className={styles.battleUnitTipVal}>{tip.occupantLabel}</span>
+      {tip.rows.map((row) => (
+        <div key={row.key} className={styles.battleUnitTipRow}>
+          <span className={styles.battleUnitTipKey}>{row.key}</span>
+          <span className={styles.battleUnitTipVal}>{row.val}</span>
         </div>
-      ) : null}
+      ))}
     </div>
   );
 };

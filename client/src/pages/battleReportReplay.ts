@@ -866,7 +866,7 @@ export function buildBattleReportReplayHighlight(
       return { glowInstanceIds: ids, unloadCellDecalId: r.toCellId as number };
     }
     if (r.orderKey === 'loadingSup' && r.toCellId != null && Number.isFinite(r.toCellId)) {
-      return { glowInstanceIds: ids, unloadCellDecalId: r.toCellId as number };
+      return { glowInstanceIds: ids, loadingSupCellDecalId: r.toCellId as number };
     }
     const recipientDecalId =
       r.orderKey === 'getSup' ? (r.toInstanceId as number) : (r.fromInstanceId ?? r.toInstanceId) as number;

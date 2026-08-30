@@ -345,6 +345,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.leftMenuPanelStandard .battleReportWeatherDebuffs {
+  display: none;
+  white-space: pre-line;
+}
+
+.leftMenuPanelStandard .battleReportLine:hover .battleReportWeatherDebuffs,
+.leftMenuPanelStandard .battleReportLine:focus-within .battleReportWeatherDebuffs {
+  display: block;
+}
+
 .leftMenuPanelStandard .battleReportLineInteractive {
   cursor: default;
 }
@@ -686,6 +696,52 @@
   font-size: 14px;
   font-weight: 600;
   color: rgba(55, 62, 76, 0.78);
+}
+
+.battleHqRewriteBanner {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  width: min(420px, calc(100% - 24px));
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(160deg, rgba(248, 250, 252, 0.96), rgba(226, 232, 240, 0.92));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+}
+
+.battleHqRewriteTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: #1e293b;
+}
+
+.battleHqRewriteHint {
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(55, 62, 76, 0.82);
+}
+
+.battleHqRewriteList {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  max-height: 140px;
+  overflow: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.battleHqRewriteActions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* Закреплённый счётчик id клетки (бой) */

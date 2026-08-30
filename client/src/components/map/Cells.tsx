@@ -28,9 +28,10 @@ export interface BattlePendingShootPreview {
 }
 
 export interface BattlePendingLogisticsPreview {
-  kind: 'tow' | 'loading' | 'getSup' | 'unloading'
+  kind: 'tow' | 'loading' | 'getSup' | 'unloading' | 'loadingSup'
   targetInstanceId?: number
   targetCellId?: number
+  truckInstanceId?: number
 }
 
 export interface BattleReportReplayHighlight {
@@ -41,6 +42,8 @@ export interface BattleReportReplayHighlight {
     targetInstanceIds: number[]
   }
   unloadCellDecalId?: number
+  /** Склад: иконка загрузки припасов при наведении на строку отчёта. */
+  loadingSupCellDecalId?: number
   lossCellId?: number
   /** Область разведки при наведении на строку отчёта. */
   reconZoneCellIds?: number[]
@@ -105,6 +108,8 @@ interface CellsProps {
   battleAreaFireCellIds?: number[] | null
   battleDotSectorCellIds?: number[] | null
   enterDotGlowCellIds?: number[] | null
+  /** Выбор склада: серое свечение спрайта, без заливки гекса. */
+  loadingSupGlowCellIds?: number[] | null
   battlePendingShootPreview?: BattlePendingShootPreview | null
   battleFogRevealedCellIds?: number[] | null
   battleReportReplayHighlight?: BattleReportReplayHighlight | null
@@ -203,6 +208,7 @@ const Cells: React.FC<CellsProps> = ({
   battleAreaFireCellIds = null,
   battleDotSectorCellIds = null,
   enterDotGlowCellIds = null,
+  loadingSupGlowCellIds = null,
   battlePendingShootPreview = null,
   battleFogRevealedCellIds = null,
   battleReportReplayHighlight = null,
@@ -269,6 +275,8 @@ const Cells: React.FC<CellsProps> = ({
   const antiTankImgRef = assets.refs.antiTankImgRef
   const dotImgRef = assets.refs.dotImgRef
   const storageImgRef = assets.refs.storageImgRef
+  const pontonImgRef = assets.refs.pontonImgRef
+  const smokeImgRef = assets.refs.smokeImgRef
   const [hoverCell, setHoverCell] = useState<Cell | null>(null)
   const [hoveredUnit, setHoveredUnit] = useState<HoveredUnitState | null>(null)
   const [unitMenu, setUnitMenu] = useState<UnitMenuState | null>(null)
@@ -425,12 +433,13 @@ const Cells: React.FC<CellsProps> = ({
       if (onUnitClick) {
         onUnitClick(unitUnderMouse.unit, unitUnderMouse.cell, e)
       }
-      
+
       if (onCellClick) {
         const canvasPt = toCanvasPoint(e.clientX, e.clientY, rect, canvasRef.current)
+        const clickedId = unitUnderMouse.unit.instanceId ?? unitUnderMouse.unit.id
         onCellClick(
           cellAtPointer ?? unitUnderMouse.cell,
-          unitUnderMouse.unit.instanceId || unitUnderMouse.unit.id,
+          clickedId,
           { canvasX: canvasPt.x, canvasY: canvasPt.y, clientX: e.clientX, clientY: e.clientY },
         )
       }
@@ -507,6 +516,7 @@ const Cells: React.FC<CellsProps> = ({
       viewerBattleFaction,
       viewerBattleTeam,
       hoveredUnit,
+      hoverCell,
       battleFireTargetInstanceIds,
       battleLogisticsPickInstanceIds,
       battlePendingLogisticsPreview,
@@ -576,6 +586,7 @@ const Cells: React.FC<CellsProps> = ({
       battleAreaFireCellIds,
       battleDotSectorCellIds,
       enterDotGlowCellIds,
+      loadingSupGlowCellIds,
       battleReportReplayHighlight,
       battleUnloadCellIds,
       battleAirDepartureHoverCellId,
@@ -601,6 +612,8 @@ const Cells: React.FC<CellsProps> = ({
       changeSectorOrderDecalImg: changeSectorOrderDecalImgRef.current,
       clottingOrderDecalImg: clottingOrderDecalImgRef.current,
       unloadCellDecalImg: unloadCellDecalImgRef.current,
+      getSupDecalImg: logisticsUnitDecalImgRef.current.getSup ?? null,
+      loadingSupDecalImg: logisticsUnitDecalImgRef.current.loadingSup ?? null,
       shootOrderDecals: shootOrderDecalImgRef.current,
       airMissionOrderDecals: airMissionOrderDecalImgRef.current,
       airDepartureDecalImg: airDepartureDecalImgRef.current,
@@ -612,8 +625,11 @@ const Cells: React.FC<CellsProps> = ({
       antiTankImg: antiTankImgRef.current,
       dotImg: dotImgRef.current,
       storageImg: storageImgRef.current,
+      pontonImg: pontonImgRef.current,
+      smokeImg: smokeImgRef.current,
       viewerBattleFaction,
       battleFogRevealedCellIds,
+      extraHiddenInstanceIds: hiddenBattleInstanceIdSet,
     })
   }
 
@@ -654,6 +670,7 @@ const Cells: React.FC<CellsProps> = ({
     battleAreaFireCellIds,
     battleDotSectorCellIds,
     enterDotGlowCellIds,
+    loadingSupGlowCellIds,
     battlePendingShootPreview,
     battleFogRevealedCellIds,
     battleReportReplayHighlight,

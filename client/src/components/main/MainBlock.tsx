@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styles from '../styleModules/mainBlock.module.css'
 import Button from '../Button'
@@ -12,6 +12,7 @@ import MainChat from './MainChat'
 import MainPlayerCard from './MainPlayerCard'
 import Modal from '../Modal'
 import { fetchRoomsList, createRoom, joinRoom, spectateRoom } from '../../api/rooms'
+import { setOnlineBoost } from '../../api/maintenance'
 import {
   fetchLobbyState,
   sendLobbyChat,
@@ -45,6 +46,11 @@ const MainBlock: React.FC = () => {
   const [showAllowlistModal, setShowAllowlistModal] = useState(false)
   const [onlineCount, setOnlineCount] = useState(0)
   const [inBattleCount, setInBattleCount] = useState(0)
+  const [onlineReal, setOnlineReal] = useState<number | null>(null)
+  const [onlineBoost, setOnlineBoostAmount] = useState(0)
+  const [boostDraft, setBoostDraft] = useState('0')
+  const [boostBusy, setBoostBusy] = useState(false)
+  const boostFocusedRef = useRef(false)
   const [chatMessages, setChatMessages] = useState<LobbyChatMessage[]>([])
   const [chatError, setChatError] = useState<string | null>(null)
   const [chatSending, setChatSending] = useState(false)
@@ -71,6 +77,11 @@ const MainBlock: React.FC = () => {
         if (cancelled) return
         setOnlineCount(state.online)
         setInBattleCount(state.inBattle)
+        if (state.onlineReal != null) setOnlineReal(state.onlineReal)
+        if (state.onlineBoost != null) {
+          setOnlineBoostAmount(state.onlineBoost)
+          if (!boostFocusedRef.current) setBoostDraft(String(state.onlineBoost))
+        }
         setChatMessages(state.messages)
         setChatMuted(state.muted)
         setMyRoleKey(state.roleKey)
@@ -212,6 +223,27 @@ const MainBlock: React.FC = () => {
     }
   }, [])
 
+  const applyOnlineBoost = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      if (boostBusy) return
+      setBoostBusy(true)
+      try {
+        const next = await setOnlineBoost(Number(boostDraft))
+        const boost = next.onlineBoost
+        setOnlineBoostAmount(boost)
+        setBoostDraft(String(boost))
+        const real = onlineReal ?? Math.max(0, onlineCount - onlineBoost)
+        setOnlineCount(real + boost)
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : 'Не удалось сохранить подкрутку онлайна')
+      } finally {
+        setBoostBusy(false)
+      }
+    },
+    [boostBusy, boostDraft, onlineReal, onlineCount, onlineBoost],
+  )
+
   return (
     <div className={styles.layout}>
       <div className={styles.panel}>
@@ -280,7 +312,11 @@ const MainBlock: React.FC = () => {
       <div className={styles.rightCol}>
         <div
           className={styles.onlineBadge}
-          title="Сколько игроков сейчас на сайте и сколько из них в бою"
+          title={
+            user && isCatalogEditorAdmin(user.username) && onlineReal != null
+              ? `Настоящих: ${onlineReal}, подкрутка: +${onlineBoost}`
+              : 'Сколько игроков сейчас на сайте и сколько из них в бою'
+          }
         >
           <span>
             На сайте: {onlineCount} {ruPeopleWord(onlineCount)}
@@ -288,6 +324,33 @@ const MainBlock: React.FC = () => {
           <span>
             В боях: {inBattleCount} {ruPeopleWord(inBattleCount)}
           </span>
+          {user && isCatalogEditorAdmin(user.username) ? (
+            <form className={styles.onlineBoostRow} onSubmit={applyOnlineBoost}>
+              <label className={styles.onlineBoostLabel}>
+                +
+                <input
+                  className={styles.onlineBoostInput}
+                  type="number"
+                  min={0}
+                  max={9999}
+                  step={1}
+                  value={boostDraft}
+                  disabled={boostBusy}
+                  onFocus={() => {
+                    boostFocusedRef.current = true
+                  }}
+                  onBlur={() => {
+                    boostFocusedRef.current = false
+                  }}
+                  onChange={(e) => setBoostDraft(e.target.value)}
+                  aria-label="Подкрутка онлайна"
+                />
+              </label>
+              <button type="submit" className={styles.onlineBoostBtn} disabled={boostBusy}>
+                Ок
+              </button>
+            </form>
+          ) : null}
         </div>
         <MainChat
           messages={chatMessages}

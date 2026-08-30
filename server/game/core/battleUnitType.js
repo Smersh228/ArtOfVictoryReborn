@@ -1,9 +1,20 @@
 'use strict'
 
 function isTruckUnit(u) {
+  if (String(u && u.type ? u.type : '').toLowerCase() === 'tech' && unitHasPropKey(u, 'railwayDetachment')) {
+    return false
+  }
   const t = String(u.type || '').toLowerCase()
   if (t !== 'tech') return false
-  return /грузовик/i.test(String(u.name || ''))
+  if (/грузовик|truck|lkw/i.test(String(u.name || ''))) return true
+  const orders = u.orders
+  if (!Array.isArray(orders)) return false
+  return orders.some((o) => {
+    const k = String((o && (o.order_key || o.key)) || '')
+      .trim()
+      .toLowerCase()
+    return k === 'getsup' || k === 'loadingsup' || k === 'loading' || k === 'tow' || k === 'unloading'
+  })
 }
 
 function isInfantryUnit(u) {

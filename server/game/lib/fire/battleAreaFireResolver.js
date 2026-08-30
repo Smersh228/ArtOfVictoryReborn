@@ -1,5 +1,7 @@
 'use strict'
 
+const trench = require('../map/battleTrench')
+
 function resolveGroupedAreaFire({
   groupedAreaFire,
   cells,
@@ -32,7 +34,8 @@ function resolveGroupedAreaFire({
       const defLive = findUnitOnField(cells, tid)
       if (!defLive || getStr(defLive.unit) <= 0) continue
       const warDef = moveWarDefenseBonus(defLive.unit.instanceId, ordersByUnit)
-      const dmg = areaFireDamageFromSalvo(rec.hits, defLive.unit, targetCell || defLive.cell, warDef)
+      const cover = trench.unitCoverDefenseBonus(defLive.unit, targetCell || defLive.cell, defLive.cell)
+      const dmg = areaFireDamageFromSalvo(rec.hits, defLive.unit, targetCell || defLive.cell, warDef + cover)
       const prevStr = getStr(defLive.unit)
       setStr(defLive.unit, prevStr - dmg)
       logUnitDestroyed(le, ph, defLive.unit, prevStr, 'огонь по площади', targetCellId)

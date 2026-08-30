@@ -96,6 +96,9 @@ export function readAirMissionPreviewDecalCellId(
 export function readBattleVisionRange(unit: Record<string, unknown>): number {
   const tac = unit.tactical as Record<string, unknown> | undefined
   if (tac?.fireSuppression === true) return applyVisionPenalty(1)
+  if (tac?.meleeOpponentInstanceId != null && Number.isFinite(Number(tac.meleeOpponentInstanceId))) {
+    return applyVisionPenalty(1)
+  }
   for (const k of ['visibleRange', 'vis', 'visible']) {
     const v = unit[k]
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) return applyVisionPenalty(v)
@@ -127,6 +130,16 @@ export function readReconRingStepsFromUnit(
   else raw = unit?.intelligenceAirRange ?? unit?.intelligence_air_range;
   const nums = parseReconRangeCsv(raw);
   return nums.length ? nums.length : 3;
+}
+
+/** Наземная разведка/перехват: зона dist ≤ выбранного радиуса (колонки таблицы = макс. R). */
+export function computeGroundReconRadiusCellIds(centerCell: Cell, radiusSteps: number, cells: Cell[]): number[] {
+  const R = Math.max(1, Math.floor(Number(radiusSteps) || 1))
+  const out: number[] = []
+  for (const c of cells) {
+    if (hexDistCells(centerCell, c) <= R) out.push(c.id)
+  }
+  return out
 }
 
 /** Клетки зоны разведки: 1-е «кольцо» — точка приказа, далее до (N−1) гексов вокруг (N = число колонок). */

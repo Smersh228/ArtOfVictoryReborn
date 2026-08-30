@@ -24,6 +24,7 @@ import deployOrderImg from '../img/orderUnits/ordinaryOrders/deploy.png';
 import changeSectorOrderImg from '../img/orderUnits/ordinaryOrders/changeSector.png';
 import explomostOrderImg from '../img/orderUnits/specialOrders/explomost.png';
 import fireMoveOrderImg from '../img/orderUnits/specialOrders/fireMove.png';
+import medicalOrderImg from '../img/propertis/medical.png';
 import razvedkaOrderImg from '../img/orderUnits/specialOrders/razvedka.png';
 import svzyOrderImg from '../img/orderUnits/specialOrders/svzy.png';
 import buildPontonOrderImg from '../img/orderUnits/specialOrders/saperOrders/buildPonton.png';
@@ -32,6 +33,9 @@ import cutWireOrderImg from '../img/orderUnits/specialOrders/saperOrders/cutWire
 import deminingOrderImg from '../img/orderUnits/specialOrders/saperOrders/demining.png';
 import miningOrderImg from '../img/orderUnits/specialOrders/saperOrders/mining.png';
 import trenchesOrderImg from '../img/orderUnits/specialOrders/saperOrders/trenches.png';
+import smokeOrderImg from '../img/orderUnits/specialOrders/dim.png';
+import railLoadingOrderImg from '../img/orderUnits/pogruzka.png';
+import railUnloadingOrderImg from '../img/orderUnits/vigruzkay.png';
 
 
 /** Группа приказов в редакторе юнита (фильтр и сворачиваемые списки). */
@@ -77,6 +81,7 @@ export const EDITOR_BATTLE_ORDER_DEFS: EditorBattleOrderDef[] = [
   { order_key: 'loadingSup', name: 'Загрузка припасов со склада', icon: loadSupOrderImg, editorCategory: 'special' },
   { order_key: 'explomost', name: 'Подрыв сооружения', icon: explomostOrderImg, editorCategory: 'special' },
   { order_key: 'fireMove', name: 'Стрельба в движение', icon: fireMoveOrderImg, editorCategory: 'special' },
+  { order_key: 'medical', name: 'Лечение', icon: medicalOrderImg, editorCategory: 'special' },
   { order_key: 'razvedka', name: 'Разведка', icon: razvedkaOrderImg, editorCategory: 'special' },
   { order_key: 'svzy', name: 'Радиоперехват', icon: svzyOrderImg, editorCategory: 'special' },
   { order_key: 'buildPonton', name: 'Строительство понтонного моста', icon: buildPontonOrderImg, editorCategory: 'sapper' },
@@ -87,6 +92,9 @@ export const EDITOR_BATTLE_ORDER_DEFS: EditorBattleOrderDef[] = [
   { order_key: 'trenches', name: 'Окопаться', icon: trenchesOrderImg, editorCategory: 'sapper' },
   { order_key: 'enterDot', name: 'Занять ДОТ', icon: deployOrderImg, editorCategory: 'special' },
   { order_key: 'exitDot', name: 'Покинуть ДОТ', icon: landingOrderImg, editorCategory: 'special' },
+  { order_key: 'smoke', name: 'Дымовая завеса', icon: smokeOrderImg, editorCategory: 'special' },
+  { order_key: 'railLoading', name: 'Погрузка на ЖД', icon: railLoadingOrderImg, editorCategory: 'special' },
+  { order_key: 'railUnloading', name: 'Выгрузка на ЖД', icon: railUnloadingOrderImg, editorCategory: 'special' },
   { order_key: 'accompaniment', name: 'Сопровождение дружественной авиации', icon: accompanimentOrderImg, editorCategory: 'aviation' },
   { order_key: 'airSupply', name: 'Сброс припасов', icon: airSupplyOrderImg, editorCategory: 'aviation' },
   { order_key: 'attackAir', name: 'Штурмовка', icon: attackAirOrderImg, editorCategory: 'aviation' },

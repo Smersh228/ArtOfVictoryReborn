@@ -42,7 +42,9 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
     }
     return `Юнит ${id}: огонь на подавление → юнит ${tid}`
   }
-  if (k === 'attack') return `Юнит ${id}: атака → юнит ${tid}`
+  if (k === 'attack' || k === 'hardMove') return `Юнит ${id}: ${k === 'hardMove' ? 'мощная атака' : 'атака'} → юнит ${tid}`
+  if (k === 'fireMove') return `Юнит ${id}: стрельба в движении → юнит ${tid}, кл. ${cid}`
+  if (k === 'medical') return `Юнит ${id}: лечение`
   if (k === 'move') return `Юнит ${id}: походное положение → клетка ${cid}`
   if (k === 'moveWar') return `Юнит ${id}: боевое положение → клетка ${cid}`
   if (k === 'getSup') {
@@ -89,6 +91,23 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
       Array.isArray(fp) && fp.length ? `; траектория: ${fp.join(' → ')}` : ''
     return `Юнит ${id}: «${k}» → клетка ${cid}${pathSuffix}`
   }
+  if (k === 'razvedka') {
+    const r = spec.reconRangeSteps
+    return Number.isFinite(Number(r))
+      ? `Юнит ${id}: разведка, радиус ${r}`
+      : `Юнит ${id}: разведка`
+  }
+  if (k === 'svzy') {
+    const r = spec.reconRangeSteps
+    return Number.isFinite(Number(r))
+      ? `Юнит ${id}: радиоперехват, зона ${r}`
+      : `Юнит ${id}: радиоперехват`
+  }
+  if (k === 'cutWire') return `Юнит ${id}: снятие проволоки → клетка ${cid}`
+  if (k === 'trenches') {
+    const ed = spec.trenchEdgeDir
+    return `Юнит ${id}: окопаться → клетка ${cid}, сторона ${ed}`
+  }
   return `Юнит ${id}: «${k || '?'}»`
 }
 
@@ -113,6 +132,31 @@ function ensureMemberSlots(room) {
 function battleMembersNeedingTurnAck(room) {
   ensureMemberSlots(room)
   return room.members.filter((m) => m.faction === 'rkka' || m.faction === 'wehrmacht')
+}
+
+function publicHqRewritePayload(room, selfKey) {
+  const s = room.battleHqRewriteSession
+  if (!s || s.turn !== (room.battleTurnIndex ?? 0)) return null
+  const mem = (room.members || []).find((m) => selfKey && m.key === selfKey) || null
+  const fac = mem && mem.faction
+  const info = fac && s.byFaction ? s.byFaction[fac] : null
+  const youNeed = Boolean(selfKey && Array.isArray(s.needKeys) && s.needKeys.includes(selfKey))
+  const acked = Boolean(selfKey && s.ack && typeof s.ack.has === 'function' && s.ack.has(selfKey))
+  const youCanRewrite = Boolean(youNeed && !acked && info && Number(info.rewriteMax) > 0)
+  const draft =
+    youCanRewrite && s.originalDrafts && s.originalDrafts[selfKey]
+      ? s.originalDrafts[selfKey].orders
+      : undefined
+  return {
+    pending: true,
+    seq: room.battleHqRewriteSeq || 0,
+    youCanRewrite,
+    rewriteMax: youCanRewrite ? Number(info.rewriteMax) : 0,
+    revealedOrders: youCanRewrite ? info.revealed || [] : [],
+    yourDraftOrders: youCanRewrite ? draft : undefined,
+    hqUnitInstanceId: youCanRewrite ? info.hqUnitInstanceId : undefined,
+    hqRoll: youCanRewrite ? info.hqRoll : undefined,
+  }
 }
 
 function getBattlePresenceTimeoutMs() {
@@ -287,6 +331,7 @@ const SUBMITTABLE_ORDER_KEYS = new Set([
   'hardMove',
   'explomost',
   'fireMove',
+  'medical',
   'razvedka',
   'svzy',
   'buildPonton',
@@ -297,6 +342,9 @@ const SUBMITTABLE_ORDER_KEYS = new Set([
   'demining',
   'mining',
   'trenches',
+  'smoke',
+  'railLoading',
+  'railUnloading',
 ])
 
 async function resolveMemberLabels(keys) {
@@ -480,6 +528,7 @@ async function roomDetailPayload(room, selfKey) {
     const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
     syncBattleReconByFaction(room, room.battleCells)
   }
+  const selfMem = room.members.find((m) => selfKey && m.key === selfKey) || null
   return {
     room: roomToPublic(room),
     members,
@@ -494,7 +543,13 @@ async function roomDetailPayload(room, selfKey) {
     battleFieldRevision: room.battleFieldRevision ?? 0,
     battleTurnAckCount: ackCount,
     battleTurnAckNeed: needAck.length,
-    battleCells: room.battleStartedAt != null && Array.isArray(room.battleCells) ? room.battleCells : undefined,
+    battleCells:
+      room.battleStartedAt != null && Array.isArray(room.battleCells)
+        ? require('../../game/lib/map/battleMines').maskUnrevealedMines(
+            room.battleCells,
+            selfMem && selfMem.faction,
+          )
+        : undefined,
     battleReconByFaction:
       room.battleStartedAt != null && room.battleReconByFaction && typeof room.battleReconByFaction === 'object'
         ? room.battleReconByFaction
@@ -508,6 +563,7 @@ async function roomDetailPayload(room, selfKey) {
       room.battleStartedAt != null
         ? require('../../game/lib/scenario/battleEnvironment').publicSnapshot(room)
         : undefined,
+    battleHqRewrite: publicHqRewritePayload(room, selfKey),
   }
   })
 }
@@ -527,6 +583,7 @@ module.exports = {
   battleLogMeta,
   formatSubmittedOrderLine,
   battleMembersNeedingTurnAck,
+  publicHqRewritePayload,
   BATTLE_PRESENCE_TIMEOUT_MS,
   touchBattlePresenceFromPoll,
   initBattlePresenceForFighters,

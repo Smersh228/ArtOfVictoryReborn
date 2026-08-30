@@ -94,10 +94,8 @@ export function mapEnvironmentLabels(environment?: MapEnvironment | null): strin
   }
   const fog = weatherLabel('Туман', environment.fog)
   const rain = weatherLabel('Дождь', environment.rain)
-  const wind = weatherLabel('Сильный ветер', environment.strongWind)
   if (fog) out.push(fog)
   if (rain) out.push(rain)
-  if (wind) out.push(wind)
   return out
 }
 

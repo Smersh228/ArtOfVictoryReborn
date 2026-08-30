@@ -18,12 +18,28 @@ export type MaintenanceState = {
   enabled: boolean
   allowlist: MaintenanceAllowlistEntry[]
   message: string
+  onlineBoost: number
 }
 
 function adminUrl(path: string): string {
   const base = apiBaseUrl()
   const p = path.startsWith('/') ? path : `/${path}`
   return base ? `${base}/api/admin/maintenance${p}` : `/api/admin/maintenance${p}`
+}
+
+function parseOnlineBoost(raw: unknown): number {
+  const n = Math.floor(Number(raw))
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.min(9999, n)
+}
+
+function parseMaintenanceState(data: Record<string, unknown>): MaintenanceState {
+  return {
+    enabled: data.enabled === true,
+    allowlist: Array.isArray(data.allowlist) ? (data.allowlist as MaintenanceAllowlistEntry[]) : [],
+    message: String(data.message || 'Идут технические работы. Зайдите позже.'),
+    onlineBoost: parseOnlineBoost(data.onlineBoost),
+  }
 }
 
 function publicMaintenanceUrl(): string {
@@ -70,11 +86,7 @@ export async function fetchMaintenanceAdminState(): Promise<MaintenanceState> {
   if (!res.ok) {
     throw new Error(String(data?.error || data?.message || res.statusText))
   }
-  return {
-    enabled: data.enabled === true,
-    allowlist: Array.isArray(data.allowlist) ? data.allowlist : [],
-    message: String(data.message || 'Идут технические работы. Зайдите позже.'),
-  }
+  return parseMaintenanceState(data as Record<string, unknown>)
 }
 
 export async function setMaintenanceEnabled(enabled: boolean): Promise<MaintenanceState> {
@@ -88,11 +100,21 @@ export async function setMaintenanceEnabled(enabled: boolean): Promise<Maintenan
   if (!res.ok) {
     throw new Error(String(data?.error || data?.message || res.statusText))
   }
-  return {
-    enabled: data.enabled === true,
-    allowlist: Array.isArray(data.allowlist) ? data.allowlist : [],
-    message: String(data.message || 'Идут технические работы. Зайдите позже.'),
+  return parseMaintenanceState(data as Record<string, unknown>)
+}
+
+export async function setOnlineBoost(boost: number): Promise<MaintenanceState> {
+  const res = await fetch(adminUrl('/online-boost'), {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ boost }),
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(String(data?.error || data?.message || res.statusText))
   }
+  return parseMaintenanceState(data as Record<string, unknown>)
 }
 
 export async function addMaintenanceAllowlistUser(username: string): Promise<MaintenanceState> {
@@ -106,11 +128,7 @@ export async function addMaintenanceAllowlistUser(username: string): Promise<Mai
   if (!res.ok) {
     throw new Error(String(data?.error || data?.message || res.statusText))
   }
-  return {
-    enabled: data.enabled === true,
-    allowlist: Array.isArray(data.allowlist) ? data.allowlist : [],
-    message: String(data.message || 'Идут технические работы. Зайдите позже.'),
-  }
+  return parseMaintenanceState(data as Record<string, unknown>)
 }
 
 export async function removeMaintenanceAllowlistUser(username: string): Promise<MaintenanceState> {
@@ -123,11 +141,7 @@ export async function removeMaintenanceAllowlistUser(username: string): Promise<
   if (!res.ok) {
     throw new Error(String(data?.error || data?.message || res.statusText))
   }
-  return {
-    enabled: data.enabled === true,
-    allowlist: Array.isArray(data.allowlist) ? data.allowlist : [],
-    message: String(data.message || 'Идут технические работы. Зайдите позже.'),
-  }
+  return parseMaintenanceState(data as Record<string, unknown>)
 }
 
 export function isMaintenanceApiError(err: unknown): boolean {

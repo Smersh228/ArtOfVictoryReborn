@@ -11,6 +11,8 @@ const {
   sanctionStatus,
   isAdminUsername,
 } = require('./playerModeration')
+const { isMapAdminUser } = require('./mapsPolicy')
+const { ensureMaintenanceSchema, getOnlineBoostCached } = require('./maintenance')
 
 const PRESENCE_TTL_MS = 20_000
 const MAX_CHAT = 80
@@ -154,16 +156,24 @@ async function addChatMessage(user, rawText) {
 }
 
 async function snapshot(user) {
+  await ensureMaintenanceSchema()
   const uid = user ? Number(user.id) : NaN
   const roleKey = user ? await resolveRoleKey(user) : 'player'
-  return {
-    online: onlineCount(),
+  const realOnline = onlineCount()
+  const onlineBoost = getOnlineBoostCached()
+  const out = {
+    online: realOnline + onlineBoost,
     inBattle: inBattleCount(),
     messages: listMessages(),
     muted: Number.isFinite(uid) ? isMuted(uid) : false,
     roleKey,
     cooldownMs: isHighlightUsername(user && user.username) ? 0 : CHAT_COOLDOWN_MS,
   }
+  if (isMapAdminUser(user)) {
+    out.onlineReal = realOnline
+    out.onlineBoost = onlineBoost
+  }
+  return out
 }
 
 async function getPublicProfile(userId) {

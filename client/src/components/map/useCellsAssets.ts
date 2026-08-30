@@ -9,6 +9,7 @@ import ambushOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/defenseOrde
 import towTrailerDecalUrl from '../../img/orderUnits/ordinaryOrders/trunksOrders/trailer.png'
 import loadingOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/trunksOrders/loading.png'
 import getSupDecalUrl from '../../img/orderUnits/ordinaryOrders/trunksOrders/getSup.png'
+import loadSupDecalUrl from '../../img/orderUnits/ordinaryOrders/trunksOrders/LoadSup.png'
 import landingOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/trunksOrders/landing.png'
 import deployOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/deploy.png'
 import changeSectorOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/changeSector.png'
@@ -23,7 +24,9 @@ import {
   STORAGE_SPRITE_URL,
   ANTITANK_SPRITE_URL,
   TRENCH_SPRITE_URL,
+  PONTON_SPRITE_URL,
 } from '../../game/editorMapFortifications'
+import { SMOKE_SPRITE_URL } from '../../game/cellSmoke'
 
 export interface CachedImageState {
   ready: HTMLImageElement | null
@@ -41,6 +44,7 @@ interface LogisticsOrderIcons {
   tow?: HTMLImageElement
   loading?: HTMLImageElement
   getSup?: HTMLImageElement
+  loadingSup?: HTMLImageElement
 }
 
 export function useCellsAssets() {
@@ -65,6 +69,8 @@ export function useCellsAssets() {
   const antiTankImgRef = useRef<HTMLImageElement | null>(null)
   const dotImgRef = useRef<HTMLImageElement | null>(null)
   const storageImgRef = useRef<HTMLImageElement | null>(null)
+  const pontonImgRef = useRef<HTMLImageElement | null>(null)
+  const smokeImgRef = useRef<HTMLImageElement | null>(null)
   const imageCacheRef = useRef<Record<string, HTMLImageElement>>({})
   const [textureVersion, setTextureVersion] = useState(0)
   const bumpTextures = () => setTextureVersion((v) => v + 1)
@@ -149,6 +155,7 @@ export function useCellsAssets() {
       tow: buildImage(towTrailerDecalUrl),
       loading: buildImage(loadingOrderDecalUrl),
       getSup: buildImage(getSupDecalUrl),
+      loadingSup: buildImage(loadSupDecalUrl),
     }
     return () => {
       logisticsUnitDecalImgRef.current = {}
@@ -201,6 +208,20 @@ export function useCellsAssets() {
     storageImgRef.current = buildImage(STORAGE_SPRITE_URL)
     return () => {
       storageImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    pontonImgRef.current = buildImage(PONTON_SPRITE_URL)
+    return () => {
+      pontonImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    smokeImgRef.current = buildImage(SMOKE_SPRITE_URL)
+    return () => {
+      smokeImgRef.current = null
     }
   }, [])
 
@@ -263,6 +284,8 @@ export function useCellsAssets() {
       antiTankImgRef,
       dotImgRef,
       storageImgRef,
+      pontonImgRef,
+      smokeImgRef,
     },
   }
 }

@@ -37,7 +37,7 @@ function validateLogisticsOrder(cells, o, deps) {
     const tgt = findUnitOnField(cells, tid)
     if (!tgt) return 'цель не на поле'
     if (!alliesSameFaction(cur.unit, tgt.unit)) return 'можно снабжать только союзника'
-    if (hexDistCells(cur.cell, tgt.cell) !== 1) return 'цель в соседнем гексе'
+    if (hexDistCells(cur.cell, tgt.cell) > 1) return 'цель в соседнем гексе или на том же'
     if (getAmmo(cur.unit) < 1) return 'нет БК для передачи'
     const cap = getAmmoCapacityMax(tgt.unit)
     const headroom = Math.max(0, cap - getAmmo(tgt.unit))

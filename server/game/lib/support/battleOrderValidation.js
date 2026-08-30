@@ -13,14 +13,21 @@ const {
   isArtilleryFireTargetCellAllowed,
   getAmmoForValidate,
   canSpotAmbushTarget,
+  canSpotHiddenTarget,
+  isHiddenConcealed,
   unitHasPropKey,
   validateArtilleryAreaFireOnCellOnly,
   shootingAccuracyAtHexDistance,
   hexDistCells,
+  getMovePoint,
+  computeRevealedCellIdsForFaction,
+  rangeArrayFor,
+  rangeArrayForAtCell,
+  fireRangeTableMode,
+  getStr,
 } = require('../../battleEngine')
 const { hexFlightPathCellIds } = require('../map/battleHexGeometry')
 const { readVisionRange } = require('../unit/battleUnitVision')
-const { getStr } = require('../unit/battleUnitField')
 const { isDesantOnlyBattleMoveUnit } = require('../air/battleDesant')
 const { unitHasMeleeOnlyFireRowOptions } = require('../unit/battleUnitFireOptions')
 const { cellBlocksLineOfSight, isCellSeenByAnyHostileUnit } = require('../map/battleFogVisibility')
@@ -226,11 +233,80 @@ function validateBattleOrders(cells, orders, context) {
       ) {
         return `Приказ ${i + 1}: цель в засаде — заметна только вплотную, огнём по площади или после её выстрела`
       }
+      if (
+        (ok === 'fire' || ok === 'fireHard' || ok === 'attack') &&
+        isHiddenConcealed(tgt.unit) &&
+        !canSpotHiddenTarget(found.unit, found.cell, tgt.unit, tgt.cell, cells)
+      ) {
+        return `Приказ ${i + 1}: скрытый отряд не обнаружен`
+      }
+      const smokeMod = require('../map/battleSmoke')
+      if ((ok === 'fire' || ok === 'fireHard' || ok === 'attack') && smokeMod.hasSmokeOnCell(tgt.cell.builds)) {
+        return `Приказ ${i + 1}: цель в дымовой завесе`
+      }
       if (ok === 'attack') {
         if (!isAttackOrderValid(cells, uid, Number(tid))) {
           return `Приказ ${i + 1}: атака невозможна (дистанция ≤ ОП−1 до соседнего гекса цели, на гексе цели только один противник)`
         }
       }
+    }
+    if (ok === 'hardMove') {
+      const tid = o.targetUnitInstanceId
+      if (tid == null) return `Приказ ${i + 1}: нужна цель (targetUnitInstanceId)`
+      const tgt = findUnitOnField(cells, tid)
+      if (!tgt) return `Приказ ${i + 1}: цель не на поле`
+      if (!factionsOpposed(unitFaction(found.unit), unitFaction(tgt.unit))) {
+        return `Приказ ${i + 1}: цель должна быть противником`
+      }
+      if (!canSpotAmbushTarget(found.unit, found.cell, tgt.unit, tgt.cell, cells)) {
+        return `Приказ ${i + 1}: цель в засаде — заметна только вплотную, огнём по площади или после её выстрела`
+      }
+      if (isHiddenConcealed(tgt.unit) && !canSpotHiddenTarget(found.unit, found.cell, tgt.unit, tgt.cell, cells)) {
+        return `Приказ ${i + 1}: скрытый отряд не обнаружен`
+      }
+      if (!isAttackOrderValid(cells, uid, Number(tid))) {
+        return `Приказ ${i + 1}: мощная атака невозможна (дистанция ≤ ОП−1 до соседнего гекса цели, на гексе цели только один противник)`
+      }
+      continue
+    }
+    if (ok === 'fireMove') {
+      const fireMoveMod = require('../unit/battleFireMove')
+      const errFm = fireMoveMod.validateFireMoveOrder(cells, found, o, {
+        isArtilleryUnit,
+        isArtilleryDeployedForBattle,
+        isMoveOrderValid,
+        findUnitOnField,
+        factionsOpposed,
+        unitFaction,
+        getMovePoint,
+        computeRevealedCellIdsForFaction,
+        isAmbushConcealed: require('../../core/battleAmbush').isAmbushConcealed,
+        canSpotAmbushTarget,
+        rangeArrayForAtCell,
+        fireRangeTableMode,
+        isHexVisible,
+        artilleryAreaClosedIgnoresTerrainLos,
+        hexDistCells,
+        isArtilleryUnit,
+        unitHasPropKey,
+        rangeArrayFor,
+        getStr,
+      })
+      if (errFm) return `Приказ ${i + 1}: ${errFm}`
+      continue
+    }
+    if (ok === 'medical') {
+      continue
+    }
+    if (ok === 'razvedka' || ok === 'svzy') {
+      const recon = require('../recon/battleReconResolve')
+      const rangeArray = recon.readRangeCsvFromUnit(found.unit, ok)
+      const maxR = Math.max(1, rangeArray.length)
+      const r = Number(o.reconRangeSteps)
+      if (!Number.isFinite(r) || r < 1 || r > maxR) {
+        return `Приказ ${i + 1}: укажите радиус 1…${maxR} (клик по гексу зоны)`
+      }
+      continue
     }
     if (ok === 'move' || ok === 'moveWar') {
       if (isArtilleryUnit(found.unit) && isArtilleryDeployedForBattle(found.unit)) {
@@ -498,6 +574,218 @@ function validateBattleOrders(cells, orders, context) {
         if (!cellBlocksLineOfSight(found.cell)) {
           return `Приказ ${i + 1}: засада — гекс юнита должен быть с преградой видимости (лес, город, здание, visionBlock и т.п.)`
         }
+      }
+    }
+    if (ok === 'trenches') {
+      const trench = require('../map/battleTrench')
+      if (trench.isTrenchDigging(found.unit)) {
+        return `Приказ ${i + 1}: юнит уже окапывается`
+      }
+      if (getStr(found.unit) < trench.TRENCH_DIG_MIN_STR) {
+        return `Приказ ${i + 1}: окопаться — численность не менее ${trench.TRENCH_DIG_MIN_STR}`
+      }
+      if (trench.isTrenchForbiddenOnCell(found.cell)) {
+        return `Приказ ${i + 1}: окоп нельзя ставить на эту местность`
+      }
+      const fid = o.defendFacingCellId != null ? Number(o.defendFacingCellId) : Number(o.targetCellId)
+      if (!Number.isFinite(fid)) return `Приказ ${i + 1}: окопаться — укажите соседний гекс направления`
+      const fCell = cells.find((c) => Number(c.id) === fid)
+      if (!fCell) return `Приказ ${i + 1}: окопаться — клетка направления не найдена`
+      if (hexDistCells(found.cell, fCell) !== 1) {
+        return `Приказ ${i + 1}: окопаться — направление должно быть соседним гексом`
+      }
+      const dir = trench.findMoveDir(found.cell, fCell)
+      if (dir < 0) return `Приказ ${i + 1}: окопаться — неверное направление`
+      const visualEdge = trench.moveDirToVisualEdge(dir)
+      if (trench.hasTrenchOnEdge(found.cell.builds, visualEdge)) {
+        return `Приказ ${i + 1}: окоп с этой стороны уже есть`
+      }
+    }
+    if (ok === 'cutWire') {
+      const wireEdges = require('../map/battleWireEdges')
+      const cid = Number(o.targetCellId)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: снятие проволоки — укажите клетку`
+      const tgtCell = cells.find((c) => Number(c.id) === cid)
+      if (!tgtCell) return `Приказ ${i + 1}: снятие проволоки — клетка не найдена`
+      const dist = hexDistCells(found.cell, tgtCell)
+      if (dist > 1) return `Приказ ${i + 1}: снятие проволоки — только свой или соседний гекс`
+      if (dist === 0) {
+        const edgeDir = Math.floor(Number(o.wireEdgeDir != null ? o.wireEdgeDir : o.trenchEdgeDir))
+        if (!Number.isFinite(edgeDir) || edgeDir < 0 || edgeDir > 5) {
+          return `Приказ ${i + 1}: снятие проволоки — укажите грань с проволокой`
+        }
+        if (!wireEdges.hasWireOnEdge(tgtCell.builds, edgeDir)) {
+          return `Приказ ${i + 1}: на этой грани нет проволоки`
+        }
+      } else {
+        const dir = wireEdges.findMoveDir(found.cell, tgtCell)
+        if (dir < 0) return `Приказ ${i + 1}: снятие проволоки — не соседний гекс`
+        const oppDir = (dir + 3) % 6
+        const hasShared =
+          wireEdges.hasWireOnMoveDir(found.cell.builds, dir) ||
+          wireEdges.hasWireOnMoveDir(tgtCell.builds, oppDir)
+        if (!hasShared) return `Приказ ${i + 1}: на общей грани нет проволоки`
+      }
+    }
+    if (ok === 'buildPonton') {
+      const sapper = require('../map/battleSapperJobs')
+      const ponton = require('../map/battlePonton')
+      if (sapper.isSapperBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${sapper.sapperBusyReason(found.unit)}`
+      }
+      if (getStr(found.unit) < sapper.PONTON_MIN_STR) {
+        return `Приказ ${i + 1}: наведение переправы — численность не менее ${sapper.PONTON_MIN_STR}`
+      }
+      const cid = Number(o.targetCellId)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: наведение переправы — укажите гекс реки`
+      const river = cells.find((c) => Number(c.id) === cid)
+      if (!river || !ponton.isRiverCell(river)) {
+        return `Приказ ${i + 1}: наведение переправы — цель должна быть рекой`
+      }
+      if (hexDistCells(found.cell, river) !== 1) {
+        return `Приказ ${i + 1}: наведение переправы — отряд должен стоять на соседнем с рекой гексе`
+      }
+      if (ponton.isPontonComplete(river.builds)) {
+        return `Приказ ${i + 1}: на этой реке переправа уже наведена`
+      }
+    }
+    if (ok === 'cutEj') {
+      const sapper = require('../map/battleSapperJobs')
+      const atEdges = require('../map/battleAntiTankEdges')
+      if (sapper.isSapperBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${sapper.sapperBusyReason(found.unit)}`
+      }
+      const cid = Number(o.targetCellId)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: снятие ежей — укажите клетку`
+      const tgtCell = cells.find((c) => Number(c.id) === cid)
+      if (!tgtCell) return `Приказ ${i + 1}: снятие ежей — клетка не найдена`
+      const dist = hexDistCells(found.cell, tgtCell)
+      if (dist > 1) return `Приказ ${i + 1}: снятие ежей — только свой или соседний гекс`
+      if (dist === 0) {
+        const edgeDir = Math.floor(Number(o.wireEdgeDir != null ? o.wireEdgeDir : o.trenchEdgeDir))
+        if (!Number.isFinite(edgeDir) || edgeDir < 0 || edgeDir > 5) {
+          return `Приказ ${i + 1}: снятие ежей — укажите грань с заграждением`
+        }
+        if (!atEdges.hasAntiTankOnEdge(tgtCell.builds, edgeDir)) {
+          return `Приказ ${i + 1}: на этой грани нет противотанкового заграждения`
+        }
+      } else {
+        const dir = atEdges.findMoveDir(found.cell, tgtCell)
+        if (dir < 0) return `Приказ ${i + 1}: снятие ежей — не соседний гекс`
+        const oppDir = (dir + 3) % 6
+        const hasShared =
+          atEdges.hasAntiTankOnMoveDir(found.cell.builds, dir) ||
+          atEdges.hasAntiTankOnMoveDir(tgtCell.builds, oppDir)
+        if (!hasShared) return `Приказ ${i + 1}: на общей грани нет противотанкового заграждения`
+      }
+    }
+    if (ok === 'demining') {
+      const sapper = require('../map/battleSapperJobs')
+      const mineMod = require('../map/battleMines')
+      if (sapper.isSapperBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${sapper.sapperBusyReason(found.unit)}`
+      }
+      const cid = Number(o.targetCellId != null ? o.targetCellId : found.cell.id)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: разминирование — укажите клетку`
+      const tgtCell = cells.find((c) => Number(c.id) === cid)
+      if (!tgtCell) return `Приказ ${i + 1}: разминирование — клетка не найдена`
+      if (hexDistCells(found.cell, tgtCell) > 1) {
+        return `Приказ ${i + 1}: разминирование — только свой или соседний гекс`
+      }
+      if (!mineMod.isMineDiscoveredForUnit(tgtCell, found.unit)) {
+        return `Приказ ${i + 1}: разминирование — минное поле должно быть обнаружено`
+      }
+    }
+    if (ok === 'mining') {
+      const sapper = require('../map/battleSapperJobs')
+      const mineMod = require('../map/battleMines')
+      const { getMines } = require('../unit/battleUnitResources')
+      if (sapper.isSapperBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${sapper.sapperBusyReason(found.unit)}`
+      }
+      if (getMines(found.unit) < 1) {
+        return `Приказ ${i + 1}: минирование — нет мин в запасе`
+      }
+      if (mineMod.hasMineOnCell(found.cell.builds)) {
+        return `Приказ ${i + 1}: минирование — на этом гексе уже есть минное поле`
+      }
+    }
+    if (ok === 'smoke') {
+      const smokeMod = require('../map/battleSmoke')
+      if (smokeMod.getSmokeShells(found.unit) < 1) {
+        return `Приказ ${i + 1}: нет дымовых снарядов`
+      }
+      const cid = Number(o.targetCellId)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: дымовая завеса — укажите гекс`
+      const tc = cells.find((c) => Number(c.id) === cid)
+      if (!tc) return `Приказ ${i + 1}: дымовая завеса — клетка не найдена`
+      if (
+        !smokeMod.friendlyCanSpotSmokeHex(cells, found.unit, tc, {
+          unitFaction,
+          getStr,
+          isHexVisible,
+          maxShootRangeStepsForUnit,
+          hexDistCells,
+        })
+      ) {
+        return `Приказ ${i + 1}: дымовая завеса — гекс вне линии видимости или дальности стрельбы (своей или союзника)`
+      }
+    }
+    if (ok === 'explomost') {
+      const ponton = require('../map/battlePonton')
+      const { getExplosives } = require('../unit/battleUnitResources')
+      if (getExplosives(found.unit) < 1) {
+        return `Приказ ${i + 1}: подрыв — нет взрывчатки`
+      }
+      const cid = Number(o.targetCellId != null ? o.targetCellId : found.cell.id)
+      if (!Number.isFinite(cid)) return `Приказ ${i + 1}: подрыв — укажите клетку`
+      const tc = cells.find((c) => Number(c.id) === cid)
+      if (!tc) return `Приказ ${i + 1}: подрыв — клетка не найдена`
+      if (hexDistCells(found.cell, tc) > 1) return `Приказ ${i + 1}: подрыв — только свой или соседний гекс`
+      if (!ponton.hasPontonOnCell(tc.builds)) {
+        return `Приказ ${i + 1}: подрыв — на гексе нет понтонного моста`
+      }
+    }
+    if (ok === 'railLoading' || ok === 'railUnloading') {
+      const railway = require('../map/battleRailway')
+      if (!railway.isRailwayUnit(found.unit)) {
+        return `Приказ ${i + 1}: нужен железнодорожный отряд (техника)`
+      }
+      if (!railway.isRailwayCell(found.cell)) {
+        return `Приказ ${i + 1}: железнодорожный отряд должен стоять на железной дороге`
+      }
+      if (railway.isRailBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${railway.railBusyReason(found.unit)}`
+      }
+      if (ok === 'railLoading') {
+        const tid = Number(o.targetUnitInstanceId)
+        if (!Number.isFinite(tid)) return `Приказ ${i + 1}: погрузка на ЖД — укажите отряд`
+        const tgt = findUnitOnField(cells, tid)
+        if (!tgt) return `Приказ ${i + 1}: погрузка на ЖД — цель не на поле`
+        if (unitFaction(found.unit) !== unitFaction(tgt.unit)) {
+          return `Приказ ${i + 1}: погрузка на ЖД — только союзник`
+        }
+        if (hexDistCells(found.cell, tgt.cell) !== 1) {
+          return `Приказ ${i + 1}: погрузка на ЖД — цель в соседнем гексе`
+        }
+        if (!railway.canRailAcceptUnit(found.unit, tgt.unit)) {
+          return `Приказ ${i + 1}: погрузка на ЖД — нет места (2 пехоты + 2 техники/орудий)`
+        }
+      }
+      if (ok === 'railUnloading') {
+        const cargoId = Number(o.targetUnitInstanceId)
+        const cid = Number(o.targetCellId)
+        if (!Number.isFinite(cargoId)) return `Приказ ${i + 1}: выгрузка на ЖД — укажите груз`
+        if (!Number.isFinite(cid)) return `Приказ ${i + 1}: выгрузка на ЖД — укажите клетку`
+        const arr = found.unit.tactical && Array.isArray(found.unit.tactical.carriedUnits)
+          ? found.unit.tactical.carriedUnits
+          : []
+        if (!arr.some((u) => Number(u.instanceId) === cargoId)) {
+          return `Приказ ${i + 1}: выгрузка на ЖД — юнит не в составе`
+        }
+        const tc = cells.find((c) => Number(c.id) === cid)
+        if (!tc) return `Приказ ${i + 1}: выгрузка на ЖД — клетка не найдена`
+        if (hexDistCells(found.cell, tc) > 1) return `Приказ ${i + 1}: выгрузка на ЖД — клетка не рядом`
       }
     }
   }

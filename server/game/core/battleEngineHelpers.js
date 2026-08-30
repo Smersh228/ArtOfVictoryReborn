@@ -35,12 +35,19 @@ function isMoveOrderValid(cells, unitInstanceId, targetCellId, orderKey, deps) {
     computeRevealedCellIdsForFaction,
     unitFaction,
     findReachable,
+    getMeleeOpponentId,
   } = deps
   const cur = findUnitOnField(cells, unitInstanceId)
   if (!cur) return false
   if (isArtilleryDeployedForBattle(cur.unit)) return false
   const tc = cells.find((c) => Number(c.id) === Number(targetCellId))
   if (!tc) return false
+  const meleeId = typeof getMeleeOpponentId === 'function' ? getMeleeOpponentId(cur.unit) : null
+  if (meleeId != null) {
+    if (String(orderKey || '').trim() !== 'move') return false
+    const analog = require('../lib/unit/battleMeleeAnalog')
+    return analog.isValidMeleeRetreatCell(cur.cell, tc, cur.unit, cells, deps)
+  }
   const budget = moveBudgetForOrderKey(getMovePoint(cur.unit), orderKey)
   const fog = computeRevealedCellIdsForFaction(cells, unitFaction(cur.unit))
   const reach = findReachable(cur.cell, budget, cells, cur.unit, fog)
@@ -136,17 +143,35 @@ function validateUnitOrdersAllowed(unit, deps, orderKey) {
   if (unit.tactical?.dotExitTurnsLeft > 0) {
     return 'выход из ДОТ'
   }
+  if (unit.tactical && Number(unit.tactical.trenchDigTurnsLeft) > 0) {
+    return 'окапывается'
+  }
+  const sapperJob = unit.tactical && unit.tactical.sapperJob
+  if (sapperJob && Number(sapperJob.turnsLeft) > 0) {
+    const sapper = require('../lib/map/battleSapperJobs')
+    return sapper.sapperBusyReason(unit) || 'сапёрные работы'
+  }
   if (unit.tactical?.inDot) {
     if (ok !== 'fire' && ok !== 'fireHard' && ok !== 'exitDot') {
       return 'юнит в ДОТ'
     }
   }
   if (getMeleeOpponentId(unit)) {
-    if (ok !== 'fire' && ok !== 'fireHard') {
-      return 'юнит в ближнем бою'
-    }
+    if (ok === 'attack' || ok === 'hardMove' || ok === 'move') return null
+    return 'юнит в ближнем бою'
+  }
+  if (unit.tactical && unit.tactical.onSmoke && require('../lib/map/battleSmoke').smokeBlocksOrderKey(ok)) {
+    return 'дымовая завеса'
+  }
+  if (unit.tactical && unit.tactical.railJob && Number(unit.tactical.railJob.turnsLeft) > 0) {
+    return 'погрузка/выгрузка на железной дороге'
   }
   if (unit.tactical && unit.tactical.fireSuppression) return 'огневое подавление'
+  if (unit.tactical && unit.tactical.inTrench && String(unit.type || '').toLowerCase() === 'artillery') {
+    if (ok === 'move' || ok === 'moveWar' || ok === 'attack') {
+      return 'артиллерия в окопе — только свёртывание'
+    }
+  }
   return null
 }
 

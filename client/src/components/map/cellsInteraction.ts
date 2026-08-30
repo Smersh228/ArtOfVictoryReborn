@@ -1,6 +1,7 @@
 import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
 import { battleUnitsVisibleOnMap } from '../../game/battleAirSupport'
 import type { AirInterceptionTarget } from '../../game/battleAirSupport'
+import { hasDotOnCell } from '../../game/cellDot'
 import { unitDrawSize, unitPositionsForDraw, airInterceptionTargetDrawSize } from './cellsDrawBase'
 
 export function getCellCenter(
@@ -85,7 +86,11 @@ export function findUnitAtPosition(
     if (!rowUnits.length) continue
 
     const center = getCellCenter(cell.coor.x, cell.coor.z, cellSize, width, height)
-    const positions = unitPositionsForDraw(lobbyPreview, mode, cellSize)
+    const shareWithDot = hasDotOnCell(cell.builds)
+    const positions = unitPositionsForDraw(lobbyPreview, mode, cellSize, {
+      shareWithDot,
+      unitCount: rowUnits.length,
+    })
     const n = Math.min(rowUnits.length, 3)
 
     for (let k = 0; k < n; k++) {
@@ -96,7 +101,7 @@ export function findUnitAtPosition(
       const pos = positions[i]
       const unitX = center.x + pos.x
       const unitY = center.y + pos.y
-      const size = unitDrawSize(rowUnits.length, lobbyPreview, mode, cellSize)
+      const size = unitDrawSize(rowUnits.length, lobbyPreview, mode, cellSize, shareWithDot)
       const half = size / 2
       const hit = Math.abs(mouseX - unitX) <= half && Math.abs(mouseY - unitY) <= half
       if (hit) return { cell, unit, index: i }

@@ -1,6 +1,7 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { effectiveElevationLevel } from './cellElevation';
 import { applyRainEntryCost } from './battleEnvironment';
+import { isPontonComplete } from './cellPonton';
 
 type HexExtra = Record<string, unknown>;
 
@@ -215,6 +216,9 @@ export function terrainEntryCost(cell: Cell, unit: { type?: unknown; properties?
     const bypass = terrainPropBypassEntryCost(cell, unit);
     cost = bypass != null ? bypass : 0;
   }
+  if (cost <= 0) {
+    if (isPontonComplete(cell.builds)) cost = 1;
+  }
   if (cost <= 0) return 0;
   return applyRainEntryCost(cell, unit, cost);
 }
@@ -310,9 +314,10 @@ export function terrainAccuracyBonusFromCell(
 /** Бонус защиты с гекса (как на сервере). */
 export function terrainDefenseBonusFromCell(
   targetCell: Cell | null | undefined,
-  targetUnit: { type?: unknown } | null | undefined,
+  targetUnit: { type?: unknown; tactical?: { fireSuppression?: boolean } } | null | undefined,
 ): number {
   if (!targetCell || !targetUnit) return 0;
+  if (targetUnit.tactical && targetUnit.tactical.fireSuppression) return 0;
   const ex = hexExtraObj(targetCell);
   const cellAny = targetCell as unknown as {
     defBonusByType?: Record<string, number>;

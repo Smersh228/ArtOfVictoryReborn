@@ -6,6 +6,13 @@ const { isMapAdminUser } = require('./mapsPolicy')
 const MAINTENANCE_MESSAGE = 'Идут технические работы. Зайдите позже.'
 
 let schemaReady = false
+let onlineBoostCache = 0
+
+function clampOnlineBoost(n) {
+  const x = Math.floor(Number(n))
+  if (!Number.isFinite(x) || x < 0) return 0
+  return Math.min(9999, x)
+}
 
 function normUsername(raw) {
   return String(raw ?? '').trim().toLowerCase()
@@ -27,7 +34,28 @@ async function ensureMaintenanceSchema() {
       added_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `)
+  await pool.query(`
+    ALTER TABLE site_setting
+    ADD COLUMN IF NOT EXISTS online_boost INTEGER NOT NULL DEFAULT 0
+  `)
+  const boostRow = await pool.query('SELECT online_boost FROM site_setting WHERE id = 1')
+  onlineBoostCache = clampOnlineBoost(boostRow.rows[0]?.online_boost)
   schemaReady = true
+}
+
+async function setOnlineBoost(raw) {
+  await ensureMaintenanceSchema()
+  const v = clampOnlineBoost(raw)
+  await pool.query(
+    'UPDATE site_setting SET online_boost = $1, updated_at = NOW() WHERE id = 1',
+    [v],
+  )
+  onlineBoostCache = v
+  return v
+}
+
+function getOnlineBoostCached() {
+  return onlineBoostCache
 }
 
 async function isMaintenanceEnabled() {
@@ -111,7 +139,7 @@ async function getMaintenancePublicStatus() {
 async function getMaintenanceAdminState() {
   const enabled = await isMaintenanceEnabled()
   const allowlist = await listAllowlistUsernames()
-  return { enabled, allowlist, message: MAINTENANCE_MESSAGE }
+  return { enabled, allowlist, message: MAINTENANCE_MESSAGE, onlineBoost: getOnlineBoostCached() }
 }
 
 async function listRegisteredUsersForAdmin() {
@@ -156,4 +184,6 @@ module.exports = {
   getMaintenanceAdminState,
   listRegisteredUsersForAdmin,
   ensureMaintenanceSchema,
+  setOnlineBoost,
+  getOnlineBoostCached,
 }

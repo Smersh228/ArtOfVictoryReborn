@@ -11,6 +11,8 @@ import {
 } from './battleDesantCombat';
 import { isInfantryUnitType } from './battleTerrain';
 import { isCellInArtillerySector, getArtillerySectorCellIdSet } from './battleDefendSector';
+import { hasSmokeOnCell } from './cellSmoke';
+import { factionsAlliedOnMap } from './battleLogisticsUi';
 import {
   computeDotFireHighlights,
   dotIntensityForTarget,
@@ -19,6 +21,7 @@ import {
   unitFiresFromDot,
 } from './cellDot';
 import { applyAccuracyRangeShift, applyIntensityPenalty } from './battleEnvironment';
+import { canSpotHiddenTargetClient, isHiddenConcealedClient } from './battleHiddenState';
 
 export { isArmoredVehicleTarget } from './battleDesantCombat';
 
@@ -122,6 +125,7 @@ function collectOpposingUnitsForFire(
     }
   };
   for (const cell of cells) {
+    if (hasSmokeOnCell(cell.builds)) continue;
     for (const u of cell.units || []) {
       visit(u as unknown as Record<string, unknown>, cell);
     }
@@ -361,21 +365,22 @@ export function findHostileUnitsInShootingRange(
   attackerUnit: Record<string, unknown>,
   attackerCell: Cell,
   cells: Cell[],
-  orderKey: 'fire' | 'fireHard' | 'attack',
+  orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove' | 'fireMove',
   fogRevealedCellIds?: FogVisibleCellIds,
 ): Set<number> {
   const attackerId = Number(attackerUnit.instanceId);
   const af = String(attackerUnit.faction ?? '');
   const out = new Set<number>();
   const ra = rangeArrayForUnitAtCell(attackerUnit, attackerCell);
+  const isAttack = orderKey === 'attack' || orderKey === 'hardMove';
   const maxD =
-    orderKey === 'attack' ? 999 : ra.length >= 2 ? ra.length - 1 : ra.length;
+    isAttack ? 999 : ra.length >= 2 ? ra.length - 1 : ra.length;
 
   const profile: BattleMovePreviewUnit = {
     type: String(attackerUnit.type ?? 'infantry'),
     faction: String(attackerUnit.faction ?? ''),
   };
-  const attackBudget = orderKey === 'attack' ? attackReachBudgetClient(attackerUnit) : 0;
+  const attackBudget = isAttack ? attackReachBudgetClient(attackerUnit) : 0;
   const fogSet =
     fogRevealedCellIds == null
       ? null
@@ -383,7 +388,7 @@ export function findHostileUnitsInShootingRange(
         ? new Set(fogRevealedCellIds)
         : fogRevealedCellIds;
   const reachIds =
-    orderKey === 'attack'
+    isAttack
       ? new Set(
           findReachableCells(attackerCell, attackBudget, cells, profile, fogSet).map(
             (c) => c.id,
@@ -395,15 +400,15 @@ export function findHostileUnitsInShootingRange(
     const tid = Number(raw.instanceId);
     if (!Number.isFinite(tid)) continue;
     const d = hexDistCells(attackerCell, cell);
-    if (orderKey === 'attack') {
+    if (isAttack) {
       if (d > maxD) continue;
     }
-    if (orderKey === 'fire' || orderKey === 'fireHard') {
-      if (!canRangedFireAtTarget(attackerUnit, attackerCell, raw, d, orderKey)) continue;
+    if (orderKey === 'fire' || orderKey === 'fireHard' || orderKey === 'fireMove') {
+      if (!canRangedFireAtTarget(attackerUnit, attackerCell, raw, d, orderKey === 'fireHard' ? 'fireHard' : 'fire')) continue;
     } else if (isFireDistanceOutOfRange(ra, fireRangeTableMode(ra), d, attackerUnit, raw)) {
       continue;
     }
-    if (orderKey === 'attack') {
+    if (isAttack) {
       const us = cell.units || [];
       let opposingOnHex = 0;
       for (const u of us) {
@@ -416,6 +421,12 @@ export function findHostileUnitsInShootingRange(
         hexDistCells(attackerCell, cell) <= 1 ||
         cells.some((c) => hexDistCells(cell, c) === 1 && reachIds!.has(c.id));
       if (!adjacentToEnemy) continue;
+    }
+    if (
+      isHiddenConcealedClient(raw) &&
+      !canSpotHiddenTargetClient(attackerUnit, attackerCell, raw, cell, cells)
+    ) {
+      continue;
     }
     out.add(tid);
   }
@@ -533,11 +544,11 @@ export function computeBattleFireHighlights(
   attackerUnit: Record<string, unknown>,
   attackerCell: Cell,
   cells: Cell[],
-  orderKey: 'fire' | 'fireHard' | 'attack',
+  orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove' | 'fireMove',
   fogRevealedCellIds: FogVisibleCellIds,
   options?: BattleFireHighlightOptions,
 ): BattleFireHighlights {
-  if (orderKey === 'attack') {
+  if (orderKey === 'attack' || orderKey === 'hardMove') {
     const raw = findHostileUnitsInShootingRange(
       attackerUnit,
       attackerCell,
@@ -560,7 +571,7 @@ export function computeBattleFireHighlights(
     return { instanceIds: filtered, areaCellIds: null };
   }
 
-  if (orderKey !== 'fire' && orderKey !== 'fireHard') {
+  if (orderKey !== 'fire' && orderKey !== 'fireHard' && orderKey !== 'fireMove') {
     return { instanceIds: new Set(), areaCellIds: null };
   }
 
@@ -645,3 +656,34 @@ export function computeBattleFireHighlights(
   }
   return { instanceIds: filtered, areaCellIds: null };
 }
+
+export function computeSmokeTargetCellIds(
+  cells: Cell[],
+  shooter: Record<string, unknown>,
+  shooterCell: Cell,
+): Set<number> {
+  const fac = String(shooter.faction || '');
+  const out = new Set<number>();
+  for (const targetCell of cells) {
+    let ok = false;
+    for (const c of cells) {
+      for (const raw of c.units || []) {
+        const u = raw as unknown as Record<string, unknown>;
+        const n = Number(u.str ?? u.strength);
+        if (Number.isFinite(n) && n <= 0) continue;
+        if (!factionsAlliedOnMap(String(u.faction || ''), fac)) continue;
+        const shootR = maxShootRangeStepsForUnit(u, c);
+        if (!(shootR > 0)) continue;
+        if (hexDistCells(c, targetCell) > shootR) continue;
+        if (!isHexVisible(c, targetCell, cells)) continue;
+        ok = true;
+        break;
+      }
+      if (ok) break;
+    }
+    if (ok) out.add(targetCell.id);
+  }
+  void shooterCell;
+  return out;
+}
+

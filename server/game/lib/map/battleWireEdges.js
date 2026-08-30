@@ -112,6 +112,28 @@ function applyWireBreakthroughOnStep(fromCell, toCell, unit, unitHasPropKey) {
   return cleared
 }
 
+function cutWireAlongSharedEdge(fromCell, toCell) {
+  const dir = findMoveDir(fromCell, toCell)
+  if (dir < 0) return false
+  const oppDir = (dir + 3) % 6
+  let cleared = false
+  if (hasWireOnMoveDir(fromCell.builds, dir)) {
+    fromCell.builds = clearWireEdgeOnBuilds(fromCell.builds, moveDirToVisualEdge(dir))
+    cleared = true
+  }
+  if (hasWireOnMoveDir(toCell.builds, oppDir)) {
+    toCell.builds = clearWireEdgeOnBuilds(toCell.builds, moveDirToVisualEdge(oppDir))
+    cleared = true
+  }
+  return cleared
+}
+
+function cutWireOnCellEdge(cell, edgeDir) {
+  if (!cell || !hasWireOnEdge(cell.builds, edgeDir)) return false
+  cell.builds = clearWireEdgeOnBuilds(cell.builds, edgeDir)
+  return true
+}
+
 function tryDestroyBarbedWireFromFire(targetCell, attacker, unitHasPropKey, le, ph) {
   if (!targetCell || !attacker) return false
   if (!unitHasPropKey(attacker, 'destructionOfBarbedWire')) return false
@@ -129,7 +151,10 @@ module.exports = {
   clearAllWireOnBuilds,
   clearWireEdgeOnBuilds,
   findMoveDir,
+  hasWireOnMoveDir,
   wireBlocksGroundMove,
   applyWireBreakthroughOnStep,
   tryDestroyBarbedWireFromFire,
+  cutWireAlongSharedEdge,
+  cutWireOnCellEdge,
 }

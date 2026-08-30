@@ -483,6 +483,8 @@ function resolveEnterDot(cells, cur, o, le, ph, deps) {
   delete tac.dotExitTurnsLeft
   tac.dotEnterTurnsLeft = 1
   clearDefendOnUnit(cur.unit)
+  const trench = require('./battleTrench')
+  trench.leaveTrench(cur.unit, cur.cell)
   le(ph, `Юнит ${cur.unit.instanceId} начинает занимать ДОТ на кл. ${dotCell.id} (войдёт на следующем ходу)`)
 }
 

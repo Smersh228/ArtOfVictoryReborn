@@ -439,7 +439,7 @@
   padding: 0;
   font-size: 14px;
   font-weight: 600;
-  color: rgba(28, 32, 40, 0.9);
+  color: #000;
   background: transparent;
   border: none;
 }
@@ -447,6 +447,7 @@
 .lobbyMissionTurns strong {
   font-weight: 800;
   letter-spacing: 0.02em;
+  color: #000;
 }
 
 .lobbyMissionTurnsMuted {

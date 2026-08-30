@@ -33,14 +33,84 @@ export function battleUnitOffsets(cellSize: number) {
   ]
 }
 
+/** ДОТ и видимые юниты на одном гексе: бункер вверх, юниты вниз. */
+export function hexSharesDotWithUnits(hasDot: boolean, visibleUnitCount: number): boolean {
+  return hasDot && visibleUnitCount > 0
+}
+
+export function dotDrawLayout(cellSize: number, shareWithUnits: boolean) {
+  if (!shareWithUnits) return { offsetX: 0, offsetY: 0, scale: 0.92 }
+  return { offsetX: 0, offsetY: -cellSize * 0.28, scale: 0.55 }
+}
+
+function unitSlotsForCount(
+  slots: { x: number; y: number }[],
+  unitCount: number,
+): { x: number; y: number }[] {
+  const n = Math.min(Math.max(1, unitCount), 3)
+  if (n === 1) return [slots[0], slots[1], slots[2]]
+  if (n === 2) return [slots[1], slots[2], slots[0]]
+  return [slots[1], slots[0], slots[2]]
+}
+
 export function unitPositionsForDraw(
   lobbyPreview: boolean,
   mode: 'editor' | 'battle',
   cellSize: number,
+  opts?: { shareWithDot?: boolean; unitCount?: number },
 ) {
+  const shareWithDot = Boolean(opts?.shareWithDot)
+  const unitCount = opts?.unitCount ?? 1
+  if (shareWithDot) {
+    const y = lobbyPreview ? 8 : mode === 'battle' ? cellSize * 0.3 : 16
+    const x = lobbyPreview ? 8 : mode === 'battle' ? cellSize * 0.24 : 14
+    const bottom = [
+      { x: 0, y },
+      { x: -x, y },
+      { x: x, y },
+    ]
+    return unitSlotsForCount(bottom, unitCount)
+  }
   if (lobbyPreview) return lobbyPreviewUnitPositions
   if (mode === 'battle') return battleUnitOffsets(cellSize)
   return unitPositions
+}
+
+export function unitDrawSize(
+  unitCount: number,
+  lobbyPreview: boolean,
+  mode: 'editor' | 'battle',
+  cellSize: number,
+  shareWithDot = false,
+): number {
+  if (lobbyPreview) {
+    if (shareWithDot) return unitCount === 1 ? 18 : 16
+    if (unitCount === 1) return 24
+    if (unitCount === 2) return 20
+    return 18
+  }
+
+  if (mode === 'battle') {
+    let baseSize = cellSize * (shareWithDot ? 0.44 : 0.62)
+    if (unitCount === 1) {
+      baseSize = cellSize * (shareWithDot ? 0.52 : 0.84)
+    } else if (unitCount === 2) {
+      baseSize = cellSize * (shareWithDot ? 0.46 : 0.72)
+    }
+    const cap = cellSize * (shareWithDot ? 0.56 : 0.92)
+    const limitedSize = Math.min(baseSize, cap)
+    const roundedSize = Math.round(limitedSize)
+    return Math.max(shareWithDot ? 22 : 28, roundedSize)
+  }
+
+  if (shareWithDot) {
+    if (unitCount === 1) return 28
+    if (unitCount === 2) return 24
+    return 22
+  }
+  if (unitCount === 1) return 40
+  if (unitCount === 2) return 35
+  return 30
 }
 
 /** Смещение иконки авиации от центра гекса вдоль маршрута (рядом с гексом, не внутри). */
@@ -92,35 +162,6 @@ export function airUnitInFlightDrawSize(cellSize: number): number {
 /** Иконка вражеской цели при выборе приказа «Перехват» — компактно в центре гекса. */
 export function airInterceptionTargetDrawSize(cellSize: number): number {
   return Math.max(12, Math.round(cellSize * 0.2))
-}
-
-export function unitDrawSize(
-  unitCount: number,
-  lobbyPreview: boolean,
-  mode: 'editor' | 'battle',
-  cellSize: number,
-): number {
-  if (lobbyPreview) {
-    if (unitCount === 1) return 24
-    if (unitCount === 2) return 20
-    return 18
-  }
-
-  if (mode === 'battle') {
-    let baseSize = cellSize * 0.62
-    if (unitCount === 1) {
-      baseSize = cellSize * 0.84
-    } else if (unitCount === 2) {
-      baseSize = cellSize * 0.72
-    }
-    const limitedSize = Math.min(baseSize, cellSize * 0.92)
-    const roundedSize = Math.round(limitedSize)
-    return Math.max(28, roundedSize)
-  }
-
-  if (unitCount === 1) return 40
-  if (unitCount === 2) return 35
-  return 30
 }
 
 export function battleHoverDropShadowFilter(kind: 'own' | 'ally' | 'enemy' | 'neutral') {

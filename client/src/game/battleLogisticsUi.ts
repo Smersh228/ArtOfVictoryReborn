@@ -1,14 +1,22 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { hasDotOnCell, unitInDot } from './cellDot';
 import { findUnitCellByInstanceId } from './battleMovePreview';
-import { hasStorageOnCell, STORAGE_DEFAULT_AMMO } from './editorMapFortifications';
+import { hasStorageOnCell, STORAGE_DEFAULT_AMMO, STORAGE_DEFAULT_SMOKE, STORAGE_DEFAULT_EXPLOSIVES, STORAGE_DEFAULT_MINES } from './editorMapFortifications';
+import { unitHasPropKey } from './battleTerrain';
 
 export function hexDistCells(a: Cell, b: Cell): number {
-  return Math.max(
-    Math.abs(a.coor.x - b.coor.x),
-    Math.abs(a.coor.y - b.coor.y),
-    Math.abs(a.coor.z - b.coor.z),
-  );
+  const ax = Number(a.coor?.x);
+  const az = Number(a.coor?.z);
+  const bx = Number(b.coor?.x);
+  const bz = Number(b.coor?.z);
+  const ay = Number(a.coor?.y);
+  const by = Number(b.coor?.y);
+  if (Number.isFinite(ay) && Number.isFinite(by)) {
+    return Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz));
+  }
+  const dq = ax - bx;
+  const dr = az - bz;
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
 }
 
 function unitStr(u: Record<string, unknown>): number {
@@ -34,27 +42,59 @@ export function factionsAlliedOnMap(fa: string, fb: string): boolean {
   return (sov(a) && sov(b)) || (axis(a) && axis(b));
 }
 
+function unitHasTruckLogisticsOrder(u: Record<string, unknown>): boolean {
+  const orders = u.orders;
+  if (!Array.isArray(orders)) return false;
+  return orders.some((o) => {
+    if (!o || typeof o !== 'object') return false;
+    const rec = o as { order_key?: unknown; key?: unknown };
+    const k = String(rec.order_key ?? rec.key ?? '')
+      .trim()
+      .toLowerCase();
+    return k === 'getsup' || k === 'loadingsup' || k === 'loading' || k === 'tow' || k === 'unloading';
+  });
+}
+
 export function isTruckUnitBattle(u: Record<string, unknown>): boolean {
   const t = String(u.type || '').toLowerCase();
   if (t !== 'tech') return false;
-  return /грузовик/i.test(String(u.name || ''));
+  if (unitHasPropKey(u, 'railwayDetachment')) return false;
+  if (/грузовик|truck|lkw/i.test(String(u.name || ''))) return true;
+  return unitHasTruckLogisticsOrder(u);
+}
+
+function parseAmmoMaxFromRaw(raw: unknown): number | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/[/,]/.test(s)) {
+    const mx = Number(String(s.split(/[/,]/)[1] || '').trim());
+    if (Number.isFinite(mx) && mx >= 0) return mx;
+    return null;
+  }
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 export function parseAmmoCapacityMaxUi(u: Record<string, unknown>): number | null {
-  const s = u.ammoSupply;
-  if (typeof s === 'string' && s.includes('/')) {
-    const mx = Number(String(s.split('/')[1] || '').trim());
-    if (Number.isFinite(mx) && mx >= 0) return mx;
-  }
+  const fromSupply = parseAmmoMaxFromRaw(u.ammoSupply);
+  if (fromSupply != null) return fromSupply;
+  const ammo = u.ammo;
+  if (typeof ammo === 'string' && /[/,]/.test(ammo)) return parseAmmoMaxFromRaw(ammo);
   return null;
 }
 
 
 const DEFAULT_UNIT_AMMO_CAP_UI = 10;
+const DEFAULT_TRUCK_AMMO_CAP_UI = 40;
 
 export function getAmmoCapacityMaxUi(u: Record<string, unknown>): number {
   const p = parseAmmoCapacityMaxUi(u);
   if (p != null) return p;
+  if (isTruckUnitBattle(u)) {
+    const have = readAmmoCountUi(u);
+    return Math.max(DEFAULT_TRUCK_AMMO_CAP_UI, have);
+  }
   return DEFAULT_UNIT_AMMO_CAP_UI;
 }
 
@@ -171,7 +211,6 @@ export function isInstanceIdInAnyTruckCargo(cells: Cell[], instanceId: number): 
   for (const c of cells) {
     for (const raw of c.units || []) {
       const u = raw as unknown as Record<string, unknown>;
-      if (!isTruckUnitBattle(u)) continue;
       if (getCarriedUnitsFromTruck(u).some((x) => Number(x.instanceId) === id)) return true;
     }
   }
@@ -213,7 +252,7 @@ export function computeGetSupTargetInstanceIds(
   const tf = String(truckUnit.faction || '');
   for (const cell of cells) {
     const d = hexDistCells(cell, truckCell);
-    if (d !== 1) continue;
+    if (d > 1) continue;
     for (const raw of cell.units || []) {
       const u = raw as unknown as Record<string, unknown>;
       const iid = Number(u.instanceId);
@@ -308,11 +347,57 @@ export function computeUnloadCellIds(
   return out;
 }
 
-export function readStorageAmmo(cell: Cell): number {
-  if (!hasStorageOnCell(cell.builds)) return 0;
-  const n = Number(cell.builds?.storageAmmo);
-  if (!Number.isFinite(n)) return STORAGE_DEFAULT_AMMO;
+export function cellHasWarehouse(cell: Cell): boolean {
+  if (hasStorageOnCell(cell.builds)) return true;
+  const mb = (cell as Cell & { mapBuilding?: { name?: string } }).mapBuilding;
+  return /склад/i.test(String(mb?.name || ''));
+}
+
+/** Наведение на склад-цель или грузовик после приказа loadingSup. */
+export function isLoadingSupHoverLink(
+  preview: { kind?: string; targetCellId?: number; truckInstanceId?: number } | null | undefined,
+  hoverCell: Cell | null | undefined,
+  hoveredUnit: { unit?: { instanceId?: unknown } } | null | undefined,
+): boolean {
+  if (!preview || preview.kind !== 'loadingSup') return false;
+  const truckId = Number(preview.truckInstanceId);
+  const whId = Number(preview.targetCellId);
+  if (!Number.isFinite(truckId) || !Number.isFinite(whId)) return false;
+  if (hoverCell != null && Number(hoverCell.id) === whId) return true;
+  if (hoveredUnit != null && Number(hoveredUnit.unit?.instanceId) === truckId) return true;
+  if (hoverCell != null) {
+    for (const raw of hoverCell.units || []) {
+      if (Number((raw as { instanceId?: unknown }).instanceId) === truckId) return true;
+    }
+  }
+  return false;
+}
+
+function readStorageSupplyCount(
+  cell: Cell,
+  key: 'storageAmmo' | 'storageSmoke' | 'storageExplosives' | 'storageMines',
+  fallback: number,
+): number {
+  if (!cellHasWarehouse(cell)) return 0;
+  const n = Number(cell.builds?.[key]);
+  if (!Number.isFinite(n)) return fallback;
   return Math.max(0, Math.floor(n));
+}
+
+export function readStorageAmmo(cell: Cell): number {
+  return readStorageSupplyCount(cell, 'storageAmmo', STORAGE_DEFAULT_AMMO);
+}
+
+export function buildStorageHoverTip(cell: Cell): { title: string; rows: { key: string; val: string }[] } {
+  return {
+    title: 'Склад',
+    rows: [
+      { key: 'Боезапас', val: String(readStorageSupplyCount(cell, 'storageAmmo', STORAGE_DEFAULT_AMMO)) },
+      { key: 'Дымовые снаряды', val: String(readStorageSupplyCount(cell, 'storageSmoke', STORAGE_DEFAULT_SMOKE)) },
+      { key: 'Взрывчатка', val: String(readStorageSupplyCount(cell, 'storageExplosives', STORAGE_DEFAULT_EXPLOSIVES)) },
+      { key: 'Мины', val: String(readStorageSupplyCount(cell, 'storageMines', STORAGE_DEFAULT_MINES)) },
+    ],
+  };
 }
 
 export function maxAmmoLoadFromWarehouse(

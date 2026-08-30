@@ -8,7 +8,9 @@ import {
   battleReportEntryShouldOmit,
   collectSyntheticAirAppearanceReportRows,
   formatBattleReportLines,
+  isBattleWeatherLogText,
 } from '../battleReportLog';
+import { formatEnvironmentReport } from '../../game/battleEnvironment';
 import {
   isDirectFireHiddenByGrouped,
   isIntelligenceAirLaunchHiddenByRecon,
@@ -158,6 +160,7 @@ export function useBattleReportRows(params: {
       if (isPatrolActiveHiddenByMissionOnStation(entry, battleReportVisibleLog)) continue;
       const isMeta = entry.phase === -1;
       const line = String(entry.text ?? '').trim() || '—';
+      if (isBattleWeatherLogText(line)) continue;
       const isTurnHeader = isMeta && line.startsWith('——');
       const formatted = formatBattleReportLines(entry, cells, {
         viewerFaction: viewerBattleFaction,
@@ -223,6 +226,46 @@ export function useBattleReportRows(params: {
     return { rows: filteredRows };
   }, [battleReportVisibleLog, battleTurnIndex, battleLog, cells, viewerBattleFaction, battleFogRevealedCellIds, hasGrid]);
 
+  const weatherRows = useMemo(() => {
+    const log = battleLog ?? [];
+    const rows: BattleReportRow[] = [];
+    let lastTurn: number | null = null;
+    for (let i = 0; i < log.length; i++) {
+      const entry = log[i];
+      const line = String(entry?.text ?? '').trim();
+      if (!isBattleWeatherLogText(line)) continue;
+      const turn = typeof entry.turn === 'number' && Number.isFinite(entry.turn) ? entry.turn : null;
+      if (turn != null && turn !== lastTurn) {
+        lastTurn = turn;
+        rows.push({
+          key: `weather-turn-${turn}`,
+          isMeta: true,
+          isTurnHeader: true,
+          formatted: null,
+          line: `—— Ход ${turn + 1} ——`,
+          interactive: false,
+          bucket: 'general',
+          actorFaction: null,
+          actorTeam: null,
+        });
+      }
+      const formatted = formatEnvironmentReport(line.replace(/^Условия:\s*/, '').trim())
+      rows.push({
+        key: `weather-${entry.t ?? 0}-${i}`,
+        isMeta: true,
+        isTurnHeader: false,
+        formatted,
+        line,
+        logEntry: entry,
+        interactive: false,
+        bucket: 'general',
+        actorFaction: null,
+        actorTeam: null,
+      });
+    }
+    return rows;
+  }, [battleLog]);
+
   const battleReportLatestTurn = useMemo(() => battleLogLatestTurn(battleLog), [battleLog]);
 
   const battleReportActionCount = useMemo(
@@ -274,5 +317,5 @@ export function useBattleReportRows(params: {
     };
   }, [battleLog]);
 
-  return { battleReportRows, destroyedSummary, battleReportLatestTurn, battleReportActionCount };
+  return { battleReportRows, weatherRows, destroyedSummary, battleReportLatestTurn, battleReportActionCount };
 }

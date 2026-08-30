@@ -24,7 +24,8 @@ function getMor(u) {
 function getEffectiveMor(u, cells, findUnitOnField) {
   const base = getBaseMor(u)
   const bonus = hqMorale.getHqMoraleBonus(u, cells, findUnitOnField)
-  return Math.max(0, Math.min(12, base + bonus))
+  const cover = require('../lib/unit/battleInfantryCover').infantryCoverMoraleBonus(u)
+  return Math.max(0, Math.min(12, base + bonus + cover))
 }
 
 function resolveMorForUnit(u, deps) {
@@ -69,8 +70,14 @@ function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttac
     return true
   }
   if (suppressOnFail) {
-    t.fireSuppression = true
-    clearDefendOnUnit(unit)
+    const suppression = require('./battleSuppression')
+    suppression.applyFireSuppression(unit, le, ph, {
+      ensureTacticalBattle,
+      clearDefendOnUnit,
+      cells: deps.cells,
+      findUnitOnField: deps.findUnitOnField,
+      ordersByUnit: deps.ordersByUnit,
+    })
     le(ph, `${tag}: юнит ${unit.instanceId} провал (${sum} ≥ ${mor}) → подавление`)
   } else {
     le(ph, `${tag}: юнит ${unit.instanceId} провал (${sum} ≥ ${mor}) — атака не совершена`)
@@ -79,22 +86,66 @@ function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttac
   return true
 }
 
+function steadfastDeps(deps) {
+  return {
+    ensureTacticalBattle: deps.ensureTacticalBattle,
+    clearDefendOnUnit: deps.clearDefendOnUnit,
+    cells: deps.cells,
+    findUnitOnField: deps.findUnitOnField,
+    ordersByUnit: deps.ordersByUnit,
+  }
+}
+
+function applyMoraleDelta(unit, delta) {
+  const cur = getBaseMor(unit)
+  const v = Math.max(0, Math.min(12, Math.floor(cur + (Number(delta) || 0))))
+  unit.mor = v
+  unit.morale = v
+}
+
+function isHardMoveOrder(atkUnit, orderKey, unitHasPropKey) {
+  const k = String(orderKey || '').trim()
+  if (k === 'hardMove') return true
+  if (k === 'attack' && unitHasPropKey(atkUnit, 'attackMoral')) return true
+  return false
+}
+
+function tryHardMoveSteadfastness(le, ph, atkPack, defPack, deps) {
+  const { isInfantryUnit, isArtilleryUnit, unitHasPropKey, ensureTacticalBattle, clearDefendOnUnit } = deps
+  if (!isInfantryUnit(defPack.unit) && !isArtilleryUnit(defPack.unit)) return true
+  const flame = unitHasPropKey(atkPack.unit, 'attackMoral')
+  const ok = rollTankFearSteadfastness(
+    le,
+    ph,
+    defPack.unit,
+    'Мощная атака',
+    true,
+    true,
+    steadfastDeps(deps),
+  )
+  if (flame && isInfantryUnit(defPack.unit) && defPack.unit.tactical && defPack.unit.tactical.steadfastnessUiRoll != null) {
+    applyMoraleDelta(defPack.unit, -2)
+    le(ph, `Огнемётный танк: юнит ${defPack.unit.instanceId} мораль −2 (после теста стойкости)`, {
+      unitInstanceId: Number(defPack.unit.instanceId),
+      flameTankMoralePenalty: 2,
+    })
+  }
+  return ok
+}
+
 function tryAttackMoraleTests(le, ph, atkPack, defPack, deps) {
   const { isArmoredVehicleTarget, ensureTacticalBattle, clearDefendOnUnit, unitHasPropKey } = deps
   const hasFearAtk = hasTankFear(atkPack.unit, { unitHasPropKey })
   const hasFearDef = hasTankFear(defPack.unit, { unitHasPropKey })
   const tankVsFear = isTankUnit(atkPack.unit) && hasFearDef
   if (hasFearAtk && isArmoredVehicleTarget(defPack.unit)) {
-    if (!rollTankFearSteadfastness(le, ph, atkPack.unit, 'Танкобоязнь (атакующий)', false, true, {
-      ensureTacticalBattle,
-      clearDefendOnUnit,
-    })) return false
+    if (!rollTankFearSteadfastness(le, ph, atkPack.unit, 'Танкобоязнь (атакующий)', false, true, steadfastDeps(deps))) return false
   }
   if (tankVsFear) {
-    rollTankFearSteadfastness(le, ph, defPack.unit, 'Танкобоязнь (защитник)', true, false, {
-      ensureTacticalBattle,
-      clearDefendOnUnit,
-    })
+    rollTankFearSteadfastness(le, ph, defPack.unit, 'Танкобоязнь (защитник)', true, false, steadfastDeps(deps))
+  }
+  if (isHardMoveOrder(atkPack.unit, deps.orderKey, unitHasPropKey)) {
+    if (!tryHardMoveSteadfastness(le, ph, atkPack, defPack, deps)) return false
   }
   return true
 }
@@ -125,9 +176,12 @@ module.exports = {
   getMor,
   getEffectiveMor,
   applyMoraleRollResult,
+  applyMoraleDelta,
   getMoraleThresholdForSteadfastness,
   roll2d6,
   rollTankFearSteadfastness,
+  isHardMoveOrder,
+  tryHardMoveSteadfastness,
   tryAttackMoraleTests,
   resolveSuppressionRecovery,
 }

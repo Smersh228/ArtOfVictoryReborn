@@ -2,7 +2,9 @@ import { Cell } from '../../../../server/src/game/gameLogic/cells/cell'
 import { battleUnitsVisibleOnMap, readFlightPathCellIdsFromUnit } from '../../game/battleAirSupport'
 import type { AirInterceptionTarget, AirUnitInFlight } from '../../game/battleAirSupport'
 import { battleInstanceIdInList, normalizeBattleInstanceId } from '../../game/battleMovePreview'
+import { hasDotOnCell } from '../../game/cellDot'
 import { teamFromUnit } from '../../game/editorMapTeam'
+import { isLoadingSupHoverLink } from '../../game/battleLogisticsUi'
 import {
   airFlightIconPixelOffset,
   airInterceptionTargetDrawSize,
@@ -32,6 +34,7 @@ interface LogisticsDecalMap {
   tow?: HTMLImageElement
   loading?: HTMLImageElement
   getSup?: HTMLImageElement
+  loadingSup?: HTMLImageElement
 }
 
 function drawCircleDecal(
@@ -86,8 +89,18 @@ function getPendingShootKey(pp: any, unitId: any) {
   return null
 }
 
-function getPendingLogisticsKey(plp: any, unitId: any) {
-  if (!plp || unitId == null || plp.targetInstanceId !== unitId) return null
+function getPendingLogisticsKey(
+  plp: any,
+  unitId: any,
+  hoverCell: { id?: number } | null,
+  hoveredUnit: { unit?: { instanceId?: unknown } } | null,
+) {
+  if (!plp || unitId == null) return null
+  if (plp.kind === 'loadingSup' && Number(plp.truckInstanceId) === Number(unitId)) {
+    if (isLoadingSupHoverLink(plp, hoverCell, hoveredUnit)) return 'loadingSup'
+    return null
+  }
+  if (plp.targetInstanceId !== unitId) return null
   if (plp.kind === 'tow') return 'tow'
   if (plp.kind === 'loading') return 'loading'
   if (plp.kind === 'getSup') return 'getSup'
@@ -105,6 +118,7 @@ export function drawUnitsOnCell(
     viewerBattleFaction: 'none' | 'rkka' | 'wehrmacht'
     viewerBattleTeam?: number | null
     hoveredUnit: { cell: Cell; unit: any; index: number } | null
+    hoverCell?: Cell | null
     battleFireTargetInstanceIds: number[] | null
     battleLogisticsPickInstanceIds: number[] | null
     battlePendingLogisticsPreview: any
@@ -131,7 +145,8 @@ export function drawUnitsOnCell(
     viewerBattleFaction,
     viewerBattleTeam = null,
     hoveredUnit,
-      battleFireTargetInstanceIds,
+    hoverCell = null,
+    battleFireTargetInstanceIds,
     battleLogisticsPickInstanceIds,
     battlePendingLogisticsPreview,
     battleReportReplayHighlight,
@@ -151,8 +166,12 @@ export function drawUnitsOnCell(
   const rowUnits = battleUnitsVisibleOnMap(cell, mode, extraHiddenInstanceIds)
   if (!rowUnits.length) return
 
-  const size = unitDrawSize(rowUnits.length, lobbyPreview, mode, cellSize)
-  const positions = unitPositionsForDraw(lobbyPreview, mode, cellSize)
+  const shareWithDot = hasDotOnCell(cell.builds)
+  const size = unitDrawSize(rowUnits.length, lobbyPreview, mode, cellSize, shareWithDot)
+  const positions = unitPositionsForDraw(lobbyPreview, mode, cellSize, {
+    shareWithDot,
+    unitCount: rowUnits.length,
+  })
   const hiPad = lobbyPreview ? 3 : mode === 'battle' ? Math.max(4, Math.round(cellSize * 0.12)) : 5
 
   const battleHoverKindForUnit = (u: { faction?: string; team?: unknown }): 'own' | 'ally' | 'enemy' | 'neutral' => {
@@ -185,13 +204,13 @@ export function drawUnitsOnCell(
     const isLogisticsPickTarget =
       mode === 'battle' && battleInstanceIdInList(battleLogisticsPickInstanceIds, unitId)
     const plp = battlePendingLogisticsPreview
-    const pendingLogisticsKey = getPendingLogisticsKey(plp, unitId)
+    const pendingLogisticsKey = getPendingLogisticsKey(plp, unitId, hoverCell, hoveredUnit)
     const isPendingLogisticsTarget = mode === 'battle' && pendingLogisticsKey != null
     const reportGlowIds = battleReportReplayHighlight?.glowInstanceIds ?? []
     const isReportShooterGlow =
       mode === 'battle' && battleInstanceIdInList(reportGlowIds, unitId)
 
-    if (isHighlighted || isFirePickTarget) {
+    if (isHighlighted) {
       ctx.shadowColor = 'red'
       ctx.shadowBlur = 20
       ctx.beginPath()

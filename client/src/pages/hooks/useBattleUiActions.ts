@@ -4,6 +4,7 @@ import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
 import type { BattleOrderPayload } from '../../api/rooms';
 import { buildAccompanimentOrderPayload } from '../../game/battleAirSupport';
 import { sanitizeDotOrdersBeforeSubmit } from '../../game/cellDot';
+import { isRailwayUnitBattle } from '../../game/battleRailway';
 
 type BattleLeftPanelId = 'report' | 'tasks';
 type BattleCenterModalId = 'surrender' | 'nextTurn' | null;
@@ -17,7 +18,8 @@ export function useBattleUiActions(params: {
   readonlyBattle: boolean;
   missionMaxTurns: string;
   pendingOrders: BattleOrderPayload[];
-  confirmNextTurn: (snapshot: BattleOrderPayload[]) => Promise<boolean>;
+  confirmNextTurn: (snapshot: BattleOrderPayload[]) => Promise<{ ok: boolean; hqRewrite?: { youCanRewrite?: boolean; yourDraftOrders?: BattleOrderPayload[] } | null }>;
+  confirmHqRewrite: (opts: { skip?: boolean; orders?: BattleOrderPayload[] }) => Promise<{ ok: boolean }>;
   setPendingOrders: React.Dispatch<React.SetStateAction<BattleOrderPayload[]>>;
   dismissOrderPicking: () => void;
   broadcastSurrender: () => Promise<void>;
@@ -48,6 +50,7 @@ export function useBattleUiActions(params: {
     missionMaxTurns,
     pendingOrders,
     confirmNextTurn,
+    confirmHqRewrite,
     setPendingOrders,
     dismissOrderPicking,
     broadcastSurrender,
@@ -115,13 +118,37 @@ export function useBattleUiActions(params: {
   const onConfirmNextTurn = useCallback(() => {
     closeCenterModal();
     const snapshot = sanitizeDotOrdersBeforeSubmit([...pendingOrders], cells);
-    void confirmNextTurn(snapshot).then((ok) => {
-      if (ok) {
+    void confirmNextTurn(snapshot).then((res) => {
+      if (!res.ok) return;
+      if (res.hqRewrite?.youCanRewrite) {
+        setPendingOrders(res.hqRewrite.yourDraftOrders ?? snapshot);
+        dismissOrderPicking();
+        return;
+      }
+      setPendingOrders([]);
+      dismissOrderPicking();
+    });
+  }, [closeCenterModal, pendingOrders, cells, confirmNextTurn, setPendingOrders, dismissOrderPicking]);
+
+  const onKeepHqOrders = useCallback(() => {
+    void confirmHqRewrite({ skip: true }).then((res) => {
+      if (res.ok) {
         setPendingOrders([]);
         dismissOrderPicking();
       }
     });
-  }, [closeCenterModal, pendingOrders, cells, confirmNextTurn, setPendingOrders, dismissOrderPicking]);
+  }, [confirmHqRewrite, setPendingOrders, dismissOrderPicking]);
+
+  const onConfirmHqRewrite = useCallback(() => {
+    closeCenterModal();
+    const snapshot = sanitizeDotOrdersBeforeSubmit([...pendingOrders], cells);
+    void confirmHqRewrite({ orders: snapshot }).then((res) => {
+      if (res.ok) {
+        setPendingOrders([]);
+        dismissOrderPicking();
+      }
+    });
+  }, [closeCenterModal, pendingOrders, cells, confirmHqRewrite, setPendingOrders, dismissOrderPicking]);
 
   const onExitAfterScenario = useCallback(async () => {
     dismissScenarioOutcome();
@@ -202,7 +229,9 @@ export function useBattleUiActions(params: {
       setOrderPick({
         unit: unloadCargoPickModal.truck,
         cell: unloadCargoPickModal.cell,
-        orderKey: 'unloading',
+        orderKey: isRailwayUnitBattle(unloadCargoPickModal.truck as Record<string, unknown>)
+          ? 'railUnloading'
+          : 'unloading',
         orderLabel: unloadCargoPickModal.orderLabel,
         unloadCargoInstanceId: iid,
       });
@@ -245,6 +274,8 @@ export function useBattleUiActions(params: {
     backdropMouseDown,
     onConfirmSurrender,
     onConfirmNextTurn,
+    onKeepHqOrders,
+    onConfirmHqRewrite,
     onExitAfterScenario,
     onExitAfterVictory,
     onLeaveOrSurrender,

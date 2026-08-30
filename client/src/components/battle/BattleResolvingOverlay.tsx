@@ -3,9 +3,15 @@ import styles from '../../pages/styleModules/battle.module.css';
 
 interface BattleResolvingOverlayProps {
   active: boolean;
+  title?: string;
+  hint?: string;
 }
 
-const BattleResolvingOverlay: React.FC<BattleResolvingOverlayProps> = ({ active }) => {
+const BattleResolvingOverlay: React.FC<BattleResolvingOverlayProps> = ({
+  active,
+  title = 'Ведётся расчёт боя',
+  hint = 'Подождите…',
+}) => {
   if (!active) return null;
   return (
     <div
@@ -17,9 +23,9 @@ const BattleResolvingOverlay: React.FC<BattleResolvingOverlayProps> = ({ active 
     >
       <div className={styles.battleMapResolvingModal}>
         <p id="battle-resolving-title" className={styles.battleMapResolvingTitle}>
-          Ведётся расчёт боя
+          {title}
         </p>
-        <p className={styles.battleMapResolvingHint}>Подождите…</p>
+        <p className={styles.battleMapResolvingHint}>{hint}</p>
       </div>
     </div>
   );

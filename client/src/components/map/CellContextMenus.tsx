@@ -14,6 +14,10 @@ import {
   clearCellEditorStructures,
   ensureCellBuilds,
   hasStorageOnCell,
+  applyMineDefaults,
+  getMineKind,
+  getMineTeam,
+  hasMineOnCell,
   STORAGE_DEFAULT_AMMO,
   STORAGE_DEFAULT_EXPLOSIVES,
   STORAGE_DEFAULT_MINES,
@@ -23,7 +27,7 @@ import {
   type EditorMapUnitOrderEditorMeta,
   patchUnitOrderEditorMeta,
 } from '../../game/editorMapUnitOrderMeta'
-import { factionForTeam, teamFromUnit, teamSideLabel, teamsForFaction } from '../../game/editorMapTeam'
+import { factionForTeam, teamFromUnit, teamSideLabel, teamsForFaction, teamsForLimit } from '../../game/editorMapTeam'
 
 const ELEVATION_LEVELS = [-1, 0, 1, 2, 3] as const
 
@@ -479,6 +483,77 @@ const CellContextMenus: React.FC<CellContextMenusProps> = ({
                 </label>
               )
             })}
+          </div>
+        ) : null}
+        {onEditorCellPatch && hasMineOnCell(cellMenu.cell.builds) ? (
+          <div
+            style={{
+              padding: '6px 12px 8px',
+              borderTop: '1px solid #eee',
+              fontSize: '12px',
+            }}
+            onMouseDown={(ev) => ev.stopPropagation()}
+          >
+            <div style={{ fontWeight: 600, marginBottom: 6, color: '#555' }}>Мина</div>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontWeight: 600 }}>
+              Тип
+              <select
+                value={getMineKind(cellMenu.cell.builds)}
+                onChange={(e) => {
+                  const kind = e.target.value === 'tank' ? 'tank' : 'infantry'
+                  onEditorCellPatch(cellMenu.cell.id, (prev) => ({
+                    ...prev,
+                    builds: applyMineDefaults(
+                      ensureCellBuilds(prev.builds),
+                      kind,
+                      getMineTeam(prev.builds, editorTeamLimit),
+                    ),
+                  }))
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #ccc',
+                  fontSize: '13px',
+                }}
+              >
+                <option value="infantry">Пехотная</option>
+                <option value="tank">Танковая</option>
+              </select>
+            </label>
+            <label
+              style={{ display: 'flex', flexDirection: 'column', gap: 4, fontWeight: 600, marginTop: 8 }}
+            >
+              Чья мина
+              <select
+                value={getMineTeam(cellMenu.cell.builds, editorTeamLimit)}
+                onChange={(e) => {
+                  const team = Number(e.target.value)
+                  onEditorCellPatch(cellMenu.cell.id, (prev) => ({
+                    ...prev,
+                    builds: applyMineDefaults(
+                      ensureCellBuilds(prev.builds),
+                      getMineKind(prev.builds),
+                      team,
+                    ),
+                  }))
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  borderRadius: 6,
+                  border: '1px solid #ccc',
+                  fontSize: '13px',
+                }}
+              >
+                {teamsForLimit(editorTeamLimit).map((team) => (
+                  <option key={team} value={team}>
+                    Команда {team} ({teamSideLabel(team)})
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         ) : null}
         {onEditorCellPatch && cellHasEditorStructure(cellMenu.cell) ? (

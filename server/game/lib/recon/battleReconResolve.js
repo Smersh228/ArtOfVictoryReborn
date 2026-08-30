@@ -52,6 +52,20 @@ function rangeFieldForOrderKey(orderKey) {
   return null
 }
 
+/** Аналог: игрок выбирает радиус R (1…число колонок); порог = колонка R. */
+function clampChosenRadiusSteps(rangeArray, radiusSteps) {
+  const maxR = Math.max(1, Array.isArray(rangeArray) ? rangeArray.length : 1)
+  const r = Math.floor(Number(radiusSteps) || 0)
+  if (!Number.isFinite(r) || r < 1) return 1
+  return Math.min(maxR, r)
+}
+
+function thresholdForChosenRadius(rangeArray, radiusSteps) {
+  if (!Array.isArray(rangeArray) || !rangeArray.length) return 0
+  const r = clampChosenRadiusSteps(rangeArray, radiusSteps)
+  return Number(rangeArray[r - 1]) || 0
+}
+
 function readRangeCsvFromUnit(unit, orderKey) {
   const field = rangeFieldForOrderKey(orderKey)
   if (!field) return []
@@ -305,16 +319,89 @@ function resolveIntelligenceAirReconTurn({ unit, cells, le, ph, rng, turnHint })
   })
 }
 
+/**
+ * Наземная разведка (аналог): один d6 против порога выбранного радиуса.
+ * Успех — в конце спецвещества обнаруживаются скрытые/в засаде враги в LoS и в радиусе.
+ */
+function resolveGroundReconAnalog({ unit, scoutCell, cells, radiusSteps, le, ph, rng }) {
+  const { hexDistCells } = require('../map/battleHexGeometry')
+  const { isHexVisible } = require('../map/battleFogVisibility')
+  const ambush = require('../../core/battleAmbush')
+  const hidden = require('../unit/battleHiddenState')
+  const { getStr, unitFaction, opposing } = require('../unit/battleUnitField')
+
+  const rangeArray = readRangeCsvFromUnit(unit, 'razvedka')
+  const R = clampChosenRadiusSteps(rangeArray, radiusSteps)
+  const threshold = thresholdForChosenRadius(rangeArray, R)
+  const roll = rollD6(rng)
+  const success = threshold > 0 && roll <= threshold
+  const fac = unitFaction(unit)
+  const revealed = []
+  const revealedCellIds = []
+
+  if (success && scoutCell && Array.isArray(cells)) {
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i]
+      const d = hexDistCells(scoutCell, c)
+      if (d > R) continue
+      if (!isHexVisible(scoutCell, c, cells)) continue
+      const us = c.units || []
+      for (let ui = 0; ui < us.length; ui++) {
+        const u = us[ui]
+        if (getStr(u) <= 0) continue
+        if (!opposing(fac, unitFaction(u))) continue
+        const inAmbush = ambush.isAmbushConcealed(u)
+        const inHidden = hidden.isHiddenConcealed(u)
+        if (!inAmbush && !inHidden) continue
+        if (inAmbush) ambush.clearAmbushOrderFully(u)
+        hidden.revealHiddenUnit(u)
+        revealed.push({
+          unitInstanceId: Number(u.instanceId),
+          unitName: String(u.name || '').trim() || undefined,
+          cellId: Number(c.id),
+        })
+        revealedCellIds.push(Number(c.id))
+      }
+    }
+    if (revealedCellIds.length) mergeReconIntoUnitTactical(unit, revealedCellIds, 'razvedka')
+  }
+
+  const foundTxt = revealed.length
+    ? `, обнаружено: ${revealed.map((r) => r.unitInstanceId).join(', ')}`
+    : success
+      ? ', скрытых в зоне нет'
+      : ''
+  le(
+    ph,
+    `Разведка: юнит ${unit.instanceId} радиус ${R}, куб ${roll} (порог ${threshold})${success ? ' — успех' : ' — неудача'}${foundTxt}`,
+    {
+      reconAnalogLine: {
+        orderKey: 'razvedka',
+        unitInstanceId: Number(unit.instanceId),
+        radiusSteps: R,
+        roll,
+        threshold,
+        success,
+        revealed,
+      },
+    },
+  )
+  return { success, revealed, radiusSteps: R, roll, threshold }
+}
+
 module.exports = {
   parseRangeCsv,
   successThresholdAtDistance,
   maxReconRingSteps,
   maxReconHexDistance,
+  clampChosenRadiusSteps,
+  thresholdForChosenRadius,
   readRangeCsvFromUnit,
   resolveReconRevealCellIds,
   resolveReconRevealDetailed,
   mergeReconIntoUnitTactical,
   resolveReconMission,
+  resolveGroundReconAnalog,
   resolveIntelligenceAirReconTurn,
   readIntelligenceAirCenterCell,
   computeReconZoneCellIds,

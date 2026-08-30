@@ -52,8 +52,14 @@ function trySteadfastnessAfterOverwatchDamage(le, ph, unit, damageDealt, deps) {
     le(ph, `Стойкость: юнит ${unit.instanceId} — бросок ${sum} (порог ${threshold})`)
     return
   }
-  t.fireSuppression = true
-  clearDefendOnUnit(unit)
+  const suppression = require('./battleSuppression')
+  suppression.applyFireSuppression(unit, le, ph, {
+    ensureTacticalBattle,
+    clearDefendOnUnit,
+    cells: deps.cells,
+    findUnitOnField: deps.findUnitOnField,
+    ordersByUnit: deps.ordersByUnit,
+  })
   le(ph, `Стойкость: юнит ${unit.instanceId} — провал ${sum} ≥ ${threshold} → подавление`)
 }
 

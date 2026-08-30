@@ -5,7 +5,12 @@ const { unitCannotCrossRavine, isRavine } = require('./battleElevation')
 
 function getDef(u) {
   const n = Number(u.def ?? u.defend)
-  return Number.isFinite(n) ? n : 0
+  let d = Number.isFinite(n) ? n : 0
+  const medical = require('../unit/battleMedical')
+  d += medical.medicalDefenseBonus(u)
+  const cover = require('../unit/battleInfantryCover')
+  d += cover.infantryCoverDefenseBonus(u)
+  return d
 }
 
 function usesTechMoveCost(type) {
@@ -58,6 +63,10 @@ function terrainEntryCost(cell, unit) {
   else {
     const bypass = terrainPropBypassEntryCost(cell, unit)
     cost = bypass != null ? bypass : 0
+  }
+  if (cost <= 0) {
+    const ponton = require('./battlePonton')
+    if (ponton.isPontonComplete(cell && cell.builds)) cost = 1
   }
   if (cost <= 0) return 0
   const { applyRainEntryCost } = require('../scenario/battleEnvironment')
@@ -143,6 +152,7 @@ function terrainAccuracyBonusFromCell(shooterCell, shooterUnit, targetUnit, forM
 
 function terrainDefenseBonusFromCell(targetCell, targetUnit) {
   if (!targetCell || !targetUnit) return 0
+  if (targetUnit.tactical && targetUnit.tactical.fireSuppression) return 0
   const ex = hexExtraObj(targetCell)
   const byType = (ex && ex.defBonusByType) || targetCell.defBonusByType
   const ut = String(targetUnit?.type || '')

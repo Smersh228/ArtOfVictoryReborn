@@ -1,6 +1,7 @@
 'use strict'
 
 const { terrainAccuracyBonusFromCell } = require('../lib/map/battleTerrain')
+const trench = require('../lib/map/battleTrench')
 
 function maybeAllDefendersReturnFireForAreaImpactCell(
   cells,
@@ -131,7 +132,8 @@ function maybeDefenderReturnFireAgainstShooter(
     artilleryClosedOw = true
   }
   const accBonusOw = terrainAccuracyBonusFromCell(defCell, du, atk.unit, false)
-  const res = computeShoot(du, atk.unit, atk.cell, d, ia, ra, false, undefined, warDefA, accBonusOw, artilleryClosedOw, 1)
+  const coverA = trench.unitCoverDefenseBonus(atk.unit, def.cell, atk.cell)
+  const res = computeShoot(du, atk.unit, atk.cell, d, ia, ra, false, undefined, warDefA + coverA, accBonusOw, artilleryClosedOw, 1)
   setAmmo(du, getAmmo(du) - 1)
   if (sectorReturnFired) {
     sectorReturnFired.add(`${Number(defenderInstanceId)}:${Number(shooterInstanceId)}`)
@@ -289,7 +291,8 @@ function resolveDefendSectorIdleFire(
         artilleryClosedOw = true
       }
       const accBonusSector = terrainAccuracyBonusFromCell(defCell, du, tgt, false)
-      const res = computeShoot(du, tgt, tgtCell, d, ia, ra, false, undefined, warDefT, accBonusSector, artilleryClosedOw, 1)
+      const coverT = trench.unitCoverDefenseBonus(tgt, defCell, tgtCell)
+      const res = computeShoot(du, tgt, tgtCell, d, ia, ra, false, undefined, warDefT + coverT, accBonusSector, artilleryClosedOw, 1)
       setAmmo(du, getAmmo(du) - 1)
       const tagW = warDefT ? ' [бой +1 З]' : ''
       const idleIntro = isAmbushDu
@@ -436,7 +439,8 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
         artilleryClosedOw = true
       }
       const accBonusMove = terrainAccuracyBonusFromCell(defCell, u, moverTgt.unit, false)
-      const res = computeShoot(u, moverTgt.unit, owCell, d, ia, ra, false, undefined, warDef, accBonusMove, artilleryClosedOw, 1)
+      const coverM = trench.unitCoverDefenseBonus(moverTgt.unit, defCell, owCell)
+      const res = computeShoot(u, moverTgt.unit, owCell, d, ia, ra, false, undefined, warDef + coverM, accBonusMove, artilleryClosedOw, 1)
       setAmmo(u, getAmmo(u) - 1)
       shots.push({
         attackerId: u.instanceId,
