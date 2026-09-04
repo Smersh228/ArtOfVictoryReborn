@@ -57,7 +57,19 @@ function canShooterUseFireAdjustmentOrder(shooterUnit, orderKey, isArtilleryUnit
   if (String(orderKey || '').trim() !== 'fire') return false
   const t = String(shooterUnit?.type ?? '')
   if (t === 'lightAir' || t === 'heavyAir') return false
-  return isArtilleryUnitFn(shooterUnit)
+  if (typeof isArtilleryUnitFn === 'function' && isArtilleryUnitFn(shooterUnit)) return true
+  return unitHasAnyFireProp(shooterUnit, 'areaFire') || unitHasAnyFireProp(shooterUnit, 'concealedTargetFire')
+}
+
+function unitHasAnyFireProp(u, key) {
+  const props = u?.properties
+  if (!Array.isArray(props)) return false
+  const want = String(key || '').trim()
+  for (let i = 0; i < props.length; i++) {
+    const p = props[i]
+    if (p && typeof p === 'object' && String(p.prop_key || '').trim() === want) return true
+  }
+  return false
 }
 
 function resolveArtilleryFireVisibility(atk, targetCell, cells, deps, options) {

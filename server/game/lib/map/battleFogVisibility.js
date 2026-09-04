@@ -82,9 +82,32 @@ function findCellByCube(cells, cube) {
   return null
 }
 
+function isRavineLikeRiver(cell) {
+  if (!cell) return false
+  const ex = cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
+  const flag = (v) => v === true || v === 'true' || v === 1 || v === '1'
+  if (ex) {
+    if (flag(ex.moveWithRiverProp) || flag(ex.moveWithWaterUnitProp)) return true
+    if (flag(ex.isRiver) || flag(ex.river)) return true
+    const cat = String(ex.category || '')
+      .trim()
+      .toLowerCase()
+    if (cat === 'rivers' || cat === 'river' || cat === 'water' || cat === 'waters') return true
+  }
+  const rawType = String((cell && cell.type) || '').trim()
+  const t = rawType.toLowerCase().replace(/[\s_-]/g, '')
+  if (t === 'river' || t === 'rivers' || t === 'water') return true
+  const name = String((cell && cell.name) || (ex && (ex.name || ex.label)) || '')
+  const img = String((cell && (cell.img || cell.imagePath)) || '')
+  const blob = `${rawType} ${name} ${img}`
+  return /река|руч(?:ей|ья|ью)?|канал|речн|водн|брод|river|water|ford/i.test(blob) && !/озер|озёр|болот|swamp|marsh|lake/i.test(blob)
+}
+
 function cellBlocksLineOfSight(cell) {
+  if (isRavineLikeRiver(cell)) return false
   if (cell.mapBuilding != null) return true
-  const vb = cell.visionBlock
+  const ex = cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
+  const vb = cell.visionBlock != null ? cell.visionBlock : ex && ex.visionBlock
   if (vb === true || vb === 'true' || vb === 1 || vb === '1') return true
   if (cell.visible === false) return true
   const t = String(cell.type || '')
@@ -93,10 +116,27 @@ function cellBlocksLineOfSight(cell) {
   return LOS_BLOCKING.has(t)
 }
 
+function cellHasSmoke(cell) {
+  if (!cell || !cell.builds) return false
+  const raw = cell.builds.smoke
+  if (raw && typeof raw === 'object') return true
+  return Number(raw) > 0
+}
+
+function lineOpenThroughSmoke(observer, target, cells) {
+  const line = cubeLineDraw(cellToCube(observer), cellToCube(target))
+  for (let i = 1; i < line.length - 1; i++) {
+    const c = findCellByCube(cells, line[i])
+    if (!c) return false
+    if (cellHasSmoke(c)) return false
+  }
+  return true
+}
+
 function ravineBlocksHexLoS(observer, target, dist, options) {
   if (options && options.airObserver) return false
-  if (isRavine(observer) && dist > 1) return true
-  if (isRavine(target) && dist > 1) return true
+  if (isRavine(observer) && !isRavineLikeRiver(observer) && dist > 1) return true
+  if (isRavine(target) && !isRavineLikeRiver(target) && dist > 1) return true
   return false
 }
 
@@ -107,6 +147,7 @@ function lineOpenWithElevationRidge(observer, target, cells) {
   for (let i = 1; i < line.length - 1; i++) {
     const c = findCellByCube(cells, line[i])
     if (!c) return false
+    if (isRavineLikeRiver(c)) continue
     if (effectiveElevationLevel(c) > obsE) return false
   }
   return true
@@ -139,12 +180,22 @@ function isHexVisible(observer, target, cells, options) {
   if (dist <= 0) return true
   if (ravineBlocksHexLoS(observer, target, dist, options)) return false
   if (!(options && options.airObserver) && !lineOpenWithElevationRidge(observer, target, cells)) return false
+  if (!lineOpenThroughSmoke(observer, target, cells)) return false
   return lineOpenWithOneHexShadow(observer, target, cells)
 }
 
 function observerVisionCellIds(observer, unit, cells) {
   const fromDot = dotOccupantVisionCellIds(observer, unit, cells)
-  if (fromDot) return fromDot
+  if (fromDot) {
+    const out = new Set()
+    out.add(Number(observer.id))
+    for (const id of fromDot) {
+      const c = cells.find((x) => Number(x.id) === Number(id))
+      if (!c) continue
+      if (lineOpenThroughSmoke(observer, c, cells)) out.add(Number(c.id))
+    }
+    return out
+  }
   return visibleCellIdsInRange(observer, readVisionRange(unit), cells, {
     airObserver: isBattleAirUnitType(unit),
   })
@@ -170,8 +221,8 @@ function isUnitVisibleFromCell(observerCell, observerUnit, targetCell, targetUni
   const dist = hexDistCells(observerCell, targetCell)
   if (dist <= 0) return true
   const airObs = observerUnit && isBattleAirUnitType(observerUnit)
-  if (isRavine(observerCell) && dist > 1 && !airObs) return false
-  if (isRavine(targetCell) && dist > 1 && !airObs) return false
+  if (isRavine(observerCell) && !isRavineLikeRiver(observerCell) && dist > 1 && !airObs) return false
+  if (isRavine(targetCell) && !isRavineLikeRiver(targetCell) && dist > 1 && !airObs) return false
   return isHexVisible(observerCell, targetCell, cells, { airObserver: airObs })
 }
 

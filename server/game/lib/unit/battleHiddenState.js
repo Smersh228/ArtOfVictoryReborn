@@ -33,8 +33,7 @@ function tickHiddenStateAtTurnStart(cells) {
       const h = hiddenBag(u)
       if (h.marched) h.skipThisTurn = true
       else h.skipThisTurn = false
-      if (h.revealed && h.movedHex && !h.skipThisTurn) h.revealed = false
-      if (h.skipThisTurn) h.revealed = false
+      if (h.movedHex) h.revealed = false
       h.marched = false
       h.movedHex = false
     }
@@ -85,7 +84,7 @@ function canSpotHiddenTarget(attackerUnit, attackerCell, targetUnit, targetCell,
       if (unitFaction(u) === atkF) return true
     }
   }
-  if (isArtilleryUnit(attackerUnit) && unitHasPropKey(attackerUnit, 'areaFire')) {
+  if (isArtilleryUnit(attackerUnit) || unitHasPropKey(attackerUnit, 'areaFire')) {
     const ra = rangeArrayForAtCell
       ? rangeArrayForAtCell(attackerUnit, attackerCell)
       : rangeArrayFor(attackerUnit)
@@ -93,8 +92,7 @@ function canSpotHiddenTarget(attackerUnit, attackerCell, targetUnit, targetCell,
     const maxD = mode === 'ranged' ? ra.length - 1 : ra.length
     if (d >= 1 && d <= maxD) return true
   }
-  const revealed = computeRevealedCellIdsForFaction(cells, atkF)
-  return !!(revealed && revealed.has(targetCell.id))
+  return false
 }
 
 function revealHiddenAdjacentToCell(cells, moverUnit, finalCell, le, ph, deps) {

@@ -139,18 +139,20 @@
 
 .lobbyChatTabs {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .lobbyChatTab {
   position: relative;
-  flex: 1;
-  padding: 7px 10px;
+  flex: 1 1 calc(33% - 6px);
+  min-width: 88px;
+  padding: 7px 8px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.55);
   background: rgba(255, 255, 255, 0.42);
   color: rgba(28, 30, 38, 0.88);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -214,6 +216,39 @@
 
 .lobbyChatRowMine .lobbyChatName {
   color: #1565c0;
+}
+
+.lobbyChatRowSystem .lobbyChatText {
+  font-style: italic;
+  color: #444;
+}
+
+.lobbyChatNameSystem {
+  color: #6d4c41;
+}
+
+.nick_admin,
+.lobbyChatRowMine .nick_admin {
+  color: #c62828 !important;
+}
+
+.nick_moderator,
+.lobbyChatRowMine .nick_moderator {
+  color: #0004bf !important;
+}
+
+.nick_veteran,
+.lobbyChatRowMine .nick_veteran {
+  color: #e6b000 !important;
+}
+
+.nick_veteran_moderator,
+.lobbyChatRowMine .nick_veteran_moderator {
+  color: #6a1b9a !important;
+}
+
+.nick_player {
+  color: inherit;
 }
 
 .lobbyChatTime {
@@ -599,6 +634,38 @@
 .lobbyTaskBodyText {
   margin: 0;
   white-space: pre-wrap;
+}
+
+@media (max-width: 1440px), (max-height: 900px) {
+  .lobby {
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    margin-top: 6px;
+    padding: 8px 10px;
+  }
+
+  .lobbyHeader {
+    padding: 10px 12px 12px;
+    margin-bottom: 8px;
+  }
+
+  .lobbyTitle {
+    font-size: 20px;
+  }
+
+  .lobbyLeft {
+    flex-basis: min(320px, 32vw);
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .lobbyChat {
+    min-height: 180px;
+  }
+
+  .lobbyBody {
+    gap: 10px;
+  }
 }
 
 @media (max-width: 960px) {

@@ -1,21 +1,6 @@
 import React from 'react';
 import styles from '../../pages/styleModules/battle.module.css';
-import type { DotHoverTip } from '../../game/cellDot';
-
-export type BattleHoverTipView = {
-  title: string;
-  rows: { key: string; val: string }[];
-};
-
-export function hoverTipFromDot(tip: DotHoverTip): BattleHoverTipView {
-  const rows = [
-    { key: 'Защита', val: String(tip.defense) },
-    { key: 'Боезапас', val: String(tip.ammo) },
-    { key: 'Статус', val: tip.statusLabel },
-  ];
-  if (tip.occupantLabel) rows.push({ key: 'Гарнизон', val: tip.occupantLabel });
-  return { title: tip.title, rows };
-}
+import type { BattleHoverTipView } from './battleHoverTip';
 
 interface BattleDotTipCardProps {
   battleTipRef: React.RefObject<HTMLDivElement | null>;

@@ -80,7 +80,11 @@ export function canArtilleryUseFireAdjustment(
 ): boolean {
   if (String(orderKey).trim() !== 'fire') return false;
   if (isBattleAirUnit(unit)) return false;
-  return isArtilleryUnitBattle(unit);
+  return (
+    isArtilleryUnitBattle(unit) ||
+    battleUnitHasPropKey(unit, 'areaFire') ||
+    battleUnitHasPropKey(unit, 'concealedTargetFire')
+  );
 }
 
 export function fireAdjustmentAlreadyUsedInOrders(

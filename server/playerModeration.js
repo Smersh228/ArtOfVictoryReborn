@@ -28,6 +28,10 @@ function isAdminUsername(username) {
   return String(username || '').trim().toLowerCase() === HIGHLIGHT_USERNAME
 }
 
+function isSystemMuteExempt(user) {
+  return isAdminUsername(user && user.username)
+}
+
 function durationMs(key) {
   if (!Object.prototype.hasOwnProperty.call(DURATION_MS, key)) return undefined
   return DURATION_MS[key]
@@ -117,7 +121,8 @@ function rememberRole(userId, roleKey) {
   if (Number.isFinite(id) && id > 0) roleCache.set(id, roleKey)
 }
 
-function isMuted(userId) {
+function isMuted(userId, username) {
+  if (isAdminUsername(username)) return false
   pruneTimed(muted)
   return muted.has(Number(userId))
 }
@@ -150,6 +155,7 @@ async function muteUser(user, { duration, reason, by } = {}) {
   const id = Number(user && user.id)
   const username = String(user && user.username ? user.username : '').trim()
   if (!Number.isFinite(id) || id <= 0) return
+  if (isAdminUsername(username)) return username
   const expiresAt = duration === undefined ? null : duration
   muted.set(id, { expiresAt })
   await ensureModerationSchema()
@@ -200,7 +206,10 @@ async function unbanUser(userId) {
   await pool.query('DELETE FROM user_bans WHERE user_id = $1', [id])
 }
 
-function sanctionStatus(userId) {
+function sanctionStatus(userId, username) {
+  if (isAdminUsername(username)) {
+    return { muted: false, mutedUntil: null, banned: false, bannedUntil: null }
+  }
   const mute = sanctionUntil(muted, userId)
   const ban = sanctionUntil(banned, userId)
   return {
@@ -274,6 +283,7 @@ module.exports = {
   MUTE_DURATIONS_ADMIN,
   BAN_DURATIONS,
   isAdminUsername,
+  isSystemMuteExempt,
   canMuteRole,
   canBanRole,
   ensureModerationSchema,

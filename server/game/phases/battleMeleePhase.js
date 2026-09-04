@@ -5,6 +5,7 @@ const { hillMeleeDefenseBonus, hillMeleeAccuracyPenalty, isBattleAirUnitType } =
 const mines = require('../lib/map/battleMines')
 const trench = require('../lib/map/battleTrench')
 const analog = require('../lib/unit/battleMeleeAnalog')
+const { applyWireBreakthroughOnStep } = require('../lib/map/battleWireEdges')
 const flank = require('../lib/map/battleFlank')
 const suppression = require('../core/battleSuppression')
 const { isTruckUnit, isInfantryUnit } = require('../core/battleUnitType')
@@ -225,7 +226,11 @@ function attackMoveAlongPath(cells, unitId, path, ordersByUnit, le, ph, movedIns
   const endStepIndex = ow.fired && ow.stopStepIndex != null ? ow.stopStepIndex : minePlan.endIndex
   const finalCell = subPath[endStepIndex]
   let spent = 0
+  const wireBrokenCellIds = []
   for (let i = 1; i <= endStepIndex; i++) {
+    if (applyWireBreakthroughOnStep(subPath[i - 1], subPath[i], afterOw.unit, deps.unitHasPropKey)) {
+      wireBrokenCellIds.push(Number(subPath[i].id))
+    }
     spent += terrainEntryCost(subPath[i], afterOw.unit)
   }
   removeUnitFromCell(afterOw.cell, unitId)
@@ -237,6 +242,15 @@ function attackMoveAlongPath(cells, unitId, path, ordersByUnit, le, ph, movedIns
     endStepIndex < subPath.length - 1
   const note = ow.fired ? ', прерван обороной/засадой' : mineStop ? ', остановлено минным полем' : ''
   le(ph, `Атака-подход: юнит ${unitId} → кл. ${finalCell.id} (−${spent} ОД)${note}`)
+  if (wireBrokenCellIds.length) {
+    le(ph, `Прорыв проволоки: юнит ${unitId} снял колючую проволоку (${wireBrokenCellIds.length})`, {
+      wireBreakthrough: {
+        unitInstanceId: Number(unitId),
+        cellIds: wireBrokenCellIds,
+        count: wireBrokenCellIds.length,
+      },
+    })
+  }
   mines.resolveMineBlastsAfterMove(cells, afterOw.unit, subPath, minePlan, endStepIndex, le, ph, deps)
   mines.resolveMineRevealsAfterMove(cells, afterOw.unit, subPath, minePlan, endStepIndex, le, ph)
   const afterMine = findUnitOnField(cells, unitId)
@@ -266,6 +280,11 @@ function runOngoingMeleeRounds(cells, ordersByUnit, le, ph, deps) {
       if (orderKeyOf(ida, ordersByUnit) === 'move' || orderKeyOf(oid, ordersByUnit) === 'move') continue
       done.add(k)
       resolveMutualMeleeRound(cells, ordersByUnit, le, ph, ida, oid, deps)
+      const fire = require('../lib/map/battleSettlementFire')
+      const aLive = findUnitOnField(cells, ida)
+      const dLive = findUnitOnField(cells, oid)
+      if (aLive) fire.maybeIgniteFromFlamethrower(aLive.unit, aLive.cell, cells, le, ph)
+      if (dLive) fire.maybeIgniteFromFlamethrower(dLive.unit, dLive.cell, cells, le, ph)
     }
   }
 }
@@ -330,17 +349,18 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
   }
   if (oppid === tid && hexDistCells(atk.cell, def.cell) <= 1) return
 
+  const alreadyAdjacent = hexDistCells(atk.cell, def.cell) <= 1
   const fog = computeRevealedCellIdsForFaction(cells, unitFaction(atk.unit))
   let approachPath = Array.isArray(o.collisionPath) ? o.collisionPath : null
-  if (!approachPath) {
-    const ce0 = cheapestEngagePath(cells, atk.cell, atk.unit, def.cell, fog)
-    if (!ce0 || ce0.cost > attackReachBudget(atk.unit)) {
-      le(ph, `Атака: ${o.unitId} — цель вне досягаемости (ОП−1)`)
-      return
+  if (!alreadyAdjacent) {
+    if (!approachPath) {
+      const ce0 = cheapestEngagePath(cells, atk.cell, atk.unit, def.cell, fog)
+      if (!ce0 || ce0.cost > attackReachBudget(atk.unit)) {
+        le(ph, `Атака: ${o.unitId} — цель вне досягаемости (ОП−1)`)
+        return
+      }
+      approachPath = ce0.path
     }
-    approachPath = ce0.path
-  }
-  if (hexDistCells(atk.cell, def.cell) > 1) {
     if (!approachPath || approachPath.length < 2) {
       le(ph, `Атака: ${o.unitId} — маршрут подхода прерван`)
       return
@@ -371,6 +391,11 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
     const d2 = findUnitOnField(cells, tid)
     if (!a2 || !d2) return
     resolveMutualMeleeRound(cells, ordersByUnit, le, ph, Number(a2.unit.instanceId), Number(d2.unit.instanceId), deps)
+    const fire = require('../lib/map/battleSettlementFire')
+    const aFlame = findUnitOnField(cells, o.unitId)
+    const dFlame = findUnitOnField(cells, tid)
+    if (aFlame) fire.maybeIgniteFromFlamethrower(aFlame.unit, aFlame.cell, cells, le, ph)
+    if (dFlame) fire.maybeIgniteFromFlamethrower(dFlame.unit, dFlame.cell, cells, le, ph)
     const d3 = findUnitOnField(cells, tid)
     if (suppressedTarget && d3 && deps.getStr(d3.unit) > 0 && d3.unit.tactical && d3.unit.tactical.fireSuppression) {
       analog.tryForcedRetreat(cells, d3.unit, approachCell, le, ph, { ...deps, cells })

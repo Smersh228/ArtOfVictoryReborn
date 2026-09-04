@@ -1,7 +1,7 @@
 const express = require('express')
 const { verifyToken, pool } = require('../../db')
 const { getTokenFromRequest } = require('../../cookieAuth')
-const { enrichBattleCells, loadBattleCellsFromMapId, loadBattleMapConditionsFromMapId } = require('../../game/lib/support/battleEnrich')
+const { enrichBattleCells, loadBattleCellsFromMapId, loadBattleMapConditionsFromMapId, loadBattleMapDeploymentFromMapId } = require('../../game/lib/support/battleEnrich')
 const { isMapAdminUser } = require('../../mapsPolicy')
 const {
   ensureMemberSlots,
@@ -272,6 +272,7 @@ function registerLobbyRoutes(router) {
       }
     }
     room.battleCells = cells && cells.length ? cells : []
+    room.battleHexCatalogSynced = true
     room.battleReconByFaction = { rkka: [], wehrmacht: [] }
     room.battleFieldRevision = 1
     room.battleLog = []
@@ -284,13 +285,27 @@ function registerLobbyRoutes(router) {
     room.battleScenarioReason = null
     room.battleMapConditions = mapConditions
     room.battleCaptureHoldStreak = 0
+    room.battleDeployPhase = null
+    if (room.mapId != null) {
+      try {
+        const deployment = await loadBattleMapDeploymentFromMapId(pool, room.mapId)
+        if (deployment) {
+          const { initBattleDeployPhase } = require('../../game/lib/map/battleDeployPhase')
+          initBattleDeployPhase(room, deployment)
+        }
+      } catch (e) {
+        console.error('start-battle deployment:', e.message)
+      }
+    }
     const { initBattleEnvironment } = require('../../game/lib/scenario/battleEnvironment')
     initBattleEnvironment(room)
-    const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
-    withBattleEnv(room, () => {
-      const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
-      syncBattleReconByFaction(room, room.battleCells)
-    })
+    if (!(room.battleDeployPhase && room.battleDeployPhase.active)) {
+      const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
+      withBattleEnv(room, () => {
+        const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
+        syncBattleReconByFaction(room, room.battleCells)
+      })
+    }
     initBattlePresenceForFighters(room)
     await sendRoomDetailOr500(res, room, key)
   })

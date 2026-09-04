@@ -1,6 +1,6 @@
 import type { Cell, IBuildCell } from '../../../server/src/game/gameLogic/cells/cell';
-import { hasPontonOnCell } from './cellPonton';
 import smokeSpriteUrl from '../img/units/Germany/humans/humans/dum.png';
+import { cellsEligibleForDemolition } from './cellDemolition';
 
 export const SMOKE_SPRITE_URL = smokeSpriteUrl;
 
@@ -34,6 +34,10 @@ export const SMOKE_BLOCKED_ORDERS = new Set([
   'railLoading',
   'railUnloading',
   'desant',
+  'cutGlade',
+  'repairRailway',
+  'arson',
+  'demolition',
 ]);
 
 export function hasSmokeOnCell(builds: IBuildCell | undefined | null): boolean {
@@ -43,28 +47,8 @@ export function hasSmokeOnCell(builds: IBuildCell | undefined | null): boolean {
   return Number(raw) > 0;
 }
 
-function hexDist(a: Cell, b: Cell): number {
-  const ax = Number(a.coor?.x);
-  const az = Number(a.coor?.z);
-  const bx = Number(b.coor?.x);
-  const bz = Number(b.coor?.z);
-  const ay = Number(a.coor?.y);
-  const by = Number(b.coor?.y);
-  if (Number.isFinite(ay) && Number.isFinite(by)) {
-    return Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz));
-  }
-  const dq = ax - bx;
-  const dr = az - bz;
-  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
-}
-
 export function cellsEligibleForExplomost(fromCell: Cell, cells: Cell[]): Cell[] {
-  const out: Cell[] = [];
-  for (const c of cells) {
-    if (hexDist(fromCell, c) > 1) continue;
-    if (hasPontonOnCell(c.builds)) out.push(c);
-  }
-  return out;
+  return cellsEligibleForDemolition(fromCell, cells);
 }
 
 function factionsAllied(fa: string, fb: string): boolean {

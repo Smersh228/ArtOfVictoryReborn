@@ -2,6 +2,7 @@
 
 const { getNeighbor, findCellByCoor, hexDistCells } = require('./battleHexGeometry')
 const { targetTypeToFireKey } = require('../fire/battleFireNormalize')
+const { unitHasPropKey } = require('../../core/battleUnitType')
 
 const EMPTY_BUILDS = {
   trench: 0,
@@ -17,8 +18,11 @@ const EMPTY_BUILDS = {
   pontonBridge: 0,
 }
 
-const DOT_INF_RANGE = [3, 2, 1]
-const DOT_ART_RANGE = [2, 2, 1, 1]
+/** Индекс = дистанция гекса (0 не используется), как у обычных таблиц range. */
+const DOT_INF_RANGE = [0, 3, 2, 1]
+const DOT_ART_RANGE = [0, 2, 2, 1, 1]
+const DOT_INF_MAX_STEPS = DOT_INF_RANGE.length - 1
+const DOT_ART_MAX_STEPS = DOT_ART_RANGE.length - 1
 
 const DOT_INF_INTENSITY = { inf: 10, art: 10, tech: 10 }
 const DOT_ART_INTENSITY = {
@@ -110,6 +114,7 @@ function canUnitOccupySurfaceOnCell(cell, getStr) {
 }
 
 function canEnterDotUnitType(unit, isInfantryUnit, isArtilleryUnit) {
+  if (unitHasPropKey(unit, 'fireAirGun')) return false
   return isInfantryUnit(unit) || isArtilleryUnit(unit)
 }
 
@@ -220,6 +225,17 @@ function dotShooterUsesDotAmmo(unit) {
 function dotShooterCanFire(unit) {
   if (!unitInDot(unit)) return true
   return !unitDotExiting(unit)
+}
+
+/** Огонь из ДОТ по сектору: без проверки LoS местности (как подсветка целей на клиенте). */
+function dotFireIgnoresTerrainLos(unit) {
+  return unitInDot(unit) && !unitDotExiting(unit)
+}
+
+function dotMaxRangeStepsForUnit(unit, isInfantryUnit, isArtilleryUnit) {
+  if (typeof isArtilleryUnit === 'function' && isArtilleryUnit(unit)) return DOT_ART_MAX_STEPS
+  if (String(unit && unit.type ? unit.type : '').toLowerCase() === 'artillery') return DOT_ART_MAX_STEPS
+  return DOT_INF_MAX_STEPS
 }
 
 function getDotAmmoCost(isSup) {
@@ -558,8 +574,7 @@ function computeDotMgSectorCellIds(dotCell, facingDir, allCells, maxSteps) {
 /** Видимость гарнизона ДОТ: свой гекс + сектор стрельбы (без круговой дальности юнита). */
 function dotOccupantVisionCellIds(dotCell, unit, allCells) {
   if (!unitInDot(unit) || !dotCell || !hasDotOnCell(dotCell.builds)) return null
-  const maxSteps =
-    String(unit.type || '').toLowerCase() === 'artillery' ? DOT_ART_RANGE.length : DOT_INF_RANGE.length
+  const maxSteps = dotMaxRangeStepsForUnit(unit)
   const facing = resolveDotFacingDir(dotCell, allCells)
   const ids = computeDotMgSectorCellIds(dotCell, facing, allCells, maxSteps)
   const out = new Set(ids)
@@ -571,7 +586,7 @@ function isDotFireTargetCellAllowed(attacker, attackerCell, targetCellId, allCel
   if (!unitInDot(attacker) || unitDotExiting(attacker)) return true
   if (!attackerCell || !hasDotOnCell(attackerCell.builds)) return true
   const facing = resolveDotFacingDir(attackerCell, allCells)
-  const maxSteps = String(attacker.type || '').toLowerCase() === 'artillery' ? DOT_ART_RANGE.length : DOT_INF_RANGE.length
+  const maxSteps = dotMaxRangeStepsForUnit(attacker)
   const ids = computeDotMgSectorCellIds(attackerCell, facing, allCells, maxSteps)
   const cid = Number(targetCellId)
   return ids.some((id) => Number(id) === cid)
@@ -599,6 +614,8 @@ module.exports = {
   getDotDef,
   dotShooterUsesDotAmmo,
   dotShooterCanFire,
+  dotFireIgnoresTerrainLos,
+  dotMaxRangeStepsForUnit,
   shooterHasAmmoForFire,
   deductShooterAmmoForFire,
   tryDamageDotFromFire,

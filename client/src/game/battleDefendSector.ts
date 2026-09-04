@@ -1,16 +1,41 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
-import { maxShootRangeStepsForUnit } from './battleFirePreview';
+import { maxGunSectorRangeStepsForUnit } from './battleFirePreview';
 import { unitHasPropKey } from './battleTerrain';
 
 /** Свойство каталога «Сектор стрельбы» (fireSector). */
 export function artilleryUsesFireSectorProperty(unit: Record<string, unknown>): boolean {
-  return String(unit.type || '').toLowerCase() === 'artillery' && unitHasPropKey(unit, 'fireSector');
+  return unitHasPropKey(unit, 'fireSector');
 }
 
-/** Развёрнутая артиллерия со свойством fireSector — огонь только по сектору. */
+export function unitUsesGunDeploy(unit: Record<string, unknown>): boolean {
+  return String(unit.type || '').toLowerCase() === 'artillery' || artilleryUsesFireSectorProperty(unit);
+}
+
+const GUN_DEPLOY_ORDER_DEFS = [
+  { id: -9101, name: 'Развёртывание', order_key: 'deploy' },
+  { id: -9102, name: 'Свёртывание', order_key: 'clotting' },
+  { id: -9103, name: 'Смена сектора', order_key: 'changeSector' },
+] as const;
+
+export function appendDefaultGunDeployOrders<T extends { id: number; name: string; order_key?: string }>(
+  orders: T[],
+  unit: Record<string, unknown>,
+): T[] {
+  if (!unitUsesGunDeploy(unit)) return orders;
+  const keys = new Set(
+    orders.map((o) => String(o.order_key ?? '').trim()).filter((k) => k.length > 0),
+  );
+  const out = [...orders];
+  for (const def of GUN_DEPLOY_ORDER_DEFS) {
+    if (keys.has(def.order_key)) continue;
+    out.push({ id: def.id, name: def.name, order_key: def.order_key } as T);
+  }
+  return out;
+}
+
+/** Развёрнутое орудие или свойство fireSector — огонь только внутри сектора (свёрнутое орудие не стреляет). */
 export function artilleryFireRestrictedToSector(unit: Record<string, unknown>): boolean {
-  const tac = unit.tactical as { artilleryDeployed?: boolean } | undefined;
-  return tac?.artilleryDeployed === true && artilleryUsesFireSectorProperty(unit);
+  return artilleryUsesFireSectorProperty(unit);
 }
 
 const CUBE_DIRS = [
@@ -69,7 +94,7 @@ export function computeDefendSectorCells(
   attacker: Record<string, unknown>,
   rangeCapSteps?: number,
 ): Cell[] {
-  const weaponMax = maxShootRangeStepsForUnit(attacker);
+  const weaponMax = maxGunSectorRangeStepsForUnit(attacker);
   const cap =
     rangeCapSteps != null && Number.isFinite(rangeCapSteps)
       ? Math.max(1, Math.min(Number(rangeCapSteps), weaponMax))
@@ -109,16 +134,16 @@ export function computeDefendSectorCells(
   return out;
 }
 
-/** Сектор обстрела: только для артиллерии со свойством fireSector. */
+/** Сектор обстрела: свойство fireSector и заданная геометрия (развёртывание или оборона). */
 export function getArtillerySectorCellIdSet(
   unit: Record<string, unknown>,
   unitCell: Cell,
   cells: Cell[],
 ): Set<number> | null {
-  if (String(unit.type || '').toLowerCase() !== 'artillery') return null;
   if (!artilleryUsesFireSectorProperty(unit)) return null;
   const tac = unit.tactical as { artilleryDeployed?: boolean } | undefined;
-  if (tac?.artilleryDeployed !== true) return null;
+  const hasSectorIds = Array.isArray(unit.defendSectorCellIds) && unit.defendSectorCellIds.length > 0;
+  if (tac?.artilleryDeployed !== true && !hasSectorIds) return null;
 
   const secRaw = unit.defendSectorCellIds;
   if (Array.isArray(secRaw) && secRaw.length > 0) {
@@ -135,7 +160,7 @@ export function getArtillerySectorCellIdSet(
   const fc = cells.find((c) => c.id === facingId);
   if (!fc) return null;
   const capRaw = Number(unit.defendMaxRangeSteps);
-  const range = Number.isFinite(capRaw) && capRaw >= 1 ? capRaw : maxShootRangeStepsForUnit(unit);
+  const range = Number.isFinite(capRaw) && capRaw >= 1 ? capRaw : maxGunSectorRangeStepsForUnit(unit);
   const sectorCells = computeDefendSectorCells(unitCell, fc, cells, unit, range);
   if (!sectorCells.length) return null;
   return new Set(sectorCells.map((c) => c.id));

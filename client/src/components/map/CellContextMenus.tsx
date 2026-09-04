@@ -27,7 +27,19 @@ import {
   type EditorMapUnitOrderEditorMeta,
   patchUnitOrderEditorMeta,
 } from '../../game/editorMapUnitOrderMeta'
-import { factionForTeam, teamFromUnit, teamSideLabel, teamsForFaction, teamsForLimit } from '../../game/editorMapTeam'
+import {
+  cellOffersDestroyedBridgeToggle,
+  cellOffersDestroyedRailwayToggle,
+} from '../../game/cellHexTexture'
+import { isDestroyedBridgeHex } from '../../game/battleSpecialTerrain'
+import { isRailwayDestroyedHex } from '../../game/cellRailway'
+import {
+  factionForTeam,
+  teamFromUnit,
+  teamSideLabel,
+  teamsForFaction,
+  teamsForLimit,
+} from '../../game/editorMapTeam'
 
 const ELEVATION_LEVELS = [-1, 0, 1, 2, 3] as const
 
@@ -626,6 +638,71 @@ const CellContextMenus: React.FC<CellContextMenusProps> = ({
                     </option>
                   ))}
                 </select>
+              </label>
+            ) : null}
+            {cellOffersDestroyedBridgeToggle(cellMenu.cell) ? (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  marginTop: 10,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isDestroyedBridgeHex(cellMenu.cell)}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    patchHexExtra((draft) => {
+                      if (on) return { ...draft, isDestroyedBridge: true, editorDestroyedBridge: true }
+                      const next = { ...draft }
+                      delete next.isDestroyedBridge
+                      delete next.destroyedBridge
+                      delete next.editorDestroyedBridge
+                      return next
+                    })
+                  }}
+                />
+                Разрушенный мост
+              </label>
+            ) : null}
+            {cellOffersDestroyedRailwayToggle(cellMenu.cell) ? (
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  marginTop: 8,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isRailwayDestroyedHex(cellMenu.cell)}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    patchHexExtra((draft) => {
+                      if (on) {
+                        return {
+                          ...draft,
+                          isDestroyedRailway: true,
+                          railwayDestroyed: true,
+                          editorDestroyedRailway: true,
+                        }
+                      }
+                      const next = { ...draft }
+                      delete next.isDestroyedRailway
+                      delete next.railwayDestroyed
+                      delete next.editorDestroyedRailway
+                      return next
+                    })
+                  }}
+                />
+                Разрушенная ЖД
               </label>
             ) : null}
             {cellImg ? (

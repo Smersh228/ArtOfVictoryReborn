@@ -113,6 +113,7 @@ async function ensurePlayerStatsSchema() {
     );
   `)
   await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'player'`)
+  await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`)
   schemaReady = true
 }
 
@@ -175,15 +176,37 @@ async function setPlayerRole(userId, role) {
   return key
 }
 
+function isoFromDbDate(raw) {
+  if (!raw) return null
+  const d = raw instanceof Date ? raw : new Date(raw)
+  if (!Number.isFinite(d.getTime())) return null
+  return d.toISOString()
+}
+
+async function touchLastSeen(userId, atMs) {
+  const id = Number(userId)
+  if (!Number.isFinite(id) || id <= 0) return
+  const at = new Date(Number(atMs) || Date.now())
+  if (!Number.isFinite(at.getTime())) return
+  await ensureRow(id)
+  await pool.query(
+    `UPDATE player_profiles
+     SET last_seen_at = GREATEST(COALESCE(last_seen_at, to_timestamp(0)), $2::timestamptz),
+         updated_at = NOW()
+     WHERE user_id = $1`,
+    [id, at.toISOString()],
+  )
+}
+
 async function readProfileStats(userId) {
   await ensurePlayerStatsSchema()
   const r = await pool.query(
-    'SELECT wins, losses, kills, avatar_path, role FROM player_profiles WHERE user_id = $1',
+    'SELECT wins, losses, kills, avatar_path, role, last_seen_at FROM player_profiles WHERE user_id = $1',
     [userId],
   )
   const row = r.rows[0]
   if (!row) {
-    return { wins: 0, losses: 0, kills: emptyKills(), avatarPath: null, role: 'player' }
+    return { wins: 0, losses: 0, kills: emptyKills(), avatarPath: null, role: 'player', lastSeenAt: null }
   }
   return {
     wins: Number(row.wins) || 0,
@@ -191,6 +214,7 @@ async function readProfileStats(userId) {
     kills: mergeKills(row.kills),
     avatarPath: row.avatar_path ? String(row.avatar_path) : null,
     role: normalizeRole(row.role),
+    lastSeenAt: isoFromDbDate(row.last_seen_at),
   }
 }
 
@@ -250,6 +274,7 @@ module.exports = {
   roleLabel,
   ensurePlayerStatsSchema,
   readProfileStats,
+  touchLastSeen,
   setAvatarPath,
   setPlayerRole,
   creditKillsFromLog,

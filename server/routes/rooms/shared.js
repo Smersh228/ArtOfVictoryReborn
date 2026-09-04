@@ -31,20 +31,26 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
   }
   if (k === 'fire') {
     const adj = spec.useFireAdjustment ? ', корректировка огня' : ''
+    const reactive = spec.useReactiveFire ? ', реактивный' : ''
     if (cid != null && Number.isFinite(Number(cid)) && (tid == null || !Number.isFinite(Number(tid)))) {
-      return `Юнит ${id}: огонь по площади → кл. ${cid}${adj}`
+      return `Юнит ${id}: огонь по площади → кл. ${cid}${adj}${reactive}`
     }
-    return `Юнит ${id}: огонь → юнит ${tid}${adj}`
+    return `Юнит ${id}: огонь → юнит ${tid}${adj}${reactive}`
   }
   if (k === 'fireHard') {
+    const reactiveH = spec.useReactiveFire ? ', реактивный' : ''
     if (cid != null && Number.isFinite(Number(cid)) && (tid == null || !Number.isFinite(Number(tid)))) {
-      return `Юнит ${id}: огонь на подавление по площади → кл. ${cid}`
+      return `Юнит ${id}: огонь на подавление по площади → кл. ${cid}${reactiveH}`
     }
-    return `Юнит ${id}: огонь на подавление → юнит ${tid}`
+    return `Юнит ${id}: огонь на подавление → юнит ${tid}${reactiveH}`
   }
   if (k === 'attack' || k === 'hardMove') return `Юнит ${id}: ${k === 'hardMove' ? 'мощная атака' : 'атака'} → юнит ${tid}`
   if (k === 'fireMove') return `Юнит ${id}: стрельба в движении → юнит ${tid}, кл. ${cid}`
-  if (k === 'medical') return `Юнит ${id}: лечение`
+  if (k === 'medical') {
+    return tid != null && Number.isFinite(Number(tid))
+      ? `Юнит ${id}: лечение → юнит ${tid}`
+      : `Юнит ${id}: лечение`
+  }
   if (k === 'move') return `Юнит ${id}: походное положение → клетка ${cid}`
   if (k === 'moveWar') return `Юнит ${id}: боевое положение → клетка ${cid}`
   if (k === 'getSup') {
@@ -104,6 +110,13 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
       : `Юнит ${id}: радиоперехват`
   }
   if (k === 'cutWire') return `Юнит ${id}: снятие проволоки → клетка ${cid}`
+  if (k === 'explomost' || k === 'demolition') return `Юнит ${id}: подрыв сооружения → клетка ${cid}`
+  if (k === 'repairRailway') return `Юнит ${id}: ремонт ЖД`
+  if (k === 'arson') return `Юнит ${id}: поджог`
+  if (k === 'mining') {
+    const kind = spec.mineKind === 'tank' ? 'танковая' : 'пехотная'
+    return `Юнит ${id}: минирование (${kind})`
+  }
   if (k === 'trenches') {
     const ed = spec.trenchEdgeDir
     return `Юнит ${id}: окопаться → клетка ${cid}, сторона ${ed}`
@@ -345,6 +358,9 @@ const SUBMITTABLE_ORDER_KEYS = new Set([
   'smoke',
   'railLoading',
   'railUnloading',
+  'repairRailway',
+  'arson',
+  'demolition',
 ])
 
 async function resolveMemberLabels(keys) {
@@ -476,9 +492,6 @@ async function addRoomChatMessage(room, mem, memKey, rawText, rawChannel) {
     return { ok: false, error: 'Сначала выберите фракцию' }
   }
   const userId = String(memKey || '').startsWith('u:') ? Number(String(memKey).slice(2)) : 0
-  if (userId > 0 && isMuted(userId)) {
-    return { ok: false, error: 'Вы получили системный мут' }
-  }
   const now = Date.now()
   const prev = Number(room.lobbyChat.lastAt.get(memKey) || 0)
   if (now - prev < ROOM_CHAT_COOLDOWN_MS) {
@@ -486,6 +499,9 @@ async function addRoomChatMessage(room, mem, memKey, rawText, rawChannel) {
   }
   const labels = await resolveMemberLabels([memKey])
   const username = labels[0] || 'Игрок'
+  if (userId > 0 && isMuted(userId, username)) {
+    return { ok: false, error: 'Вы получили системный мут' }
+  }
   room.lobbyChat.lastAt.set(memKey, now)
   const msg = {
     id: room.lobbyChat.nextId++,
@@ -564,12 +580,23 @@ async function roomDetailPayload(room, selfKey) {
         ? require('../../game/lib/scenario/battleEnvironment').publicSnapshot(room)
         : undefined,
     battleHqRewrite: publicHqRewritePayload(room, selfKey),
+    battleDeploy: require('../../game/lib/map/battleDeployPhase').publicBattleDeploy(room, selfKey),
   }
   })
 }
 
 async function sendRoomDetailOr500(res, room, selfKey) {
   try {
+    if (room.battleStartedAt != null && Array.isArray(room.battleCells) && !room.battleHexCatalogSynced) {
+      try {
+        const { pool } = require('../../db')
+        const { enrichBattleHexExtras } = require('../../game/lib/support/battleEnrich')
+        await enrichBattleHexExtras(pool, room.battleCells)
+        room.battleHexCatalogSynced = true
+      } catch (e) {
+        console.error('enrichBattleHexExtras on detail:', e.message)
+      }
+    }
     res.json(await roomDetailPayload(room, selfKey))
   } catch (err) {
     console.error('rooms roomDetailPayload:', err)

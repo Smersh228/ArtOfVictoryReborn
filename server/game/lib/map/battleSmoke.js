@@ -32,7 +32,10 @@ const SMOKE_BLOCKED_ORDERS = new Set([
   'railLoading',
   'railUnloading',
   'desant',
-  'fireMove',
+  'cutGlade',
+  'repairRailway',
+  'arson',
+  'demolition',
 ])
 
 function ensureBuilds(builds) {
@@ -59,6 +62,7 @@ function placeSmokeOnCell(cell, meta) {
     placedTurn: Number(meta.placedTurn) || 0,
     originCellId: Number(meta.originCellId) || Number(cell.id),
     offset: 0,
+    fromFire: meta.fromFire === true,
   }
   return true
 }
@@ -79,12 +83,16 @@ function nextSmokeGroupId(cells) {
 }
 
 function markUnitsOnSmoke(cells) {
+  const fire = require('./battleSettlementFire')
   for (const c of cells) {
     const on = hasSmokeOnCell(c.builds)
+    const burning = fire.hasSettlementFire(c)
     for (const u of c.units || []) {
       if (!u.tactical) u.tactical = {}
       if (on) u.tactical.onSmoke = true
       else delete u.tactical.onSmoke
+      if (burning) u.tactical.onSettlementFire = true
+      else delete u.tactical.onSettlementFire
     }
   }
 }
@@ -103,12 +111,31 @@ function cancelOrdersOnSmokeHexes(cells, ordersByUnit, le, ph) {
       const spec = ordersByUnit.get(id)
       const k = spec && spec.orderKey ? String(spec.orderKey) : ''
       if (!smokeBlocksOrderKey(k)) continue
+      const fire = require('./battleSettlementFire')
+      if (fire.hasSettlementFire(c) && (k === 'move' || k === 'moveWar')) continue
       ordersByUnit.delete(id)
       if (typeof le === 'function') {
         le(ph, `Дым: юнит ${id} на кл. ${c.id} — приказ «${k}» отменён`)
       }
     }
   }
+}
+
+function fireSectorAllowsSmokeHex(unit, unitCell, targetCell, cells) {
+  const {
+    unitUsesGunDeploy,
+    isArtilleryDeployedForBattle,
+    isArtilleryFireTargetCellAllowed,
+  } = require('../../core/battleUnitType')
+  const dotMod = require('./battleDot')
+  if (dotMod.unitInDot(unit) && !dotMod.unitDotExiting(unit)) {
+    return dotMod.isDotFireTargetCellAllowed(unit, unitCell, targetCell.id, cells)
+  }
+  if (unitUsesGunDeploy(unit)) {
+    if (!isArtilleryDeployedForBattle(unit)) return false
+    return isArtilleryFireTargetCellAllowed(unit, targetCell.id)
+  }
+  return true
 }
 
 function friendlyCanSpotSmokeHex(cells, shooter, targetCell, deps) {
@@ -162,6 +189,10 @@ function resolveSmokeOrders(cells, list, ordersByUnit, le, ph, turnIndex, deps) 
       le(ph, `Дым: юнит ${o.unitId} — клетка не найдена`)
       continue
     }
+    if (!fireSectorAllowsSmokeHex(cur.unit, cur.cell, tc, cells)) {
+      le(ph, `Дым: юнит ${o.unitId} — гекс вне сектора стрельбы (или артиллерия не развёрнута)`)
+      continue
+    }
     if (!friendlyCanSpotSmokeHex(cells, cur.unit, tc, deps)) {
       le(ph, `Дым: юнит ${o.unitId} — гекс вне видимости/дальности (своей или союзника)`)
       continue
@@ -190,6 +221,7 @@ function tickSmokeAtTurnStart(cells, turnIndex, env, le, ph) {
     groups.get(gid).cells.push(c)
   }
   for (const [, g] of groups) {
+    if (g.meta && g.meta.fromFire) continue
     const placed = Number(g.meta.placedTurn) || 0
     const dt = turnIndex - placed
     if (dt >= 4) {
@@ -216,6 +248,7 @@ module.exports = {
   markUnitsOnSmoke,
   smokeBlocksOrderKey,
   cancelOrdersOnSmokeHexes,
+  fireSectorAllowsSmokeHex,
   friendlyCanSpotSmokeHex,
   getSmokeShells,
   setSmokeShells,

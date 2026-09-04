@@ -1223,6 +1223,9 @@ function sapperJobOrderLabel(key: unknown): string {
   if (k === "cutEj") return "Снятие ежей";
   if (k === "demining") return "Разминирование";
   if (k === "mining") return "Минирование";
+  if (k === "explomost" || k === "demolition") return "Подрыв сооружения";
+  if (k === "repairRailway") return "Ремонт ЖД путей";
+  if (k === "arson") return "Поджог";
   return "Сапёрные работы";
 }
 
@@ -1266,6 +1269,70 @@ function formatSapperReportLines(entry, cells, text, m) {
       detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`}${Number.isFinite(cellId) ? ` · кл. ${cellId}` : ""}${Number.isFinite(left) ? ` · осталось ${left} ход.` : ""}`,
     };
   }
+  if (m?.settlementFire || m?.settlementDestroyed) {
+    const cellId = Number(m.settlementFireCellId);
+    const turn = Number(m.settlementFireTurn);
+    const markers = Number(m.settlementFireMarkers);
+    const bits = [Number.isFinite(cellId) ? `кл. ${cellId}` : ""];
+    if (Number.isFinite(turn)) bits.push(`ход ${turn}`);
+    if (Number.isFinite(markers)) bits.push(`маркеров ${markers}`);
+    return {
+      order: m?.settlementDestroyed ? "Пожар (разрушен)" : "Пожар",
+      detail: bits.filter(Boolean).join(" · ") || String(text || ""),
+    };
+  }
+  if (m?.structureHp) {
+    const cellId = Number(m.structureCellId ?? m.settlementFireCellId);
+    const bits = [Number.isFinite(cellId) ? `кл. ${cellId}` : ""];
+    if (m.structureKind) bits.push(String(m.structureKind));
+    if (m.structureDef != null) bits.push(`защита ${m.structureDef}`);
+    if (m.structureStr != null) bits.push(`прочность ${m.structureStr}`);
+    return {
+      order: m.structureDestroyed || m.settlementDestroyed ? "Сооружение разрушено" : "Огонь по сооружению",
+      detail: bits.filter(Boolean).join(" · ") || String(text || ""),
+    };
+  }
+  return null;
+}
+
+function formatWireReportLines(entry, cells, text, m) {
+  if (m?.wireDestroyed) {
+    const uid = Number(m.wireDestroyed.unitInstanceId ?? m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const cellId = Number(m.wireDestroyed.cellId);
+    const left = Number(m.wireDestroyed.remaining);
+    return {
+      order: "Подрыв проволоки",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} · кл. ${Number.isFinite(cellId) ? cellId : "—"}${Number.isFinite(left) ? ` · осталось граней ${left}` : ""}`,
+    };
+  }
+  if (m?.wireBreakthrough) {
+    const uid = Number(m.wireBreakthrough.unitInstanceId ?? m.unitInstanceId);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    const n = Number(m.wireBreakthrough.count);
+    return {
+      order: "Прорыв проволоки",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} снял колючую проволоку${Number.isFinite(n) && n > 0 ? ` (${n})` : ""}`,
+    };
+  }
+  const destroyText = String(text || "").match(/^Подрыв проволоки: юнит (\d+) уничтожил колючую проволоку на кл\. (\d+)/);
+  if (destroyText) {
+    const uid = Number(destroyText[1]);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    return {
+      order: "Подрыв проволоки",
+      detail: `${u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`} · кл. ${destroyText[2]}`,
+    };
+  }
+  const breakText = String(text || "").match(/^Прорыв проволоки: юнит (\d+)/);
+  if (breakText) {
+    const uid = Number(breakText[1]);
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    return {
+      order: "Прорыв проволоки",
+      detail: u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`,
+    };
+  }
   return null;
 }
 
@@ -1286,6 +1353,8 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
   if (trenchFormatted) return trenchFormatted;
   const sapperFormatted = formatSapperReportLines(entry, cells, text, m);
   if (sapperFormatted) return sapperFormatted;
+  const wireFormatted = formatWireReportLines(entry, cells, text, m);
+  if (wireFormatted) return wireFormatted;
   if (entry.phase === -1) return null;
   const vf = reportCtx?.viewerFaction;
   const fog = reportCtx?.fogRevealedCellIds;

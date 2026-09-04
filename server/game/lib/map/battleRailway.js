@@ -3,11 +3,77 @@
 const { unitHasPropKey } = require('../../core/battleUnitType')
 
 function blobOf(cell) {
-  return `${String((cell && cell.type) || '')} ${String((cell && cell.name) || '')}`
+  const ex = hexExtraOf(cell)
+  const name = String((cell && cell.name) || (ex && (ex.name || ex.label)) || '')
+  const img = String(
+    (cell && (cell.img || cell.imagePath)) || (ex && (ex.image_path || ex.img || ex.imagePath)) || '',
+  )
+  const mb = String((cell && cell.mapBuilding && cell.mapBuilding.name) || '')
+  return `${String((cell && cell.type) || '')} ${name} ${img} ${mb}`
+}
+
+function hexExtraOf(cell) {
+  return cell && cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
+}
+
+function ensureHexExtra(cell) {
+  if (!cell.hexExtra || typeof cell.hexExtra !== 'object') cell.hexExtra = {}
+  return cell.hexExtra
+}
+
+function isRailwayDestroyed(cell) {
+  if (!cell) return false
+  const ex = hexExtraOf(cell)
+  if (
+    ex &&
+    (ex.railwayDestroyed === true ||
+      ex.isDestroyedRailway === true ||
+      ex.editorDestroyedRailway === true)
+  ) {
+    return true
+  }
+  const special = require('./battleSpecialTerrain')
+  if (
+    special.isDestroyedBridgeHex(cell) &&
+    (special.isRailwayBridgeHex(cell) || (ex && (ex.isRailway === true || ex.railway === true)))
+  ) {
+    return true
+  }
+  return false
+}
+
+function markRailwayDestroyed(cell) {
+  if (!cell) return false
+  const ex = ensureHexExtra(cell)
+  ex.railwayDestroyed = true
+  ex.isDestroyedRailway = true
+  return true
+}
+
+function repairRailwayOnCell(cell) {
+  if (!cell) return false
+  const ex = ensureHexExtra(cell)
+  delete ex.railwayDestroyed
+  delete ex.isDestroyedRailway
+  if (ex.isRailway !== true && ex.railway !== true && ex.rail !== true) ex.isRailway = true
+  return true
+}
+
+const RAIL_STATION_RE = /станци|вокзал|station|жд\s*стан|rail(?:way)?\s*stat/i
+
+function isRailwayStationCell(cell) {
+  if (!cell) return false
+  const ex = hexExtraOf(cell)
+  if (ex && (ex.isRailStation === true || ex.railwayStation === true || ex.station === true)) return true
+  const hp = cell.builds && cell.builds.structureHp
+  if (hp && String(hp.kind || '') === 'station') return true
+  return RAIL_STATION_RE.test(blobOf(cell))
 }
 
 function isRailwayCell(cell) {
   if (!cell) return false
+  if (isRailwayDestroyed(cell)) return false
+  if (isRailwayStationCell(cell)) return true
   const t = String(cell.type || '')
     .trim()
     .toLowerCase()
@@ -15,32 +81,64 @@ function isRailwayCell(cell) {
   if (t === 'railway' || t === 'railroad' || t === 'rail' || t === 'train') return true
   const blob = blobOf(cell)
   if (/железн|railway|railroad|жд(?![а-я])/i.test(blob)) return true
-  const ex = cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
-  if (ex && (ex.railway === true || ex.rail === true)) return true
+  const ex = hexExtraOf(cell)
+  if (ex && (ex.isRailway === true || ex.railway === true || ex.rail === true)) return true
   return false
 }
 
-function isRailwayStationCell(cell) {
-  if (!isRailwayCell(cell)) {
-    const blob = blobOf(cell)
-    if (/станци|вокзал|station/i.test(blob)) return true
-    return false
-  }
+function isDestroyedRailwayHex(cell) {
+  if (!cell) return false
+  if (!isRailwayDestroyed(cell)) return false
+  const special = require('./battleSpecialTerrain')
+  if (special.isDestroyedBridgeHex(cell)) return false
+  const ex = hexExtraOf(cell)
+  if (ex && (ex.isRailway === true || ex.railway === true || ex.rail === true || ex.isRailStation === true)) return true
+  if (isRailwayStationCell(cell)) return true
+  const t = String(cell.type || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, '')
+  if (t === 'railway' || t === 'railroad' || t === 'rail' || t === 'train') return true
   const blob = blobOf(cell)
-  if (/станци|вокзал|station/i.test(blob)) return true
-  const ex = cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
-  if (ex && (ex.railwayStation === true || ex.station === true)) return true
-  return false
+  if (/железн|railway|railroad|жд(?![а-я])/i.test(blob)) return true
+  return Boolean(ex && (ex.railwayDestroyed === true || ex.isDestroyedRailway === true))
+}
+
+function cellAllowsRailwayDetachment(cell) {
+  return isRailwayCell(cell) || isDestroyedRailwayHex(cell)
+}
+
+function cellsEligibleForRepairRailway(fromCell, cells) {
+  const out = []
+  if (!fromCell || !Array.isArray(cells)) return out
+  const { hexDistCells } = require('./battleHexGeometry')
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i]
+    const d = hexDistCells(fromCell, c)
+    if (!(d === 0 || d === 1)) continue
+    if (isDestroyedRailwayHex(c)) out.push(c)
+  }
+  return out
 }
 
 function isRailwayUnit(u) {
   if (!u) return false
-  if (String(u.type || '').toLowerCase() !== 'tech') return false
   return unitHasPropKey(u, 'railwayDetachment')
 }
 
+const RAILWAY_ENTRY_COST_DISCOUNT = 1.5
+const RAILWAY_ENTRY_COST_MIN = 0.5
+
+function applyRailwayEntryDiscount(cell, unit, cost) {
+  if (!isRailwayUnit(unit) || !(cost > 0) || !isRailwayCell(cell)) return cost
+  return Math.max(RAILWAY_ENTRY_COST_MIN, cost - RAILWAY_ENTRY_COST_DISCOUNT)
+}
+
 function railLoadDuration(cell) {
-  return isRailwayStationCell(cell) ? 1 : 2
+  if (!isRailwayStationCell(cell)) return 2
+  const structureHp = require('./battleStructureHp')
+  if (!structureHp.stationHasLoadBonus(cell)) return 2
+  return 1
 }
 
 function isRailCargoOther(u) {
@@ -306,7 +404,14 @@ function tickRailJobs(cells, le, ph, deps) {
 module.exports = {
   isRailwayCell,
   isRailwayStationCell,
+  isRailwayDestroyed,
+  isDestroyedRailwayHex,
+  cellAllowsRailwayDetachment,
+  cellsEligibleForRepairRailway,
+  markRailwayDestroyed,
+  repairRailwayOnCell,
   isRailwayUnit,
+  applyRailwayEntryDiscount,
   railLoadDuration,
   isRailCargoOther,
   countRailSlots,

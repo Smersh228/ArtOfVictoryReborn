@@ -98,10 +98,7 @@ const BattleAirSupportPanel: React.FC<BattleAirSupportPanelProps> = ({
               const displayName =
                 (typeof unit?.name === 'string' && unit.name.trim()) || u.name.trim() || `Юнит ${u.instanceId}`;
               const factionLabel = formatBattleUnitFactionLabel((unit ?? { faction: u.faction }) as Record<string, unknown>);
-              const cargoLine =
-                unit && String(unit.type || '').toLowerCase() === 'tech'
-                  ? formatBattleTechCargoLine(unit)
-                  : null;
+              const cargoLine = unit ? formatBattleTechCargoLine(unit) : null;
               const desantLine = unit ? formatBattleAirDesantLine(unit) : null;
               const statRows = unit
                 ? unitStatsRowsForTip(unit).filter((r) => r.key !== 'Боезапас')

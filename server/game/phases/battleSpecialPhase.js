@@ -2,6 +2,8 @@
 
 const recon = require('../lib/recon/battleReconResolve')
 const { getStorageAmmo, setStorageAmmo, hasStorage } = require('../lib/map/battleStorage')
+const { startMedicalJob, clearMedicalJob } = require('../lib/unit/battleMedical')
+const { unitUsesGunDeploy } = require('../core/battleUnitType')
 
 function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
   const {
@@ -56,6 +58,11 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
       le(ph, `Передача БК: ${cur.unit.instanceId} — цель не рядом`)
       return
     }
+    const special = require('../lib/map/battleSpecialTerrain')
+    if (special.unitInvolvesWaterUnit(cur.unit, tgt.unit) && hexDistCells(cur.cell, tgt.cell) !== 1) {
+      le(ph, `Передача БК: ${cur.unit.instanceId} — у водного отряда цель должна быть в соседнем гексе`)
+      return
+    }
     const want = Math.floor(Number(o.transferAmmo))
     if (!Number.isFinite(want) || want < 1) {
       le(ph, `Передача БК: ${cur.unit.instanceId} — неверное количество`)
@@ -91,6 +98,11 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     }
     if (hexDistCells(cur.cell, wh) > 1) {
       le(ph, `Загрузка со склада: ${cur.unit.instanceId} — склад не рядом`)
+      return
+    }
+    const specialWh = require('../lib/map/battleSpecialTerrain')
+    if (specialWh.unitInvolvesWaterUnit(cur.unit) && hexDistCells(cur.cell, wh) !== 1) {
+      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — у водного отряда склад должен быть в соседнем гексе`)
       return
     }
     if (!hasStorage(wh)) {
@@ -259,8 +271,8 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     return
   }
   if (k === 'clotting') {
-    if (!isArtilleryUnit(cur.unit)) {
-      le(ph, `Свёртывание: только артиллерия`)
+    if (!unitUsesGunDeploy(cur.unit)) {
+      le(ph, `Свёртывание: только орудие с сектором стрельбы`)
       return
     }
     const t = ensureTacticalBattle(cur.unit)
@@ -274,8 +286,8 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     return
   }
   if (k === 'deploy') {
-    if (!isArtilleryUnit(cur.unit)) {
-      le(ph, `Развёртывание: только артиллерия`)
+    if (!unitUsesGunDeploy(cur.unit)) {
+      le(ph, `Развёртывание: только орудие с сектором стрельбы`)
       return
     }
     if (isArtilleryDeployedForBattle(cur.unit)) {
@@ -325,8 +337,8 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     return
   }
   if (k === 'changeSector') {
-    if (!isArtilleryUnit(cur.unit)) {
-      le(ph, `Смена сектора: только артиллерия`)
+    if (!unitUsesGunDeploy(cur.unit)) {
+      le(ph, `Смена сектора: только орудие с сектором стрельбы`)
       return
     }
     if (!isArtilleryDeployedForBattle(cur.unit)) {
@@ -560,35 +572,42 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     return
   }
 
-  if (k === 'explomost') {
-    const ponton = require('../lib/map/battlePonton')
-    const { getExplosives, setExplosives } = require('../lib/unit/battleUnitResources')
-    if (getExplosives(cur.unit) < 1) {
-      le(ph, `Подрыв: юнит ${cur.unit.instanceId} — нет взрывчатки`)
-      return
-    }
-    const cid = Number(o.targetCellId != null ? o.targetCellId : cur.cell.id)
-    const tc = cells.find((c) => Number(c.id) === cid)
-    if (!tc) {
-      le(ph, `Подрыв: клетка не найдена`)
-      return
-    }
-    if (hexDistCells(cur.cell, tc) > 1) {
-      le(ph, `Подрыв: цель дальше соседней`)
-      return
-    }
-    if (!ponton.hasPontonOnCell(tc.builds)) {
-      le(ph, `Подрыв: на кл. ${tc.id} нет понтонного моста`)
-      return
-    }
-    setExplosives(cur.unit, getExplosives(cur.unit) - 1)
-    ponton.destroyPonton(tc, le, ph, 'подрыв')
-    le(ph, `Подрыв: юнит ${cur.unit.instanceId} уничтожил понтон на кл. ${tc.id} (−1 ВВ)`)
+  if (k === 'explomost' || k === 'demolition') {
+    const sapper = require('../lib/map/battleSapperJobs')
+    sapper.startDemolition(cells, cur, o, le, ph, { hexDistCells })
+    return
+  }
+
+  if (k === 'repairRailway') {
+    const sapper = require('../lib/map/battleSapperJobs')
+    sapper.startRepairRailway(cells, cur, o, le, ph, { hexDistCells })
+    return
+  }
+
+  if (k === 'arson') {
+    const sapper = require('../lib/map/battleSapperJobs')
+    sapper.startArson(cells, cur, o, le, ph)
     return
   }
 
   if (k === 'medical') {
-    le(ph, `Лечение: юнит ${cur.unit.instanceId} оказывает помощь (+1 З пехоте и артиллерии на своём и соседних гексах)`)
+    const tid = o.targetUnitInstanceId
+    const tgt = tid != null && Number.isFinite(Number(tid)) ? findUnitOnField(cells, tid) : null
+    if (!tgt) {
+      clearMedicalJob(cur.unit)
+      le(ph, `Лечение: юнит ${cur.unit.instanceId} — цель не на поле`)
+      return
+    }
+    if (hexDistCells(cur.cell, tgt.cell) > 1) {
+      clearMedicalJob(cur.unit)
+      le(ph, `Лечение: помощь отряду ${tgt.unit.instanceId} прервана — цель вне области санитара`)
+      return
+    }
+    startMedicalJob(cur.unit, tgt.unit.instanceId)
+    le(
+      ph,
+      `Лечение: юнит ${cur.unit.instanceId} оказывает помощь отряду ${tgt.unit.instanceId} (+1 З, пока цель рядом)`,
+    )
     return
   }
 }

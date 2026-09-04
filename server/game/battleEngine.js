@@ -58,6 +58,7 @@ const {
   isInfantryUnit,
   isArmoredVehicleTarget,
   isArtilleryUnit,
+  unitUsesGunDeploy,
   isArtilleryDeployedForBattle,
   isArtilleryFireTargetCellAllowed,
   clearArtillerySectorGeometry,
@@ -102,11 +103,19 @@ const airStrikePhase = require('./phases/battleAirStrikePhase')
 const airSortieModule = require('./lib/air/battleAirSortie')
 const artilleryAirSector = require('./lib/fire/battleArtilleryAirSector')
 
+function resolveAttackerFireTables(attacker, fireTables) {
+  if (fireTables) return fireTables
+  if (attacker && attacker._useReactiveFire) {
+    return normalizeFireObject(attacker.fireReactive)
+  }
+  return normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
+}
+
 function intensityArrayFor(attacker, target, fireTables) {
   const dotMod = require('./lib/map/battleDot')
   const dotArr = dotMod.dotIntensityArrayFor(attacker, target, isInfantryUnit, isArtilleryUnit)
   if (dotArr) return dotArr
-  const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
+  const ft = resolveAttackerFireTables(attacker, fireTables)
   const key = targetTypeToFireKey(target.type)
   const arr = ft[key] && ft[key].length ? ft[key] : ft.inf
   const raw = arr && arr.length ? arr : [1, 2, 2, 3]
@@ -118,7 +127,7 @@ function rangeArrayFor(attacker, fireTables) {
   const { applyAccuracyRangeShift } = require('./lib/scenario/battleEnvironment')
   const dotRa = dotMod.dotRangeArrayForUnit(attacker, isInfantryUnit, isArtilleryUnit)
   if (dotRa) return applyAccuracyRangeShift(dotRa)
-  const ft = fireTables || normalizeFireObject(attacker.fireParsed || attacker._fireRaw)
+  const ft = resolveAttackerFireTables(attacker, fireTables)
   const raw = ft.range && ft.range.length ? ft.range.slice() : [3, 2, 1]
   return applyAccuracyRangeShift(raw)
 }
@@ -170,8 +179,8 @@ function getAccuracy(rangeArray, distance, mode) {
 }
 
 
-function shootingAccuracyAtHexDistance(unit, distanceHex, shooterCell) {
-  const ra = rangeArrayForAtCell(unit, shooterCell)
+function shootingAccuracyAtHexDistance(unit, distanceHex, shooterCell, fireTables) {
+  const ra = rangeArrayForAtCell(unit, shooterCell, fireTables)
   const mode = fireRangeTableMode(ra)
   return getAccuracy(ra, Number(distanceHex), mode)
 }
@@ -410,6 +419,7 @@ function collectOpposingHostilesOnCell(targetCell, attackerUnit) {
 function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey, options) {
   return artilleryValidation.validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey, {
     isArtilleryUnit,
+    unitUsesGunDeploy,
     unitHasPropKey,
     isArtilleryDeployedForBattle,
     isArtilleryFireTargetCellAllowed,
@@ -999,6 +1009,8 @@ function attackMoveAlongPath(cells, unitId, path, ordersByUnit, le, ph, movedIns
     setStr,
     applyCargoDamageFromTruckHit,
     sweepCorpses,
+    unitHasPropKey,
+    trySteadfastnessAfterOverwatchDamage,
   })
 }
 
@@ -1098,7 +1110,8 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
   setTurnOrdersByUnit(ordersByUnit)
   resetTurnResources(cells)
   hiddenState.tickHiddenStateAtTurnStart(cells)
-  medicalAid.applyMedicalAidFlags(cells, ordersByUnit)
+  require('./lib/map/battleStructureHp').ensureAllStructureHp(cells)
+  require('./lib/map/battleStructureHp').regenSettlementDefense(cells)
   require('./lib/unit/battleInfantryCover').applyInfantryCoverFlags(cells, ordersByUnit)
   const steadfastnessQueue = []
   
@@ -1109,6 +1122,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
   const sectorReturnFired = new Set()
   const tlog = turnIndex
   const le = (ph, text, meta) => log.push(logEntry(ph, text, tlog, meta))
+  medicalAid.applyMedicalAidFlags(cells, ordersByUnit, le, PHASE_KEYS.special)
   require('./lib/map/battleSmoke').tickSmokeAtTurnStart(
     cells,
     tlog,
@@ -1170,7 +1184,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
     if (k === 'defend' || k === 'ambush') continue
     const found = findUnitOnField(cells, uid)
     if (!found) continue
-    if (isArtilleryUnit(found.unit) && k !== 'move' && k !== 'moveWar') continue
+    if (unitUsesGunDeploy(found.unit) && k !== 'move' && k !== 'moveWar') continue
     clearDefendOnUnit(found.unit)
   }
 
@@ -1287,6 +1301,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
       continue
     }
     if (ph === PHASE_KEYS.special) {
+      medicalAid.interruptMedicalIfOutOfRange(cells, ordersByUnit, le, ph)
       const reconOrders = []
       for (const o of list) {
         if (String(o.orderKey || '').trim() === 'razvedka') reconOrders.push(o)
@@ -1294,7 +1309,11 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
         else resolveSpecialPhaseOrder(cells, o, le, ph)
       }
       require('./lib/map/battleTrench').tickTrenchDigging(cells, le, ph)
-      require('./lib/map/battleSapperJobs').tickSapperJobs(cells, le, ph)
+      require('./lib/map/battleSapperJobs').tickSapperJobs(cells, le, ph, {
+        logUnitDestroyed,
+        findUnitOnField,
+        ensureTacticalBattle,
+      })
       require('./lib/map/battleRailway').tickRailJobs(cells, le, ph, {
         findUnitOnField,
         removeUnitFromCell,
@@ -1307,6 +1326,17 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
         hexDistCells,
         getStr,
         isUnitInAnyCarriedUnits,
+      })
+      const settlementFire = require('./lib/map/battleSettlementFire')
+      settlementFire.tickSettlementFires(cells, le, ph)
+      settlementFire.applyFireDamageAndFlee(cells, le, ph, {
+        logUnitDestroyed,
+        trySteadfastnessAfterOverwatchDamage,
+        getMoraleThresholdForSteadfastness,
+        ensureTacticalBattle,
+        removeUnitFromCell,
+        addUnitToCell,
+        syncUnitCoor,
       })
       for (const o of reconOrders) {
         resolveSpecialPhaseOrder(cells, o, le, ph)
@@ -1372,6 +1402,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
           isArtilleryDeployedForBattle,
           isArtilleryFireTargetCellAllowed,
           intensityArrayFor,
+          getDiceCount,
           moveWarDefenseBonus,
           computeShoot,
           resolveGroupedAreaFire,
@@ -1418,7 +1449,12 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
       runOngoingMeleeRounds(cells, ordersByUnit, le, ph)
       sweepCorpses(cells)
       for (const o of list) {
-        processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceIds)
+        try {
+          processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceIds)
+        } catch (err) {
+          console.error('processSingleAttackOrder', err)
+          le(ph, `Атака: юнит ${o && o.unitId} — сбой расчёта (${err && err.message ? err.message : err})`)
+        }
         sweepCorpses(cells)
       }
       syncMeleeLinksAfterCasualties(cells)
@@ -1468,6 +1504,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
         rangeArrayForAtCell,
         fireRangeTableMode,
         intensityArrayFor,
+        getDiceCount,
         computeShoot,
         isHexVisible,
         artilleryAreaClosedIgnoresTerrainLos,
@@ -1496,6 +1533,7 @@ function resolveTurn(cells, ordersByUnit, log, turnIndex) {
       })
     }
   }
+  medicalAid.interruptMedicalIfOutOfRange(cells, ordersByUnit, le, PHASE_KEYS.move)
   resolveDefendSectorIdleFire(
     cells,
     ordersByUnit,

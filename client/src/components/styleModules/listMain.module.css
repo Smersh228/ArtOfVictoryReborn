@@ -37,6 +37,37 @@
   overflow-y: auto;
 }
 
+@media (max-width: 1440px) {
+  .listWrap {
+    min-width: 0;
+    max-width: 100%;
+    min-height: min(48vh, 480px);
+    padding: 16px 18px 18px;
+  }
+
+  .listBody {
+    min-height: min(36vh, 360px);
+    max-height: min(62vh, 560px);
+  }
+
+  .roomMain {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+}
+
+@media (max-height: 800px) {
+  .listWrap {
+    min-height: min(42vh, 400px);
+    padding: 12px 14px 14px;
+  }
+
+  .listBody {
+    min-height: min(28vh, 280px);
+    max-height: min(52vh, 420px);
+  }
+}
+
 @media (max-width: 720px) {
   .listWrapCreate {
     align-self: flex-start;

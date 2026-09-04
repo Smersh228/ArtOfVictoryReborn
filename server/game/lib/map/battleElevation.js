@@ -24,6 +24,16 @@ function isRavine(cell) {
   return effectiveElevationLevel(cell) === -1
 }
 
+function isPontonBridgeCell(cell) {
+  const ponton = require('./battlePonton')
+  return ponton.isPontonComplete(cell && cell.builds)
+}
+
+/** Овраг без готового понтона — техника не проходит, лимит «один овраг» действует. */
+function treatsAsRavineForMove(cell) {
+  return isRavine(cell) && !isPontonBridgeCell(cell)
+}
+
 function isBattleAirUnitType(u) {
   const t = String(u?.type ?? '')
   return t === 'lightAir' || t === 'heavyAir'
@@ -55,7 +65,7 @@ function slopeTransition(fromCell, toCell) {
 }
 
 function isRavineExitDirection(fromCell, toCell) {
-  if (!isRavine(fromCell)) return true
+  if (!isRavine(fromCell) || isPontonBridgeCell(fromCell)) return true
   const toE = effectiveElevationLevel(toCell)
   if (isRavine(toCell)) return true
   if (toE === 0) return true
@@ -63,7 +73,7 @@ function isRavineExitDirection(fromCell, toCell) {
 }
 
 function createMoveSlopeCounters() {
-  return { ravineHexes: 0, gentleUp: 0, steep: 0, vertical: 0 }
+  return { ravineHexes: 0, gentleUp: 0, steep: 0, vertical: 0, stepsTaken: 0, limitedSpecial: 0 }
 }
 
 function canUnitTraverseSlope(unit, transition) {
@@ -81,6 +91,8 @@ function canUnitTraverseSlope(unit, transition) {
 function slopeCountersAllow(unit, counters, fromCell, toCell) {
   const tr = slopeTransition(fromCell, toCell)
   if (!canUnitTraverseSlope(unit, tr)) return false
+  const special = require('./battleSpecialTerrain')
+  if (!special.specialMoveCountersAllow(unit, counters, fromCell, toCell)) return false
   if (tr.category === 'gentle' && tr.direction === 'up' && counters.gentleUp >= 1) return false
   if (tr.category === 'steep' && counters.steep >= 1) return false
   if (tr.category === 'vertical' && counters.vertical >= 1) return false
@@ -88,33 +100,42 @@ function slopeCountersAllow(unit, counters, fromCell, toCell) {
 }
 
 function ravineCountersAllow(unit, counters, fromCell, toCell) {
+  const fromR = treatsAsRavineForMove(fromCell)
+  const toR = treatsAsRavineForMove(toCell)
+  const special = require('./battleSpecialTerrain')
   if (unitCannotCrossRavine(unit)) {
-    if (isRavine(toCell) || isRavine(fromCell)) return false
+    if (toR && !special.waterCraftOnWaterCell(unit, toCell)) return false
+    if (fromR && !special.waterCraftOnWaterCell(unit, fromCell)) return false
   }
-  if (isRavine(toCell)) {
-    const nextRavine = isRavine(fromCell) ? counters.ravineHexes : counters.ravineHexes + 1
+  if (toR && !special.waterCraftOnWaterCell(unit, toCell)) {
+    const nextRavine = fromR ? counters.ravineHexes : counters.ravineHexes + 1
     if (nextRavine > 1) return false
   }
   return true
 }
 
-function applyMoveSlopeCounters(counters, fromCell, toCell) {
+function applyMoveSlopeCounters(counters, fromCell, toCell, unit) {
   const next = {
     ravineHexes: counters.ravineHexes,
     gentleUp: counters.gentleUp,
     steep: counters.steep,
     vertical: counters.vertical,
+    stepsTaken: (Number(counters.stepsTaken) || 0) + 1,
+    limitedSpecial: Number(counters.limitedSpecial) || 0,
   }
   const tr = slopeTransition(fromCell, toCell)
   if (tr.category === 'gentle' && tr.direction === 'up') next.gentleUp += 1
   if (tr.category === 'steep') next.steep += 1
   if (tr.category === 'vertical') next.vertical += 1
-  if (isRavine(toCell) && !isRavine(fromCell)) next.ravineHexes += 1
+  if (treatsAsRavineForMove(toCell) && !treatsAsRavineForMove(fromCell)) next.ravineHexes += 1
+  const special = require('./battleSpecialTerrain')
+  if (special.stepUsesLimitedSpecialMove(unit, fromCell, toCell)) next.limitedSpecial += 1
   return next
 }
 
 function moveCountersKey(c) {
-  return `${c.ravineHexes}:${c.gentleUp}:${c.steep}:${c.vertical}`
+  const moved = (Number(c.stepsTaken) || 0) > 0 ? 1 : 0
+  return `${c.ravineHexes}:${c.gentleUp}:${c.steep}:${c.vertical}:${moved}:${c.limitedSpecial || 0}`
 }
 
 /** +1 гекс дальности на холме: 3,2,1 → 3,3,2,1 */
@@ -166,7 +187,10 @@ function validateMovementPath(path, unit) {
     if (isRavine(from) && !isRavineExitDirection(from, to) && !canUnitTraverseSlope(unit, slopeTransition(from, to))) {
       return false
     }
-    counters = applyMoveSlopeCounters(counters, from, to)
+    const special = require('./battleSpecialTerrain')
+    if (!special.canEnterElevation3(unit, to)) return false
+    if (!special.waterUnitCanEnterCell(unit, to)) return false
+    counters = applyMoveSlopeCounters(counters, from, to, unit)
   }
   return true
 }
@@ -175,6 +199,7 @@ module.exports = {
   effectiveElevationLevel,
   isHill,
   isRavine,
+  treatsAsRavineForMove,
   isBattleAirUnitType,
   unitCannotCrossRavine,
   slopeTransition,

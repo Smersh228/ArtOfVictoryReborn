@@ -18,10 +18,24 @@ import {
   sendLobbyChat,
   fetchLobbyProfile,
   LobbyHubError,
+  decorateLobbyNick,
+  lobbyNickClass,
   type LobbyChatMessage,
+  type LobbyOnlinePlayer,
   type LobbyPlayerProfile,
   type LobbyRoleKey,
 } from '../../api/lobbyHub'
+import {
+  MENU_THEMES,
+  MENU_TRACKS,
+  readMenuThemeId,
+  readMenuTrackId,
+  setMenuThemeId,
+  setMenuTrackId,
+  SETTINGS_CHANGED_EVENT,
+  type MenuThemeId,
+  type MenuTrackId,
+} from '../../utils/userSettings'
 
 function ruPeopleWord(n: number): string {
   const abs = Math.abs(n) % 100
@@ -30,6 +44,12 @@ function ruPeopleWord(n: number): string {
   if (last === 1) return 'человек'
   if (last >= 2 && last <= 4) return 'человека'
   return 'человек'
+}
+
+function onlineWhereLabel(row: LobbyOnlinePlayer): string {
+  if (row.where === 'battle') return row.roomName ? `в бою · ${row.roomName}` : 'в бою'
+  if (row.where === 'lobby') return row.roomName ? `в комнате · ${row.roomName}` : 'в комнате'
+  return 'на сайте'
 }
 
 type NetworkView = 'list' | 'create'
@@ -60,9 +80,29 @@ const MainBlock: React.FC = () => {
   const [playerProfileLoading, setPlayerProfileLoading] = useState(false)
   const [playerProfileError, setPlayerProfileError] = useState<string | null>(null)
   const [myRoleKey, setMyRoleKey] = useState<LobbyRoleKey>('player')
+  const [onlinePlayers, setOnlinePlayers] = useState<LobbyOnlinePlayer[] | null>(null)
+  const [showOnlinePlayersModal, setShowOnlinePlayersModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [settingsView, setSettingsView] = useState<'home' | 'theme' | 'music'>('home')
+  const [themeId, setThemeId] = useState<MenuThemeId>(() => readMenuThemeId())
+  const [trackId, setTrackId] = useState<MenuTrackId>(() => readMenuTrackId())
+
+  const closeSettings = useCallback(() => {
+    setShowSettingsModal(false)
+    setSettingsView('home')
+  }, [])
 
   const openCreateServer = useCallback(() => {
     setNetworkView('create')
+  }, [])
+
+  useEffect(() => {
+    const sync = () => {
+      setThemeId(readMenuThemeId())
+      setTrackId(readMenuTrackId())
+    }
+    window.addEventListener(SETTINGS_CHANGED_EVENT, sync)
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, sync)
   }, [])
 
   const backToServerList = useCallback(() => {
@@ -85,6 +125,8 @@ const MainBlock: React.FC = () => {
         setChatMessages(state.messages)
         setChatMuted(state.muted)
         setMyRoleKey(state.roleKey)
+        if (state.onlinePlayers) setOnlinePlayers(state.onlinePlayers)
+        else setOnlinePlayers(null)
       } catch {
         /* счётчик и чат обновятся на следующем тике */
       }
@@ -258,15 +300,101 @@ const MainBlock: React.FC = () => {
             <Button name="Создать сервер" size={380} onClick={openCreateServer} />
           )}
           <Button name="Руководство по игре" size={380} onClick={() => navigate('/manual')} />
+          <Button
+            name="Настройки"
+            size={380}
+            onClick={() => {
+              setSettingsView('home')
+              setShowSettingsModal(true)
+            }}
+          />
           <Button name="Редактор карт" size={380} onClick={() => navigate('/editor-map')} />
           {user && isCatalogEditorAdmin(user.username) && (
             <>
               <Button name="Редактор объектов" size={380} onClick={() => navigate('/editor-unit')} />
               <Button name="Белый список" size={380} onClick={() => setShowAllowlistModal(true)} />
+              <Button name="Кто в сети" size={380} onClick={() => setShowOnlinePlayersModal(true)} />
             </>
           )}
         </div>
       </div>
+      <Modal
+        isOpen={showSettingsModal}
+        onClose={closeSettings}
+        title="Настройки"
+        subtitle={
+          settingsView === 'theme' ? 'Смена темы' : settingsView === 'music' ? 'Смена музыки' : undefined
+        }
+        footer={
+          settingsView === 'home' ? (
+            <Button name="Закрыть" size={380} onClick={closeSettings} />
+          ) : (
+            <Button name="Назад" size={380} onClick={() => setSettingsView('home')} />
+          )
+        }
+      >
+        <div className={styles.actions}>
+          {settingsView === 'home' ? (
+            <>
+              <Button name="Смена темы" size={380} onClick={() => setSettingsView('theme')} />
+              <Button name="Смена музыки" size={380} onClick={() => setSettingsView('music')} />
+            </>
+          ) : null}
+          {settingsView === 'theme'
+            ? MENU_THEMES.map((row) => (
+                <Button
+                  key={row.id}
+                  name={row.id === themeId ? `${row.label} · выбрано` : row.label}
+                  size={380}
+                  onClick={() => setMenuThemeId(row.id)}
+                />
+              ))
+            : null}
+          {settingsView === 'music'
+            ? MENU_TRACKS.map((row) => (
+                <Button
+                  key={row.id}
+                  name={row.id === trackId ? `${row.label} · выбрано` : row.label}
+                  size={380}
+                  onClick={() => setMenuTrackId(row.id)}
+                />
+              ))
+            : null}
+        </div>
+      </Modal>
+      {user && isCatalogEditorAdmin(user.username) ? (
+        <Modal
+          isOpen={showOnlinePlayersModal}
+          onClose={() => setShowOnlinePlayersModal(false)}
+          title="Кто в сети"
+          subtitle={
+            onlineReal != null
+              ? `Настоящих: ${onlineReal} · в боях: ${inBattleCount}`
+              : `На сайте: ${onlineCount} · в боях: ${inBattleCount}`
+          }
+          size="lg"
+          footer={<Button name="Закрыть" size={380} onClick={() => setShowOnlinePlayersModal(false)} />}
+        >
+          <ul className={styles.onlineModalList}>
+            {!onlinePlayers || onlinePlayers.length === 0 ? (
+              <li className={styles.onlineModalEmpty}>Сейчас никого нет</li>
+            ) : (
+              onlinePlayers.map((row) => (
+                <li key={row.id} className={styles.onlineModalItem}>
+                  <button
+                    type="button"
+                    className={`${styles.onlineModalName} ${styles[lobbyNickClass(row.roleKey, row.highlight)] || ''}`}
+                    onClick={() => void openPlayerProfile(row.id)}
+                  >
+                    {decorateLobbyNick(row.username, row.roleKey, row.highlight)}
+                  </button>
+                  <span className={styles.onlineModalWhere}>{onlineWhereLabel(row)}</span>
+                </li>
+              ))
+            )}
+          </ul>
+        </Modal>
+      ) : null}
       {user && isCatalogEditorAdmin(user.username) ? (
         <Modal
           isOpen={showAllowlistModal}
@@ -276,7 +404,7 @@ const MainBlock: React.FC = () => {
           size="xl"
           footer={<Button name="Закрыть" size={380} onClick={() => setShowAllowlistModal(false)} />}
         >
-          <MaintenanceAdminPanel inModal />
+          <MaintenanceAdminPanel inModal onViewProfile={(userId) => void openPlayerProfile(userId)} />
         </Modal>
       ) : null}
       {(playerProfile || playerProfileLoading || playerProfileError) && (

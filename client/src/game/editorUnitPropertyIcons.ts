@@ -11,6 +11,9 @@ import hiddenStateImg from '../img/propertis/hiddenState.png';
 import mineDetectionImg from '../img/propertis/mineDetection.png';
 import sniperImg from '../img/propertis/sniper.png';
 import railwayDetachmentImg from '../img/orderUnits/poezd.png';
+import mountainTroopsImg from '../img/orderUnits/gorChast.png';
+import waterUnitImg from '../img/orderUnits/marines.png';
+import stealthFlightImg from '../img/orderUnits/airNight.png';
 
 /** Имя файла с кириллической «С»: aviationСhallenge.png */
 const aviationChallengeImg = new URL('../img/propertis/aviation\u0421hallenge.png', import.meta.url).href;
@@ -45,6 +48,8 @@ export const EDITOR_UNIT_PROPERTY_DEFS: EditorUnitPropertyDef[] = [
   { prop_key: 'sniper', name: 'Снайпер', icon: sniperImg },
   { prop_key: 'hqZoneOfAction2', name: 'Зона действия штаба — 2', icon: null },
   { prop_key: 'hqZoneOfAction3', name: 'Зона действия штаба — 3', icon: null },
-  { prop_key: 'mountainTroops', name: 'Горные части', icon: null },
+  { prop_key: 'mountainTroops', name: 'Горные части', icon: mountainTroopsImg },
   { prop_key: 'railwayDetachment', name: 'Железнодорожный отряд', icon: railwayDetachmentImg },
+  { prop_key: 'waterUnit', name: 'Водный юнит', icon: waterUnitImg },
+  { prop_key: 'stealthFlight', name: 'Незаметный полёт', icon: stealthFlightImg },
 ];

@@ -15,6 +15,10 @@ import { wireBlocksGroundMove } from './cellWireEdges';
 import { antiTankBlocksGroundMove } from './cellAntiTankEdges';
 import { hasDotOnCell, unitInDot } from './cellDot';
 import { hasSmokeOnCell } from './cellSmoke';
+import { hasSettlementFire } from './cellSettlementFire';
+import { cellAllowsRailwayDetachment } from './cellRailway';
+import { canEnterElevation3, waterUnitCanEnterCell } from './battleSpecialTerrain';
+import { unitCanEnterDamagedStructure } from './cellStructureHp';
 
 /** Совпадает с сервером: для авиации ОД не ограничивают дальность превью хода. */
 const AIR_BATTLE_EFFECTIVE_MOVE_POINTS = 99999999;
@@ -177,26 +181,17 @@ function canEnterCell(
   if (fromCell && counters) {
     if (!canTraverseMoveEdge(fromCell, cell, unit, counters)) return false;
   }
+  if (!canEnterElevation3(unit, cell)) return false;
+  if (!waterUnitCanEnterCell(unit, cell)) return false;
   if (terrainEntryCost(cell, unit) === 0) return false;
   if (hasSmokeOnCell(cell.builds)) return false;
-  if (String(unit.type || '').toLowerCase() === 'tech' && unitHasPropKey(unit, 'railwayDetachment')) {
-    if (!isRailwayCellPreview(cell)) return false;
-    if (fromCell && !isRailwayCellPreview(fromCell)) return false;
+  if (hasSettlementFire(cell.builds)) return false;
+  if (!unitCanEnterDamagedStructure(unit, cell)) return false;
+  if (unitHasPropKey(unit, 'railwayDetachment')) {
+    if (!cellAllowsRailwayDetachment(cell)) return false;
+    if (fromCell && !cellAllowsRailwayDetachment(fromCell)) return false;
   }
   return true;
-}
-
-function isRailwayCellPreview(cell: Cell): boolean {
-  const t = String(cell.type || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]/g, '');
-  if (t === 'railway' || t === 'railroad' || t === 'rail' || t === 'train') return true;
-  const blob = `${String(cell.type || '')} ${String((cell as { name?: string }).name || '')}`;
-  if (/железн|railway|railroad|жд(?![а-я])/i.test(blob)) return true;
-  const ex = (cell as Cell & { hexExtra?: { railway?: boolean; rail?: boolean } }).hexExtra;
-  if (ex && (ex.railway === true || ex.rail === true)) return true;
-  return false;
 }
 
 function getNeighbor(hex: { x: number; y: number; z: number }, dir: number) {
@@ -250,7 +245,7 @@ export function findReachableCells(
       const cost = terrainEntryCost(neighbor, unit);
       const newSpent = current.spent + cost;
       if (newSpent > maxPoints) continue;
-      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor);
+      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor, unit);
       const vKey = `${neighbor.id}:${moveCountersKey(newCounters)}`;
       const old = visited[vKey];
       if (old === undefined || newSpent < old) {
@@ -301,7 +296,7 @@ export function findMovementPath(
       }
       const cost = terrainEntryCost(neighbor, unit);
       const newCost = current.cost + cost;
-      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor);
+      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor, unit);
       const vKey = `${neighbor.id}:${moveCountersKey(newCounters)}`;
       const oldCost = visited[vKey];
       if (oldCost === undefined || newCost < oldCost) {
@@ -445,6 +440,12 @@ export function isValidMeleeRetreatCell(
   if (!from || !to) return false;
   if (hexDistCells(from, to) !== 1) return false;
   if (terrainEntryCost(to, unit) === 0) return false;
+  if (!canEnterElevation3(unit, to)) return false;
+  if (!waterUnitCanEnterCell(unit, to)) return false;
+  if (!unitCanEnterDamagedStructure(unit, to)) return false;
+  if (unitHasPropKey(unit, 'railwayDetachment')) {
+    if (!cellAllowsRailwayDetachment(to) || !cellAllowsRailwayDetachment(from)) return false;
+  }
   if (cellHasEnemy(to, unitFaction(unit))) return false;
   const mid = Number(unit.instanceId);
   if (Number.isFinite(mid) && cellForbidsThirdPartyMeleeEntry(allCells, to, unit)) return false;

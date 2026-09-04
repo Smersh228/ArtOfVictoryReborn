@@ -6,8 +6,8 @@ function isTankUnit(u) {
 }
 
 function hasTankFear(u, deps) {
-  const { unitHasPropKey } = deps
-  return u.tankFear === true || u.tank_phobia === true || unitHasPropKey(u, 'tankPhobia')
+  const fn = deps && typeof deps.unitHasPropKey === 'function' ? deps.unitHasPropKey : null
+  return u.tankFear === true || u.tank_phobia === true || Boolean(fn && fn(u, 'tankPhobia'))
 }
 
 const hqMorale = require('../lib/unit/battleHqMorale')
@@ -57,12 +57,16 @@ function roll2d6() {
 }
 
 function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttackOnFail, deps) {
+  deps = deps && typeof deps === 'object' ? deps : {}
   const { ensureTacticalBattle, clearDefendOnUnit, cells, findUnitOnField } = deps
   deps = { ...deps, cells, findUnitOnField }
   const mor = resolveMorForUnit(unit, deps)
   if (mor <= 0) return true
   const sum = roll2d6()
-  const t = ensureTacticalBattle(unit)
+  const t =
+    typeof ensureTacticalBattle === 'function'
+      ? ensureTacticalBattle(unit)
+      : unit.tactical || (unit.tactical = {})
   t.steadfastnessUiRoll = sum
   applyMoraleRollResult(unit, sum)
   if (sum < mor) {

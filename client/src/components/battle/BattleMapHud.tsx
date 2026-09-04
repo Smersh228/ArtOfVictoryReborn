@@ -12,6 +12,8 @@ type OrderPickLike = {
   reconRangeStep?: 'radius';
   unloadCargoInstanceId?: number | null;
   useFireAdjustment?: boolean;
+  fireModeStep?: 'mode';
+  useReactiveFire?: boolean;
 };
 
 interface BattleMapHudProps {
@@ -20,6 +22,7 @@ interface BattleMapHudProps {
   battleAreaFireCellIds: number[] | null;
   fireAdjustmentToggleAvailable?: boolean;
   onToggleFireAdjustment?: () => void;
+  onApplyFireMode?: (reactive: boolean) => void;
 }
 
 function getOrderMetaText(
@@ -43,8 +46,14 @@ function getOrderMetaText(
   if (orderPick.orderKey === 'getSup' || orderPick.orderKey === 'loading' || orderPick.orderKey === 'tow' || orderPick.orderKey === 'railLoading') {
     return ' — клик по подсвеченному союзнику (тот же гекс или соседний)';
   }
+  if (orderPick.orderKey === 'medical') {
+    return ' — клик по союзной пехоте или артиллерии (свой или соседний гекс)';
+  }
   if (orderPick.orderKey === 'loadingSup') {
     return ' — клик по складу (свой гекс или соседний)';
+  }
+  if ((orderPick.orderKey === 'fire' || orderPick.orderKey === 'fireHard') && orderPick.fireModeStep === 'mode') {
+    return ' — обычный или реактивный';
   }
   if (
     (orderPick.orderKey === 'fire' || orderPick.orderKey === 'fireHard') &&
@@ -59,10 +68,15 @@ function getOrderMetaText(
       : ' — серая подсветка и иконка: клетки выгрузки (соседний гекс)';
   }
   if (orderPick.orderKey === 'smoke') {
-    return ' — клик по гексу в линии видимости и дальности стрельбы (своей или союзника)';
+    return battleAreaFireCellIds && battleAreaFireCellIds.length > 0
+      ? ' — клик по подсвеченному гексу в дальности и секторе стрельбы'
+      : ' — нет гексов в дальности/секторе (артиллерия должна быть развёрнута)';
   }
-  if (orderPick.orderKey === 'explomost') {
-    return ' — клик по гексу с понтонным мостом (свой или соседний)';
+  if (orderPick.orderKey === 'explomost' || orderPick.orderKey === 'demolition') {
+    return ' — клик по соседнему гексу: склад, ДОТ, мост, ЖД мост или ЖД дорога';
+  }
+  if (orderPick.orderKey === 'repairRailway') {
+    return ' — клик по своему или соседнему гексу с разрушенной железной дорогой';
   }
   if (orderPick.orderKey === 'bombardment') {
     if ((orderPick.bombardmentStep ?? 'target') === 'target') {
@@ -77,7 +91,7 @@ function getOrderMetaText(
     return ' — наведите курсор, чтобы увеличить зону; клик — подтвердить радиус';
   }
   if (orderPick.orderKey === 'razvedka' || orderPick.orderKey === 'svzy') {
-    return ' — клик по гексу зоны: радиус = дистанция от юнита (порог — колонка таблицы)';
+    return ' — наведите курсор, чтобы увидеть зону; клик — подтвердить радиус (порог — колонка таблицы)';
   }
   if (orderPick.orderKey === 'interception') {
     return ' — клик по красному гексу: вражеская авиация в небе';
@@ -93,9 +107,8 @@ function getOrderMetaText(
   }
   if (orderPick.orderKey === 'fireMove') {
     const step = (orderPick as { fireMoveStep?: string }).fireMoveStep;
-    if (step === 'dest') return ' — клик по клетке назначения (путь хода)';
-    if (step === 'shot') return ' — клик по подсвеченному гексу пути: оттуда будет выстрел';
-    return ' — клик по цели, затем клетка хода и гекс выстрела на пути';
+    if (step === 'dest') return ' — клик по клетке назначения (с учётом очков перемещения)';
+    return ' — клик по цели обстрела (дальность и видимость с клетки назначения)';
   }
   if (orderPick.orderKey === 'hardMove') {
     return ' — клик по одиночной цели (мощная атака)';
@@ -120,7 +133,11 @@ const BattleMapHud: React.FC<BattleMapHudProps> = ({
   battleAreaFireCellIds,
   fireAdjustmentToggleAvailable,
   onToggleFireAdjustment,
+  onApplyFireMode,
 }) => {
+  const fireModePick =
+    (orderPick?.orderKey === 'fire' || orderPick?.orderKey === 'fireHard') &&
+    orderPick.fireModeStep === 'mode';
   return (
     <div className={styles.battleCellIdCorner} aria-live="polite">
       <div className={styles.battleHudLine}>
@@ -134,10 +151,23 @@ const BattleMapHud: React.FC<BattleMapHudProps> = ({
             · {orderPick.unit?.name ?? 'Юнит'}
             {getOrderMetaText(orderPick, battleAreaFireCellIds, fireAdjustmentToggleAvailable)}
           </span>
-          {orderPick.orderKey === 'fire' && fireAdjustmentToggleAvailable && onToggleFireAdjustment && (
+          {fireModePick && onApplyFireMode ? (
+            <div className={styles.battleHudFireModeRow}>
+              <button type="button" className={styles.battleHudFireModeBtn} onClick={() => onApplyFireMode(false)}>
+                Обычный
+              </button>
+              <button type="button" className={styles.battleHudFireModeBtn} onClick={() => onApplyFireMode(true)}>
+                Реактивный
+              </button>
+            </div>
+          ) : null}
+          {orderPick.orderKey === 'fire' &&
+            !fireModePick &&
+            fireAdjustmentToggleAvailable &&
+            onToggleFireAdjustment && (
             <button
               type="button"
-              style={{ marginLeft: 8, fontSize: '0.85em', cursor: 'pointer' }}
+              style={{ marginLeft: 8, fontSize: '0.85em', cursor: 'pointer', pointerEvents: 'auto' }}
               onClick={onToggleFireAdjustment}
             >
               Корректировка: {orderPick.useFireAdjustment ? 'вкл' : 'выкл'}

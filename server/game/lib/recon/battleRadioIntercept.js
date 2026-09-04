@@ -47,6 +47,13 @@ const ORDER_LABEL_RU = {
   interception: 'перехват',
   patrol: 'патруль',
   airRecall: 'отзыв',
+  demolition: 'подрыв сооружения',
+  explomost: 'подрыв моста',
+  arson: 'поджог',
+  repairRailway: 'ремонт железной дороги',
+  smoke: 'дым',
+  railLoading: 'погрузка на поезд',
+  railUnloading: 'выгрузка с поезда',
   enterDot: 'вход в ДОТ',
   exitDot: 'выход из ДОТ',
 }
@@ -119,13 +126,35 @@ function resolveOneListener({ unit, cell, cells, radiusSteps, mergedOrders, rng 
     anySuccess = true
     const spec = mergedOrders && typeof mergedOrders.get === 'function' ? mergedOrders.get(uid) : null
     const orderKey = spec && spec.orderKey ? String(spec.orderKey).trim() : 'none'
-    revealed.push({
+    const row = {
       unitInstanceId: uid,
       unitName: String(pack.unit.name || '').trim() || undefined,
       cellId: Number(pack.cell.id),
       orderKey,
       orderLabel: orderLabelRu(orderKey),
-    })
+    }
+    if (spec && typeof spec === 'object') {
+      const copyKeys = [
+        'targetUnitInstanceId',
+        'targetCellId',
+        'reconRangeSteps',
+        'defendFacingCellId',
+        'defendMaxRangeSteps',
+        'flightPathCellIds',
+        'useReactiveFire',
+        'bombardmentDirectionCellId',
+        'bombardmentAreaCellIds',
+        'patrolRangeSteps',
+        'fireFromCellId',
+        'trenchEdgeDir',
+        'wireEdgeDir',
+      ]
+      for (let k = 0; k < copyKeys.length; k++) {
+        const key = copyKeys[k]
+        if (spec[key] != null) row[key] = spec[key]
+      }
+    }
+    revealed.push(row)
   }
   return {
     unitInstanceId: Number(unit.instanceId),

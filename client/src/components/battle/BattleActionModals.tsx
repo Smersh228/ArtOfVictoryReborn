@@ -42,6 +42,12 @@ interface BattleActionModalsProps {
   accompanimentIconUrl: string | null;
   onCloseAccompanimentModal: () => void;
   onSelectAccompanimentTarget: (instanceId: number) => void;
+  miningPickModal: {
+    orderLabel: string;
+  } | null;
+  miningIconUrl: string | null;
+  onCloseMiningModal: () => void;
+  onSelectMineKind: (kind: 'infantry' | 'tank') => void;
 }
 
 const BattleActionModals: React.FC<BattleActionModalsProps> = ({
@@ -60,6 +66,10 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
   accompanimentIconUrl,
   onCloseAccompanimentModal,
   onSelectAccompanimentTarget,
+  miningPickModal,
+  miningIconUrl,
+  onCloseMiningModal,
+  onSelectMineKind,
 }) => {
   return (
     <>
@@ -223,6 +233,49 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
                 </ul>
                 <div className={styles.battleModalCancelWrap}>
                   <Button name="Отмена" className={styles.battleModalBtn} onClick={onCloseAccompanimentModal} />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {miningPickModal
+        ? createPortal(
+            <div
+              role="dialog"
+              aria-label="Тип мины"
+              className={styles.battleModalBackdrop}
+              onMouseDown={(e) => {
+                if (e.target === e.currentTarget) onCloseMiningModal();
+              }}
+            >
+              <div className={styles.battleModalPanel} onMouseDown={(e) => e.stopPropagation()}>
+                <h3 className={styles.battleModalTitleRow}>
+                  {miningIconUrl ? <img src={miningIconUrl} alt="" className={styles.battleModalTitleIcon} /> : null}
+                  Минирование — выберите мину
+                </h3>
+                <p className={styles.battleModalMetaMuted}>Какую мину установить на этом гексе.</p>
+                <ul className={styles.battleModalCargoList}>
+                  <li className={styles.battleModalCargoItem}>
+                    <button type="button" className={styles.battleModalCargoBtn} onClick={() => onSelectMineKind('infantry')}>
+                      <span>
+                        <strong>Пехотная</strong>
+                        <span className={styles.battleModalMetaMuted}> — пехота, артиллерия, грузовики</span>
+                      </span>
+                    </button>
+                  </li>
+                  <li className={styles.battleModalCargoItem}>
+                    <button type="button" className={styles.battleModalCargoBtn} onClick={() => onSelectMineKind('tank')}>
+                      <span>
+                        <strong>Танковая</strong>
+                        <span className={styles.battleModalMetaMuted}> — танки, бронетехника, артиллерия, грузовики</span>
+                      </span>
+                    </button>
+                  </li>
+                </ul>
+                <div className={styles.battleModalCancelWrap}>
+                  <Button name="Отмена" className={styles.battleModalBtn} onClick={onCloseMiningModal} />
                 </div>
               </div>
             </div>,

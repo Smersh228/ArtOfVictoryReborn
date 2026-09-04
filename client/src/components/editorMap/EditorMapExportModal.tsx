@@ -69,7 +69,12 @@ const EditorMapExportModal: React.FC<EditorMapExportModalProps> = ({
               return (
                 <div key={m.id} className={styles.exportListRow}>
                   <div className={styles.exportListNameWrap}>
-                    <span className={styles.exportListName}>{m.name || `Карта #${m.id}`}</span>
+                    <div className={styles.exportListTitleBlock}>
+                      <span className={styles.exportListName}>{m.name || `Карта #${m.id}`}</span>
+                      <span className={styles.exportListAuthor}>
+                        Автор: {String(m.ownerUsername || '').trim() || 'неизвестен'}
+                      </span>
+                    </div>
                     {pendingPlayerMap ? (
                       <span className={styles.exportStatusPending}>На проверке</span>
                     ) : m.moderationStatus === 'rejected' ? (

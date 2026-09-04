@@ -1,6 +1,7 @@
 'use strict'
 
 const { normalizeFireObject } = require('../fire/battleFireNormalize')
+const { unitHasPropKey, unitUsesGunDeploy } = require('../../core/battleUnitType')
 const {
   applyMapEditorMetaToBattleUnits,
   finalizeDeployedArtillerySectors,
@@ -55,6 +56,11 @@ function normalizeUnitPropertiesFromDbRow(raw) {
       const out = { id, name: row.name != null ? String(row.name) : '' }
       if (row.prop_key != null && String(row.prop_key).trim()) {
         out.prop_key = String(row.prop_key).trim()
+      } else {
+        const nm = String(out.name).trim().toLowerCase()
+        if (nm === 'водный юнит') out.prop_key = 'waterUnit'
+        else if (nm === 'преодоление водной преграды') out.prop_key = 'crossingAWaterObstacle'
+        else if (nm === 'преодоление болота') out.prop_key = 'movementThroughTheSwamp'
       }
       return out
     })
@@ -141,6 +147,8 @@ function enrichUnitFromCatalogRow(u, row) {
   if (row.fire_row_options != null && typeof row.fire_row_options === 'object') {
     u.fireRowOptions = row.fire_row_options
   }
+  const fireTab = String(row.editor_fire_intensity_tab || '').trim().toLowerCase()
+  u.editorFireIntensityTab = fireTab === 'reactive' ? 'reactive' : 'all'
   if (row.intelligence_air_range != null && String(row.intelligence_air_range).trim() !== '') {
     u.intelligenceAirRange = joinCsv(row.intelligence_air_range)
   }
@@ -170,7 +178,7 @@ function appendDefaultDotOrdersForUnit(u) {
   const inDot = !!(u.tactical && u.tactical.inDot)
   const exiting = !!(u.tactical && Number(u.tactical.dotExitTurnsLeft) > 0)
   const entering = !!(u.tactical && Number(u.tactical.dotEnterTurnsLeft) > 0)
-  if (!inDot && !entering && !keys.has('enterDot')) {
+  if (!inDot && !entering && !keys.has('enterDot') && !unitHasPropKey(u, 'fireAirGun')) {
     orders.push({ id: -9001, name: 'Занять ДОТ', order_key: 'enterDot' })
   }
   if (inDot && !exiting && !keys.has('exitDot')) {
@@ -179,16 +187,179 @@ function appendDefaultDotOrdersForUnit(u) {
   u.orders = orders
 }
 
+function appendDefaultGunDeployOrdersForUnit(u) {
+  if (!u) return
+  if (!unitUsesGunDeploy(u)) return
+  const orders = Array.isArray(u.orders) ? u.orders.slice() : []
+  const keys = new Set(
+    orders.map((o) => (o && o.order_key != null ? String(o.order_key).trim() : '')).filter(Boolean),
+  )
+  if (!keys.has('deploy')) orders.push({ id: -9101, name: 'Развёртывание', order_key: 'deploy' })
+  if (!keys.has('clotting')) orders.push({ id: -9102, name: 'Свёртывание', order_key: 'clotting' })
+  if (!keys.has('changeSector')) orders.push({ id: -9103, name: 'Смена сектора', order_key: 'changeSector' })
+  u.orders = orders
+}
+
 function appendDefaultDotOrdersOnField(cells) {
   if (!Array.isArray(cells)) return
   for (const c of cells) {
     for (const u of c.units || []) {
       appendDefaultDotOrdersForUnit(u)
+      appendDefaultGunDeployOrdersForUnit(u)
     }
   }
 }
 
+function parseHexCatalogId(type) {
+  const m = String(type || '')
+    .trim()
+    .match(/^hex_(\d+)$/i)
+  return m ? Number(m[1]) : null
+}
+
+function catalogHexIdOfCell(c) {
+  const fromType = parseHexCatalogId(c && c.type)
+  if (fromType != null) return fromType
+  const ex = parseJsonObject(c && c.hexExtra)
+  const n = Number(ex.catalogHexId ?? ex.id_hex)
+  if (Number.isFinite(n) && n > 0) return n
+  return null
+}
+
+function applyHexCatalogRowToCell(c, row) {
+  if (!c || !row) return
+  if (c.name == null || String(c.name).trim() === '') c.name = row.name
+  if ((!c.img || String(c.img).trim() === '') && row.image_path) {
+    c.img = String(row.image_path)
+  }
+  const catEx = parseJsonObject(row.hex_extra)
+  delete catEx.isDestroyedBridge
+  delete catEx.destroyedBridge
+  delete catEx.isDestroyedRailway
+  delete catEx.railwayDestroyed
+  delete catEx.editorDestroyedBridge
+  delete catEx.editorDestroyedRailway
+  const cellEx = parseJsonObject(c.hexExtra)
+  const merged = { ...catEx, ...cellEx }
+  if (
+    cellEx.editorDestroyedBridge !== true &&
+    cellEx.isDestroyedBridge !== true &&
+    cellEx.destroyedBridge !== true
+  ) {
+    delete merged.isDestroyedBridge
+    delete merged.destroyedBridge
+  }
+  if (
+    cellEx.editorDestroyedRailway !== true &&
+    cellEx.isDestroyedRailway !== true &&
+    cellEx.railwayDestroyed !== true
+  ) {
+    delete merged.isDestroyedRailway
+    delete merged.railwayDestroyed
+  }
+  if (catEx.moveWithRiverProp === true) merged.moveWithRiverProp = true
+  if (catEx.moveWithSwampProp === true) merged.moveWithSwampProp = true
+  if (catEx.moveWithWaterUnitProp === true) merged.moveWithWaterUnitProp = true
+  if (catEx.isFord === true) merged.isFord = true
+  if (catEx.isRailwayBridge === true) merged.isRailwayBridge = true
+  if (catEx.isBridge === true) merged.isBridge = true
+  if (catEx.isRailway === true) merged.isRailway = true
+  if (catEx.isSettlement === true) merged.isSettlement = true
+  if (catEx.isCity === true) merged.isCity = true
+  if (catEx.isVillage === true) merged.isVillage = true
+  if (catEx.isRailStation === true) merged.isRailStation = true
+  if (isRiverCategory(catEx.category) && !isRiverCategory(cellEx.category)) {
+    merged.category = catEx.category
+  }
+  if (!merged.name && row.name) merged.name = row.name
+  if (row.image_path && !merged.image_path && !merged.img) merged.image_path = String(row.image_path)
+  if (Number.isFinite(Number(row.id_hex))) merged.catalogHexId = Number(row.id_hex)
+  const catPlc = catEx.placementAllowed
+  const cellPlc = merged.placementAllowed
+  if (catPlc && typeof catPlc === 'object' && catPlc.pontonBridge === true) {
+    merged.placementAllowed =
+      cellPlc && typeof cellPlc === 'object' ? { ...catPlc, ...cellPlc, pontonBridge: true } : { ...catPlc }
+  }
+  c.hexExtra = merged
+  if (merged.defBonusInf != null) c.defBonusInf = merged.defBonusInf
+  if (merged.defBonusTech != null) c.defBonusTech = merged.defBonusTech
+  if (merged.defBonusByType && typeof merged.defBonusByType === 'object') c.defBonusByType = merged.defBonusByType
+}
+
+async function enrichBattleHexExtras(pool, cells) {
+  if (!Array.isArray(cells) || !pool) return
+  const ids = []
+  for (const c of cells) {
+    const id = catalogHexIdOfCell(c)
+    if (id != null) ids.push(id)
+  }
+  const uniq = [...new Set(ids)]
+  const byId = new Map()
+  try {
+    if (uniq.length) {
+      const r = await pool.query(
+        'SELECT id_hex, name, hex_extra, image_path FROM hex WHERE id_hex = ANY($1::int[])',
+        [uniq],
+      )
+      for (const row of r.rows) byId.set(Number(row.id_hex), row)
+    }
+    const unmatchedImgs = []
+    for (const c of cells) {
+      const id = catalogHexIdOfCell(c)
+      if (id != null && byId.has(id)) {
+        applyHexCatalogRowToCell(c, byId.get(id))
+        continue
+      }
+      const img = String((c && (c.img || c.imagePath)) || '').trim()
+      if (img) unmatchedImgs.push(img)
+    }
+    const imgUniq = [...new Set(unmatchedImgs)]
+    if (imgUniq.length) {
+      const r2 = await pool.query(
+        'SELECT id_hex, name, hex_extra, image_path FROM hex WHERE image_path = ANY($1::text[])',
+        [imgUniq],
+      )
+      const byImg = new Map()
+      for (const row of r2.rows) {
+        const key = String(row.image_path || '').trim()
+        if (key && !byImg.has(key)) byImg.set(key, row)
+      }
+      for (const c of cells) {
+        const id = catalogHexIdOfCell(c)
+        if (id != null && byId.has(id)) continue
+        const img = String((c && (c.img || c.imagePath)) || '').trim()
+        const row = img ? byImg.get(img) : null
+        if (row) applyHexCatalogRowToCell(c, row)
+      }
+    }
+  } catch (e) {
+    console.error('enrichBattleHexExtras:', e.message)
+  }
+}
+
+function parseJsonObject(raw) {
+  if (raw == null || raw === '') return {}
+  if (typeof raw === 'object') return { ...raw }
+  if (typeof raw === 'string') {
+    try {
+      const p = JSON.parse(raw)
+      return p && typeof p === 'object' ? { ...p } : {}
+    } catch {
+      return {}
+    }
+  }
+  return {}
+}
+
+function isRiverCategory(raw) {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+  return s === 'rivers' || s === 'river' || s === 'water' || s === 'waters'
+}
+
 async function enrichBattleCells(pool, cells) {
+  await enrichBattleHexExtras(pool, cells)
   const ids = new Set()
   for (const c of cells) {
     for (const u of c.units || []) {
@@ -202,6 +373,7 @@ async function enrichBattleCells(pool, cells) {
     applyMapEditorMetaToBattleUnits(cells)
     finalizeDeployedArtillerySectors(cells)
     appendDefaultDotOrdersOnField(cells)
+    require('../map/battleStructureHp').ensureAllStructureHp(cells)
     return
   }
   const arr = [...ids]
@@ -210,6 +382,7 @@ async function enrichBattleCells(pool, cells) {
     r = await pool.query(
       `SELECT u.id_unit, u.name, u.type, u.count, u.defend, u.morale, u.op, u.ammo, u.visible, u.explosives, u.smoke_shells, u.mines,
         u.standard_image,
+        u.editor_fire_intensity_tab AS editor_fire_intensity_tab,
         ud.intelligence_air_range AS intelligence_air_range,
         ud.razvedka_range AS razvedka_range,
         ud.svzy_range AS svzy_range,
@@ -270,6 +443,7 @@ async function enrichBattleCells(pool, cells) {
     applyMapEditorMetaToBattleUnits(cells)
     finalizeDeployedArtillerySectors(cells)
     appendDefaultDotOrdersOnField(cells)
+    require('../map/battleStructureHp').ensureAllStructureHp(cells)
     return
   }
   const byId = new Map(r.rows.map((row) => [row.id_unit, row]))
@@ -287,6 +461,7 @@ async function enrichBattleCells(pool, cells) {
   applyMapEditorMetaToBattleUnits(cells)
   finalizeDeployedArtillerySectors(cells)
   appendDefaultDotOrdersOnField(cells)
+  require('../map/battleStructureHp').ensureAllStructureHp(cells)
 }
 
 async function loadBattleCellsFromMapId(pool, mapId) {
@@ -298,7 +473,14 @@ async function loadBattleCellsFromMapId(pool, mapId) {
     const payload = r.rows[0].payload
     const cells = payload && payload.cells
     if (!Array.isArray(cells) || cells.length === 0) return null
-    return JSON.parse(JSON.stringify(cells))
+    const cloned = JSON.parse(JSON.stringify(cells))
+    const { clearInheritedDestroyedHexFlags } = require('../map/battleSpecialTerrain')
+    for (const c of cloned) {
+      if (c && c.hexExtra && typeof c.hexExtra === 'object') {
+        clearInheritedDestroyedHexFlags(c.hexExtra)
+      }
+    }
+    return cloned
   } catch (e) {
     console.error('loadBattleCellsFromMapId:', e.message)
     return null
@@ -321,4 +503,26 @@ async function loadBattleMapConditionsFromMapId(pool, mapId) {
   }
 }
 
-module.exports = { enrichBattleCells, loadBattleCellsFromMapId, loadBattleMapConditionsFromMapId }
+async function loadBattleMapDeploymentFromMapId(pool, mapId) {
+  const id = Number(mapId)
+  if (!Number.isFinite(id)) return null
+  try {
+    const r = await pool.query('SELECT payload FROM saved_map WHERE id_map = $1', [id])
+    if (!r.rows.length) return null
+    const payload = r.rows[0].payload
+    const { loadDeploymentFromPayload } = require('../map/battleDeployPhase')
+    return loadDeploymentFromPayload(payload)
+  } catch (e) {
+    console.error('loadBattleMapDeploymentFromMapId:', e.message)
+    return null
+  }
+}
+
+module.exports = {
+  enrichBattleCells,
+  enrichBattleHexExtras,
+  enrichUnitFromCatalogRow,
+  loadBattleCellsFromMapId,
+  loadBattleMapConditionsFromMapId,
+  loadBattleMapDeploymentFromMapId,
+}

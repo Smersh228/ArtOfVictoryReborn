@@ -4,6 +4,9 @@ import { normalizeUnitTeam, teamSideLabel } from './editorMapTeam';
 import dotImg from '../img/build/dot.png';
 import minesImg from '../img/build/mines.png';
 import storageImg from '../img/build/storage.png';
+import pontonImg from '../img/build/pontoonBridge/ponton.png';
+import ponton1Img from '../img/build/pontoonBridge/ponton1.png';
+import ponton2Img from '../img/build/pontoonBridge/ponton2.png';
 import pontonReadyImg from '../img/build/pontoonBridge/pontonReady.png';
 import tankHedgehogImg from '../img/build/tankHedgehog/eji1.png';
 import trenchImg from '../img/build/trench/trenchBottom.png';
@@ -43,12 +46,6 @@ export const EDITOR_MAP_FORTIFICATIONS: CatalogFortification[] = [
   { id: 'fort_trench', name: 'Окоп', imagePath: trenchImg, buildKey: 'trench' },
   { id: 'fort_storage', name: 'Склад', imagePath: storageImg, buildKey: 'storage' },
   { id: 'fort_mine', name: 'Мина', imagePath: minesImg, buildKey: 'mine' },
-  {
-    id: 'fort_ponton_bridge',
-    name: 'Понтонный мост',
-    imagePath: pontonReadyImg,
-    buildKey: 'pontonBridge',
-  },
 ];
 
 /** Спрайты укреплений на карте. */
@@ -56,6 +53,8 @@ export const DOT_SPRITE_URL = dotImg;
 export const STORAGE_SPRITE_URL = storageImg;
 export const ANTITANK_SPRITE_URL = tankHedgehogImg;
 export const TRENCH_SPRITE_URL = trenchImg;
+/** Стадии наведения: ponton → ponton1 → ponton2 → pontonReady. */
+export const PONTON_STAGE_SPRITE_URLS: readonly string[] = [pontonImg, ponton1Img, ponton2Img, pontonReadyImg];
 export const PONTON_SPRITE_URL = pontonReadyImg;
 
 export const STORAGE_DEFAULT_AMMO = 40;

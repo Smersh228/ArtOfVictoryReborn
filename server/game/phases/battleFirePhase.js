@@ -6,11 +6,14 @@ const {
   canShooterUseFireAdjustmentOrder,
 } = require('../lib/fire/battleFireAdjustment')
 const desantCombat = require('../lib/air/battleDesantCombat')
-const { isInfantryUnit, isArmoredVehicleTarget } = require('../core/battleUnitType')
+const { normalizeFireObject } = require('../lib/fire/battleFireNormalize')
+const { collectDaisyImpactCells } = require('../lib/fire/areaFire')
 const { tryDestroyBarbedWireFromFire } = require('../lib/map/battleWireEdges')
 const ponton = require('../lib/map/battlePonton')
 const smoke = require('../lib/map/battleSmoke')
 const dotMod = require('../lib/map/battleDot')
+const structureHp = require('../lib/map/battleStructureHp')
+const { unitUsesGunDeploy } = require('../core/battleUnitType')
 
 function infantryAreaFireTargetsOrSkip(atk, targetsAll, le, ph) {
   if (!isInfantryUnit(atk.unit)) return targetsAll
@@ -76,6 +79,7 @@ function processFirePhase(
     isArtilleryDeployedForBattle,
     isArtilleryFireTargetCellAllowed,
     intensityArrayFor,
+    getDiceCount,
     moveWarDefenseBonus,
     computeShoot,
     resolveGroupedAreaFire,
@@ -117,6 +121,14 @@ function processFirePhase(
     artilleryAreaClosedIgnoresTerrainLos,
     isHexVisible,
   }
+  let reactiveFireUnit = null
+  function bindReactiveFire(unit, order) {
+    if (reactiveFireUnit && reactiveFireUnit !== unit) delete reactiveFireUnit._useReactiveFire
+    reactiveFireUnit = unit || null
+    if (unit) {
+      unit._useReactiveFire = !!(order && order.useReactiveFire)
+    }
+  }
   const dotFireDeps = {
     intensityArrayFor,
     rangeArrayForAtCell,
@@ -142,10 +154,135 @@ function processFirePhase(
       computeShoot,
     }, le, ph)
   }
+  function structureFireDeps() {
+    return {
+      intensityArrayFor,
+      rangeArrayForAtCell,
+      computeShoot,
+      getDiceCount,
+      logUnitDestroyed,
+    }
+  }
+  function distCells(a, b) {
+    return hexDist(a.coor.x, a.coor.y, a.coor.z, b.coor.x, b.coor.y, b.coor.z)
+  }
+  function applyAreaFireOnImpactCell(atkUnitPack, tcImpact, distance, rangeArray, artilleryClosedSalvo) {
+    tryStructureFire(tcImpact, atkUnitPack.unit, atkUnitPack.cell, distance)
+    tryDotFireDamage(tcImpact, atkUnitPack.unit, atkUnitPack.cell, distance)
+    if (smoke.hasSmokeOnCell(tcImpact.builds)) {
+      structureHp.shootStructureDirect(
+        cells,
+        tcImpact,
+        atkUnitPack.unit,
+        atkUnitPack.cell,
+        distance,
+        isSup,
+        structureFireDeps(),
+        le,
+        ph,
+      )
+      return { hadTargets: false, smoked: true }
+    }
+    let targetsAll = collectOpposingHostilesOnCell(tcImpact, atkUnitPack.unit)
+    if (!targetsAll.length) {
+      structureHp.shootStructureDirect(
+        cells,
+        tcImpact,
+        atkUnitPack.unit,
+        atkUnitPack.cell,
+        distance,
+        isSup,
+        structureFireDeps(),
+        le,
+        ph,
+      )
+      return { hadTargets: false }
+    }
+    if (isInfantryUnit(atkUnitPack.unit)) {
+      const poolAf = infantryAreaFireTargetsOrSkip(atkUnitPack, targetsAll, le, ph)
+      if (!poolAf) return { hadTargets: false }
+      targetsAll = poolAf
+    }
+    const targets = targetsAll.filter((t) =>
+      canSeeConcealedEnemy(atkUnitPack.unit, atkUnitPack.cell, t, tcImpact),
+    )
+    if (!targets.length) {
+      structureHp.shootStructureDirect(
+        cells,
+        tcImpact,
+        atkUnitPack.unit,
+        atkUnitPack.cell,
+        distance,
+        isSup,
+        structureFireDeps(),
+        le,
+        ph,
+      )
+      return { hadTargets: false }
+    }
+    const primary = targets[0]
+    const dEff = desantCombat.effectiveFireDistanceForAccuracy(atkUnitPack.unit, primary, distance)
+    const salvoAf = computeShootSalvoCore(
+      atkUnitPack.unit,
+      primary,
+      tcImpact,
+      dEff,
+      rangeArray,
+      isSup,
+      undefined,
+      artilleryClosedSalvo,
+      1,
+      terrainAccuracyBonusFromCell(atkUnitPack.cell, atkUnitPack.unit, primary, false),
+    )
+    structureHp.applyMissRerollsToStructure(
+      cells,
+      tcImpact,
+      salvoAf.rollResults,
+      salvoAf.accuracy,
+      atkUnitPack.unit,
+      le,
+      ph,
+      structureFireDeps(),
+    )
+    const areaGrouped = ensureGroupedAreaFireBucket(
+      groupedAreaFire,
+      Number(tcImpact.id),
+      Number(atkUnitPack.unit.instanceId),
+      salvoAf.rollResults,
+      isSup,
+      ammoCost,
+    )
+    accumulateAreaFireForShooter({
+      atk: atkUnitPack,
+      targets,
+      targetCell: tcImpact,
+      distance,
+      rangeArray,
+      isSup,
+      artilleryClosed: artilleryClosedSalvo,
+      groupedArea: areaGrouped,
+      cells,
+      ordersByUnit,
+      le,
+      ph,
+      findUnitOnField,
+      getStr,
+      isAmbushConcealed,
+      clearAmbushOrderFully,
+      computeShootSalvoCore,
+      areaFireHitsForTargetByOrder,
+      areaFireDiceForTargetByOrder,
+    })
+    return { hadTargets: true, salvoAf }
+  }
   for (const o of list) {
     if (String(o.orderKey || '').trim() === 'smoke') continue
     const atk = findUnitOnField(cells, o.unitId)
-    if (!atk) continue
+    if (!atk) {
+      bindReactiveFire(null, null)
+      continue
+    }
+    bindReactiveFire(atk.unit, o)
     if (!dotMod.dotShooterCanFire(atk.unit)) {
       le(ph, `Юнит ${atk.unit.instanceId}: выход из ДОТ — огонь недоступен`)
       continue
@@ -154,137 +291,42 @@ function processFirePhase(
     const tcidRaw = o.targetCellId
     const tidHas = tidRaw != null && Number.isFinite(Number(tidRaw))
     const tcidHas = tcidRaw != null && Number.isFinite(Number(tcidRaw))
-    if (!tidHas && tcidHas) {
-      const okOrder = isSup ? 'fireHard' : 'fire'
-      const errCell = validateArtilleryAreaFireOnCellOnly(cells, atk, Number(tcidRaw), okOrder, {
-        useFireAdjustment: !!o.useFireAdjustment,
-      })
-      if (errCell) {
-        le(ph, `Юнит ${atk.unit.instanceId}: ${errCell}`)
-        continue
+    const wantsReactive = !!o.useReactiveFire
+    let areaAimCell = null
+    if (tcidHas) {
+      areaAimCell = cells.find((c) => Number(c.id) === Number(tcidRaw))
+    } else if (wantsReactive && tidHas) {
+      const defLive = findUnitOnField(cells, tidRaw)
+      if (defLive) areaAimCell = defLive.cell
+    }
+    if (
+      !tidHas &&
+      tcidHas &&
+      !wantsReactive &&
+      !unitHasPropKey(atk.unit, 'areaFire') &&
+      structureHp.unitHasBuildFire(atk.unit) &&
+      structureHp.isShootableStructureCell(areaAimCell)
+    ) {
+      const tcOnly = areaAimCell
+      if (dotMod.unitInDot(atk.unit)) {
+        if (!dotMod.isDotFireTargetCellAllowed(atk.unit, atk.cell, tcOnly.id, cells)) {
+          le(ph, `Юнит ${atk.unit.instanceId}: клетка вне сектора стрельбы ДОТ`)
+          continue
+        }
+      } else if (isArtilleryUnit(atk.unit) || unitHasPropKey(atk.unit, 'fireSector')) {
+        if (unitUsesGunDeploy(atk.unit) && !isArtilleryDeployedForBattle(atk.unit)) {
+          le(ph, `Юнит ${atk.unit.instanceId}: орудие свёрнуто — развернитесь (приказ «Развёртывание»)`)
+          continue
+        }
+        if (!isArtilleryFireTargetCellAllowed(atk.unit, tcOnly.id)) {
+          le(ph, `Юнит ${atk.unit.instanceId}: клетка вне сектора обстрела`)
+          continue
+        }
       }
-      const tcOnly = cells.find((c) => Number(c.id) === Number(tcidRaw))
-      if (!tcOnly) continue
-      if (smoke.hasSmokeOnCell(tcOnly.builds)) {
-        const dSm = hexDist(
-          atk.cell.coor.x,
-          atk.cell.coor.y,
-          atk.cell.coor.z,
-          tcOnly.coor.x,
-          tcOnly.coor.y,
-          tcOnly.coor.z,
-        )
-        deductShooterAmmo(atk, ammoCost)
-        tryStructureFire(tcOnly, atk.unit, atk.cell, dSm)
-        tryDotFireDamage(tcOnly, atk.unit, atk.cell, dSm)
-        le(ph, `Огонь: юнит ${atk.unit.instanceId} → кл. ${tcOnly.id} (дым, цели не видны)`)
-        continue
-      }
-      const nOpp = countOpposingHostilesOnCell(tcOnly, atk.unit)
-      if (nOpp === 0) {
-        deductShooterAmmo(atk, ammoCost)
-        const dDot0 = hexDist(
-          atk.cell.coor.x,
-          atk.cell.coor.y,
-          atk.cell.coor.z,
-          tcOnly.coor.x,
-          tcOnly.coor.y,
-          tcOnly.coor.z,
-        )
-        tryStructureFire(tcOnly, atk.unit, atk.cell, dDot0)
-        tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDot0)
-        le(
-          ph,
-          `Огонь по площади: юнит ${atk.unit.instanceId} → кл. ${tcOnly.id} (−${ammoCost} БК)`,
-          {
-            fireLine: {
-              attackerId: atk.unit.instanceId,
-              targetId: null,
-              fromCellId: atk.cell.id,
-              targetCellId: tcOnly.id,
-              hits: 0,
-              damages: 0,
-              rollResults: [],
-              warDef: false,
-              isSuppression: !!isSup,
-              baseDiceCount: 0,
-              diceCount: 0,
-              ammoCost,
-              areaFireOnly: true,
-            },
-          },
-        )
-        continue
-      }
-      let targetsAll = collectOpposingHostilesOnCell(tcOnly, atk.unit)
-      if (!targetsAll.length) {
-        deductShooterAmmo(atk, ammoCost)
-        const dDot0 = hexDist(
-          atk.cell.coor.x,
-          atk.cell.coor.y,
-          atk.cell.coor.z,
-          tcOnly.coor.x,
-          tcOnly.coor.y,
-          tcOnly.coor.z,
-        )
-        tryStructureFire(tcOnly, atk.unit, atk.cell, dDot0)
-        tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDot0)
-        le(
-          ph,
-          `Огонь по площади: юнит ${atk.unit.instanceId} → кл. ${tcOnly.id} (−${ammoCost} БК)`,
-          {
-            fireLine: {
-              attackerId: atk.unit.instanceId,
-              targetId: null,
-              fromCellId: atk.cell.id,
-              targetCellId: tcOnly.id,
-              hits: 0,
-              damages: 0,
-              rollResults: [],
-              warDef: false,
-              isSuppression: !!isSup,
-              baseDiceCount: 0,
-              diceCount: 0,
-              ammoCost,
-              areaFireOnly: true,
-            },
-          },
-        )
-        continue
-      }
-      if (isInfantryUnit(atk.unit)) {
-        const poolAf = infantryAreaFireTargetsOrSkip(atk, targetsAll, le, ph)
-        if (!poolAf) continue
-        targetsAll = poolAf
-      }
-      const targets = targetsAll.filter(
-        (t) => canSeeConcealedEnemy(atk.unit, atk.cell, t, tcOnly),
-      )
-      if (!targets.length) {
-        le(
-          ph,
-          `Юнит ${atk.unit.instanceId}: цель в засаде — не обнаружена (соседний гекс, огонь по площади или уже вела огонь)`,
-        )
-        continue
-      }
-      const primary = targets[0]
-      const dAf = hexDist(
-        atk.cell.coor.x,
-        atk.cell.coor.y,
-        atk.cell.coor.z,
-        tcOnly.coor.x,
-        tcOnly.coor.y,
-        tcOnly.coor.z,
-      )
+      const dAf = distCells(atk.cell, tcOnly)
       const raAf = rangeArrayForAtCell(atk.unit, atk.cell)
       const rModeAf = fireRangeTableMode(raAf)
-      const outOfRangeAf = desantCombat.isFireDistanceOutOfRange(
-        raAf,
-        rModeAf,
-        dAf,
-        atk.unit,
-        primary,
-      )
+      const outOfRangeAf = desantCombat.isFireDistanceOutOfRange(raAf, rModeAf, dAf, atk.unit, null)
       if (outOfRangeAf) {
         le(ph, `Юнит ${atk.unit.instanceId}: цель вне дальности (${dAf})`)
         continue
@@ -298,16 +340,70 @@ function processFirePhase(
         )
         continue
       }
-      const losVisAf = isArtilleryUnit(atk.unit)
-        ? resolveArtilleryFireVisibility(atk, tcOnly, cells, visDeps, {
-            useFireAdjustment: !!o.useFireAdjustment,
-          })
-        : {
-            allowed:
-              artilleryAreaClosedIgnoresTerrainLos(atk.unit) || isHexVisible(atk.cell, tcOnly, cells),
-            artilleryClosed: false,
-            usedFireAdjustment: false,
-          }
+      const losOk =
+        dotMod.dotFireIgnoresTerrainLos(atk.unit) ||
+        artilleryAreaClosedIgnoresTerrainLos(atk.unit) ||
+        unitHasPropKey(atk.unit, 'concealedTargetFire') ||
+        isHexVisible(atk.cell, tcOnly, cells)
+      if (!losOk) {
+        le(ph, `Юнит ${atk.unit.instanceId}: нет прямой видимости на сооружение`)
+        continue
+      }
+      if (clearAmbushOrderFully(atk.unit)) {
+        le(ph, `Засада снята: юнит ${atk.unit.instanceId} (открытый огонь)`, {
+          unitInstanceId: Number(atk.unit.instanceId),
+          ambushCleared: true,
+        })
+      }
+      deductShooterAmmo(atk, ammoCost)
+      tryStructureFire(tcOnly, atk.unit, atk.cell, dAf)
+      tryDotFireDamage(tcOnly, atk.unit, atk.cell, dAf)
+      structureHp.shootStructureDirect(cells, tcOnly, atk.unit, atk.cell, dAf, isSup, structureFireDeps(), le, ph)
+      continue
+    }
+    if (areaAimCell && (wantsReactive || !tidHas)) {
+      const tcOnly = areaAimCell
+      const okOrder = isSup ? 'fireHard' : 'fire'
+      const errCell = validateArtilleryAreaFireOnCellOnly(cells, atk, Number(tcOnly.id), okOrder, {
+        useFireAdjustment: !!o.useFireAdjustment,
+        useReactiveFire: wantsReactive,
+      })
+      if (errCell) {
+        le(ph, `Юнит ${atk.unit.instanceId}: ${errCell}`)
+        continue
+      }
+      const dAf = distCells(atk.cell, tcOnly)
+      const fireTablesAf = wantsReactive ? normalizeFireObject(atk.unit.fireReactive) : undefined
+      const raAf = rangeArrayForAtCell(atk.unit, atk.cell, fireTablesAf)
+      const rModeAf = fireRangeTableMode(raAf)
+      const outOfRangeAf = desantCombat.isFireDistanceOutOfRange(raAf, rModeAf, dAf, atk.unit, null)
+      if (outOfRangeAf) {
+        le(ph, `Юнит ${atk.unit.instanceId}: цель вне дальности (${dAf})`)
+        continue
+      }
+      if (!shooterHasAmmo(atk, ammoCost)) {
+        le(
+          ph,
+          isSup
+            ? `Юнит ${atk.unit.instanceId}: мало БК для подавления (нужно ${ammoCost})`
+            : `Юнит ${atk.unit.instanceId}: нет боеприпасов`,
+        )
+        continue
+      }
+      const losVisAf = dotMod.dotFireIgnoresTerrainLos(atk.unit)
+        ? { allowed: true, artilleryClosed: false, usedFireAdjustment: false }
+        : isArtilleryUnit(atk.unit) ||
+            unitHasPropKey(atk.unit, 'areaFire') ||
+            unitHasPropKey(atk.unit, 'concealedTargetFire')
+          ? resolveArtilleryFireVisibility(atk, tcOnly, cells, visDeps, {
+              useFireAdjustment: !!o.useFireAdjustment,
+            })
+          : {
+              allowed:
+                artilleryAreaClosedIgnoresTerrainLos(atk.unit) || isHexVisible(atk.cell, tcOnly, cells),
+              artilleryClosed: false,
+              usedFireAdjustment: false,
+            }
       if (!losVisAf.allowed) {
         le(ph, `Юнит ${atk.unit.instanceId}: ${losVisAf.reason || 'нет прямой видимости на цель'}`)
         continue
@@ -324,21 +420,12 @@ function processFirePhase(
         }
         if (losVisAf.usedFireAdjustment) fireAdjUsedByFaction[facAf] = true
       }
-      const stackDivAf = 1
       const artilleryClosedSalvo = !!losVisAf.artilleryClosed
-      const dEffAf = desantCombat.effectiveFireDistanceForAccuracy(atk.unit, primary, dAf)
-      const salvoAf = computeShootSalvoCore(
-        atk.unit,
-        primary,
-        tcOnly,
-        dEffAf,
-        raAf,
-        isSup,
-        undefined,
-        artilleryClosedSalvo,
-        stackDivAf,
-        terrainAccuracyBonusFromCell(atk.cell, atk.unit, primary, false),
-      )
+      const impactCells = wantsReactive ? collectDaisyImpactCells(tcOnly, cells) : [tcOnly]
+      if (!impactCells.length) {
+        le(ph, `Юнит ${atk.unit.instanceId}: нет клеток попадания`)
+        continue
+      }
       if (clearAmbushOrderFully(atk.unit)) {
         le(ph, `Засада снята: юнит ${atk.unit.instanceId} (открытый огонь)`, {
           unitInstanceId: Number(atk.unit.instanceId),
@@ -346,47 +433,35 @@ function processFirePhase(
         })
       }
       deductShooterAmmo(atk, ammoCost)
-      tryStructureFire(tcOnly, atk.unit, atk.cell, dAf)
-      const dDotAf = hexDist(
-        atk.cell.coor.x,
-        atk.cell.coor.y,
-        atk.cell.coor.z,
-        tcOnly.coor.x,
-        tcOnly.coor.y,
-        tcOnly.coor.z,
-      )
-      tryDotFireDamage(tcOnly, atk.unit, atk.cell, dDotAf)
-      const atkIdAf = Number(atk.unit.instanceId)
-      const areaKey = Number(tcOnly.id)
-      const areaGrouped = ensureGroupedAreaFireBucket(
-        groupedAreaFire,
-        areaKey,
-        atkIdAf,
-        salvoAf.rollResults,
-        isSup,
-        ammoCost,
-      )
-      accumulateAreaFireForShooter({
-        atk,
-        targets,
-        targetCell: tcOnly,
-        distance: dAf,
-        rangeArray: raAf,
-        isSup,
-        artilleryClosed: artilleryClosedSalvo,
-        groupedArea: areaGrouped,
-        cells,
-        ordersByUnit,
-        le,
-        ph,
-        findUnitOnField,
-        getStr,
-        isAmbushConcealed,
-        clearAmbushOrderFully,
-        computeShootSalvoCore,
-        areaFireHitsForTargetByOrder,
-        areaFireDiceForTargetByOrder,
-      })
+      let hadAnyTargets = false
+      for (let ii = 0; ii < impactCells.length; ii++) {
+        const impact = impactCells[ii]
+        const applied = applyAreaFireOnImpactCell(atk, impact, dAf, raAf, artilleryClosedSalvo)
+        if (applied.hadTargets) hadAnyTargets = true
+      }
+      if (!hadAnyTargets) {
+        le(
+          ph,
+          `Огонь по площади: юнит ${atk.unit.instanceId} → кл. ${tcOnly.id} (−${ammoCost} БК)`,
+          {
+            fireLine: {
+              attackerId: atk.unit.instanceId,
+              targetId: null,
+              fromCellId: atk.cell.id,
+              targetCellId: tcOnly.id,
+              hits: 0,
+              damages: 0,
+              rollResults: [],
+              warDef: false,
+              isSuppression: !!isSup,
+              baseDiceCount: 0,
+              diceCount: 0,
+              ammoCost,
+              areaFireOnly: true,
+            },
+          },
+        )
+      }
       continue
     }
     const tid = tidRaw
@@ -414,9 +489,9 @@ function processFirePhase(
         le(ph, `Юнит ${atk.unit.instanceId}: цель вне сектора стрельбы ДОТ`)
         continue
       }
-    } else if (isArtilleryUnit(atk.unit)) {
-      if (!isArtilleryDeployedForBattle(atk.unit)) {
-        le(ph, `Юнит ${atk.unit.instanceId}: артиллерия свёрнута — развернитесь (приказ «Развёртывание»)`)
+    } else if (isArtilleryUnit(atk.unit) || unitHasPropKey(atk.unit, 'fireSector')) {
+      if (unitUsesGunDeploy(atk.unit) && !isArtilleryDeployedForBattle(atk.unit)) {
+        le(ph, `Юнит ${atk.unit.instanceId}: орудие свёрнуто — развернитесь (приказ «Развёртывание»)`)
         continue
       }
       if (!isArtilleryFireTargetCellAllowed(atk.unit, def.cell.id)) {
@@ -432,7 +507,10 @@ function processFirePhase(
       def.cell.coor.y,
       def.cell.coor.z,
     )
-    const ra = rangeArrayForAtCell(atk.unit, atk.cell)
+    const fireTablesRa = o.useReactiveFire
+      ? normalizeFireObject(atk.unit.fireReactive)
+      : undefined
+    const ra = rangeArrayForAtCell(atk.unit, atk.cell, fireTablesRa)
     const rMode = fireRangeTableMode(ra)
     const outOfRange = desantCombat.isFireDistanceOutOfRange(ra, rMode, d, atk.unit, def.unit)
     if (outOfRange) {
@@ -448,16 +526,20 @@ function processFirePhase(
       )
       continue
     }
-    const losVis = isArtilleryUnit(atk.unit)
-      ? resolveArtilleryFireVisibility(atk, def.cell, cells, visDeps, {
-          useFireAdjustment: !!o.useFireAdjustment,
-        })
-      : {
-          allowed:
-            artilleryAreaClosedIgnoresTerrainLos(atk.unit) || isHexVisible(atk.cell, def.cell, cells),
-          artilleryClosed: false,
-          usedFireAdjustment: false,
-        }
+    const losVis = dotMod.dotFireIgnoresTerrainLos(atk.unit)
+      ? { allowed: true, artilleryClosed: false, usedFireAdjustment: false }
+      : isArtilleryUnit(atk.unit) ||
+          unitHasPropKey(atk.unit, 'areaFire') ||
+          unitHasPropKey(atk.unit, 'concealedTargetFire')
+        ? resolveArtilleryFireVisibility(atk, def.cell, cells, visDeps, {
+            useFireAdjustment: !!o.useFireAdjustment,
+          })
+        : {
+            allowed:
+              artilleryAreaClosedIgnoresTerrainLos(atk.unit) || isHexVisible(atk.cell, def.cell, cells),
+            artilleryClosed: false,
+            usedFireAdjustment: false,
+          }
     if (!losVis.allowed) {
       le(
         ph,
@@ -519,6 +601,17 @@ function processFirePhase(
       }
       deductShooterAmmo(atk, ammoCost)
       tryStructureFire(def.cell, atk.unit, atk.cell, d)
+      structureHp.applyMissRerollsToStructure(
+        cells,
+        def.cell,
+        salvo.rollResults,
+        salvo.accuracy,
+        atk.unit,
+        le,
+        ph,
+        structureFireDeps(),
+      )
+      const atkIdArea = Number(atk.unit.instanceId)
       const areaKeyDir = Number(def.cell.id)
       const areaGroupedDir = ensureGroupedAreaFireBucket(
         groupedAreaFire,
@@ -583,6 +676,16 @@ function processFirePhase(
       )
       deductShooterAmmo(atk, ammoCost)
       tryStructureFire(def.cell, atk.unit, atk.cell, d)
+      structureHp.applyMissRerollsToStructure(
+        cells,
+        def.cell,
+        res.rollResults,
+        res.accuracy,
+        atk.unit,
+        le,
+        ph,
+        structureFireDeps(),
+      )
       if (isHiddenConcealed && isHiddenConcealed(def.unit) && revealHiddenUnit) {
         revealHiddenUnit(def.unit)
       }
@@ -620,6 +723,7 @@ function processFirePhase(
       groupedDirectFire.set(defId, grouped)
     }
   }
+  bindReactiveFire(null, null)
   resolveGroupedAreaFire({
     groupedAreaFire,
     cells,

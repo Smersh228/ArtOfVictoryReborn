@@ -30,6 +30,67 @@ export function isHiddenConcealedClient(unit: Record<string, unknown> | null | u
   return true;
 }
 
+export function isAmbushConcealedClient(unit: Record<string, unknown> | null | undefined): boolean {
+  if (!unit) return false;
+  const tac = unit.tactical as { ambushOrder?: boolean; ambushRevealed?: boolean; defendOrder?: boolean } | undefined;
+  if (!tac?.ambushOrder) return false;
+  if (tac.defendOrder) return false;
+  if (tac.ambushRevealed) return false;
+  return true;
+}
+
+function factionsAllied(fa: string, fb: string): boolean {
+  const a = String(fa || '').trim().toLowerCase();
+  const b = String(fb || '').trim().toLowerCase();
+  const sov = (x: string) => x === 'ussr' || x === 'rkka';
+  const axis = (x: string) => x === 'germany' || x === 'wehrmacht';
+  return (sov(a) && sov(b)) || (axis(a) && axis(b));
+}
+
+function viewerHasUnitAdjacentToHex(cells: Cell[], targetCell: Cell, viewerFaction: string): boolean {
+  if (!viewerFaction || viewerFaction === 'none') return false;
+  for (const c of cells) {
+    if (hexDistCells(c, targetCell) > 1) continue;
+    for (const raw of c.units || []) {
+      const u = raw as unknown as Record<string, unknown>;
+      if (getStr(u) <= 0) continue;
+      if (factionsAllied(String(u.faction || ''), viewerFaction)) return true;
+    }
+  }
+  return false;
+}
+
+/** Вражеские скрытые / в засаде — не рисуем, пока свой отряд не на соседнем гексе или клетка не открыта разведкой. */
+export function collectEnemyConcealedInstanceIds(
+  cells: Cell[],
+  viewerFaction: string,
+  reconRevealedCellIds?: Iterable<number> | null,
+): number[] {
+  if (!viewerFaction || viewerFaction === 'none') return [];
+  const recon = new Set<number>();
+  if (reconRevealedCellIds) {
+    for (const id of reconRevealedCellIds) {
+      const n = Number(id);
+      if (Number.isFinite(n)) recon.add(n);
+    }
+  }
+  const ids: number[] = [];
+  for (const c of cells) {
+    if (recon.has(Number(c.id))) continue;
+    const adjacent = viewerHasUnitAdjacentToHex(cells, c, viewerFaction);
+    for (const raw of c.units || []) {
+      const u = raw as unknown as Record<string, unknown>;
+      if (getStr(u) <= 0) continue;
+      if (factionsAllied(String(u.faction || ''), viewerFaction)) continue;
+      if (adjacent) continue;
+      if (!isHiddenConcealedClient(u) && !isAmbushConcealedClient(u)) continue;
+      const iid = Number(u.instanceId);
+      if (Number.isFinite(iid)) ids.push(iid);
+    }
+  }
+  return ids;
+}
+
 export function canSpotHiddenTargetClient(
   attackerUnit: Record<string, unknown>,
   attackerCell: Cell,
@@ -50,7 +111,6 @@ export function canSpotHiddenTargetClient(
     }
   }
   if (
-    String(attackerUnit.type || '').toLowerCase() === 'artillery' &&
     unitHasPropKey(attackerUnit, 'areaFire')
   ) {
     return true;

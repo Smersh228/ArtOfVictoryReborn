@@ -161,7 +161,8 @@ function validateUnitOrdersAllowed(unit, deps, orderKey) {
     return 'юнит в ближнем бою'
   }
   if (unit.tactical && unit.tactical.onSmoke && require('../lib/map/battleSmoke').smokeBlocksOrderKey(ok)) {
-    return 'дымовая завеса'
+    const leaveFire = unit.tactical.onSettlementFire && (ok === 'move' || ok === 'moveWar')
+    if (!leaveFire) return 'дымовая завеса'
   }
   if (unit.tactical && unit.tactical.railJob && Number(unit.tactical.railJob.turnsLeft) > 0) {
     return 'погрузка/выгрузка на железной дороге'

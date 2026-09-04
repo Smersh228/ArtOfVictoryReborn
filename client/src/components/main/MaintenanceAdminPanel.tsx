@@ -11,7 +11,13 @@ import {
   type RegisteredUserRow,
 } from '../../api/maintenance'
 
-export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: boolean }) {
+export default function MaintenanceAdminPanel({
+  inModal = false,
+  onViewProfile,
+}: {
+  inModal?: boolean
+  onViewProfile?: (userId: number) => void
+}) {
   const [state, setState] = useState<MaintenanceState | null>(null)
   const [registered, setRegistered] = useState<RegisteredUserRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -131,6 +137,34 @@ export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: b
     }
   }
 
+  const userIdByUsername = (username: string): number | null => {
+    const key = username.trim().toLowerCase()
+    const row = registered.find((u) => u.username.trim().toLowerCase() === key)
+    const id = Number(row?.id)
+    return Number.isFinite(id) && id > 0 ? id : null
+  }
+
+  const openProfile = (userId: number) => {
+    if (!onViewProfile) return
+    onViewProfile(userId)
+  }
+
+  const nickButton = (userId: number | null, username: string, className: string) => {
+    if (userId == null || !onViewProfile) {
+      return <span className={className}>{username}</span>
+    }
+    return (
+      <button
+        type="button"
+        className={`${className} ${styles.maintenanceNickBtn}`}
+        onClick={() => openProfile(userId)}
+        title="Открыть профиль"
+      >
+        {username}
+      </button>
+    )
+  }
+
   const removeLogin = async (username: string) => {
     if (busy) return
     setBusy(true)
@@ -233,7 +267,7 @@ export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: b
                 return (
                   <li key={u.id} className={styles.maintenanceRegisteredItem}>
                     <div className={styles.maintenanceRegisteredMeta}>
-                      <span className={styles.maintenanceRegisteredName}>{u.username}</span>
+                      {nickButton(u.id, u.username, styles.maintenanceRegisteredName)}
                       {u.email ? <span className={styles.maintenanceRegisteredEmail}>{u.email}</span> : null}
                     </div>
                     {u.isAdmin ? (
@@ -263,7 +297,7 @@ export default function MaintenanceAdminPanel({ inModal = false }: { inModal?: b
             ) : (
               state.allowlist.map((row) => (
                 <li key={row.username} className={styles.maintenanceListItem}>
-                  <span>{row.username}</span>
+                  {nickButton(userIdByUsername(row.username), row.username, styles.maintenanceListNick)}
                   <button
                     type="button"
                     className={styles.maintenanceRemoveBtn}

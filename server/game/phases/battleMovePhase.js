@@ -148,8 +148,11 @@ function executeOneGroundMove(cells, o, ordersByUnit, le, ph, movedInstanceIds, 
     ow.fired && ow.stopStepIndex != null ? ow.stopStepIndex : minePlan.endIndex
   const finalCell = path[endStepIndex]
   let spent = 0
+  const wireBrokenCellIds = []
   for (let i = 1; i <= endStepIndex; i++) {
-    applyWireBreakthroughOnStep(path[i - 1], path[i], afterOw.unit, deps.unitHasPropKey)
+    if (applyWireBreakthroughOnStep(path[i - 1], path[i], afterOw.unit, deps.unitHasPropKey)) {
+      wireBrokenCellIds.push(Number(path[i].id))
+    }
     spent += terrainEntryCost(path[i], afterOw.unit)
   }
   const pathIds = path.slice(0, endStepIndex + 1).map((c) => c.id)
@@ -172,6 +175,15 @@ function executeOneGroundMove(cells, o, ordersByUnit, le, ph, movedInstanceIds, 
     moveInterruptedByDefend: !!ow.fired,
     moveInterruptedByMine: !!mineStop,
   })
+  if (wireBrokenCellIds.length) {
+    le(ph, `Прорыв проволоки: юнит ${afterOw.unit.instanceId} снял колючую проволоку (${wireBrokenCellIds.length})`, {
+      wireBreakthrough: {
+        unitInstanceId: Number(afterOw.unit.instanceId),
+        cellIds: wireBrokenCellIds,
+        count: wireBrokenCellIds.length,
+      },
+    })
+  }
   mines.resolveMineBlastsAfterMove(
     cells,
     afterOw.unit,

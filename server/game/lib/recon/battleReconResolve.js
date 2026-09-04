@@ -337,14 +337,15 @@ function resolveGroundReconAnalog({ unit, scoutCell, cells, radiusSteps, le, ph,
   const success = threshold > 0 && roll <= threshold
   const fac = unitFaction(unit)
   const revealed = []
-  const revealedCellIds = []
 
   if (success && scoutCell && Array.isArray(cells)) {
+    const zoneCellIds = []
     for (let i = 0; i < cells.length; i++) {
       const c = cells[i]
       const d = hexDistCells(scoutCell, c)
       if (d > R) continue
-      if (!isHexVisible(scoutCell, c, cells)) continue
+      if (d > 0 && !isHexVisible(scoutCell, c, cells)) continue
+      zoneCellIds.push(Number(c.id))
       const us = c.units || []
       for (let ui = 0; ui < us.length; ui++) {
         const u = us[ui]
@@ -352,18 +353,18 @@ function resolveGroundReconAnalog({ unit, scoutCell, cells, radiusSteps, le, ph,
         if (!opposing(fac, unitFaction(u))) continue
         const inAmbush = ambush.isAmbushConcealed(u)
         const inHidden = hidden.isHiddenConcealed(u)
-        if (!inAmbush && !inHidden) continue
         if (inAmbush) ambush.clearAmbushOrderFully(u)
-        hidden.revealHiddenUnit(u)
-        revealed.push({
-          unitInstanceId: Number(u.instanceId),
-          unitName: String(u.name || '').trim() || undefined,
-          cellId: Number(c.id),
-        })
-        revealedCellIds.push(Number(c.id))
+        if (inHidden) hidden.revealHiddenUnit(u)
+        if (inAmbush || inHidden) {
+          revealed.push({
+            unitInstanceId: Number(u.instanceId),
+            unitName: String(u.name || '').trim() || undefined,
+            cellId: Number(c.id),
+          })
+        }
       }
     }
-    if (revealedCellIds.length) mergeReconIntoUnitTactical(unit, revealedCellIds, 'razvedka')
+    if (zoneCellIds.length) mergeReconIntoUnitTactical(unit, zoneCellIds, 'razvedka')
   }
 
   const foundTxt = revealed.length

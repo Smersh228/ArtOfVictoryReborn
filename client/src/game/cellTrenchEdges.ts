@@ -1,4 +1,7 @@
 import type { Cell, IBuildCell } from '../../../server/src/game/gameLogic/cells/cell';
+import { hasDotOnCell } from './cellDot';
+import { cellHasWarehouse } from './battleLogisticsUi';
+import { hasPontonOnCell } from './cellPonton';
 import { ensureCellBuilds } from './editorMapFortifications';
 
 const FORBIDDEN_TYPES = new Set([
@@ -72,8 +75,17 @@ function hexExtraObj(cell: Cell | null | undefined): Record<string, unknown> | n
   return ex && typeof ex === 'object' ? (ex as Record<string, unknown>) : null;
 }
 
+export function cellBlocksSapperPlacement(cell: Cell | null | undefined): boolean {
+  if (!cell) return true;
+  if (hasDotOnCell(cell.builds)) return true;
+  if (cellHasWarehouse(cell)) return true;
+  if (hasPontonOnCell(cell.builds)) return true;
+  return false;
+}
+
 export function isTrenchForbiddenOnCell(cell: Cell | null | undefined): boolean {
   if (!cell) return true;
+  if (cellBlocksSapperPlacement(cell)) return true;
   const ex = hexExtraObj(cell);
   const placement = ex?.placementAllowed as Record<string, unknown> | undefined;
   if (placement && placement.trench === false) return true;

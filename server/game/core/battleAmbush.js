@@ -41,7 +41,7 @@ function canSpotAmbushTarget(attackerUnit, attackerCell, targetUnit, targetCell,
   if (hasFriendlyAdjacentToHex(cells, targetCell, atkF, deps)) return true
   const d = hexDistCells(attackerCell, targetCell)
   if (d <= 1) return true
-  if (isArtilleryUnit(attackerUnit) && unitHasPropKey(attackerUnit, 'areaFire')) {
+  if (isArtilleryUnit(attackerUnit) || unitHasPropKey(attackerUnit, 'areaFire')) {
     const ra = rangeArrayForAtCell
       ? rangeArrayForAtCell(attackerUnit, attackerCell)
       : rangeArrayFor(attackerUnit)
@@ -49,8 +49,7 @@ function canSpotAmbushTarget(attackerUnit, attackerCell, targetUnit, targetCell,
     const maxD = mode === 'ranged' ? ra.length - 1 : ra.length
     if (d >= 1 && d <= maxD) return true
   }
-  const revealed = computeRevealedCellIdsForFaction(cells, atkF)
-  return !!(revealed && revealed.has(targetCell.id))
+  return false
 }
 
 function clearAmbushOrderFully(unit) {
@@ -59,6 +58,8 @@ function clearAmbushOrderFully(unit) {
   if (unit.tactical.defendOrder) return false
   delete unit.tactical.ambushOrder
   delete unit.tactical.ambushRevealed
+  const { unitUsesGunDeploy } = require('./battleUnitType')
+  if (unitUsesGunDeploy(unit)) return true
   delete unit.tactical.artilleryFireSector
   delete unit.defendFacingCellId
   delete unit.defendMaxRangeSteps

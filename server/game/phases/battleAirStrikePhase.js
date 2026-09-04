@@ -612,6 +612,9 @@ function processInboundMissionArrivals(cells, le, ph, deps) {
         setAmmo(atk.unit, getAmmo(atk.unit) - ammoCost)
         spentAmmo = true
       }
+      if (ok && orderKey === 'bombardment') {
+        require('../lib/map/battleSettlementFire').maybeIgniteFromBombardment(atk.unit, tc, cells, le, ph)
+      }
     }
 
     if (!spentAmmo) {

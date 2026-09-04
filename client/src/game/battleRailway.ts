@@ -1,5 +1,6 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { unitHasPropKey } from './battleTerrain';
+import { isRailwayHex, isRailwayStationHex } from './cellRailway';
 import {
   canUnloadToCellClient,
   factionsAlliedOnMap,
@@ -8,36 +9,11 @@ import {
   isInstanceIdInAnyTruckCargo,
 } from './battleLogisticsUi';
 
-function blobOf(cell: Cell): string {
-  return `${String(cell.type || '')} ${String(cell.name || '')}`;
-}
-
-export function isRailwayCell(cell: Cell | null | undefined): boolean {
-  if (!cell) return false;
-  const t = String(cell.type || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_-]/g, '');
-  if (t === 'railway' || t === 'railroad' || t === 'rail' || t === 'train') return true;
-  const blob = blobOf(cell);
-  if (/железн|railway|railroad|жд(?![а-я])/i.test(blob)) return true;
-  const ex = (cell as Cell & { hexExtra?: { railway?: boolean; rail?: boolean } }).hexExtra;
-  if (ex && (ex.railway === true || ex.rail === true)) return true;
-  return false;
-}
-
-export function isRailwayStationCell(cell: Cell | null | undefined): boolean {
-  if (!cell) return false;
-  const blob = blobOf(cell);
-  if (/станци|вокзал|station/i.test(blob)) return true;
-  const ex = (cell as Cell & { hexExtra?: { railwayStation?: boolean; station?: boolean } }).hexExtra;
-  if (ex && (ex.railwayStation === true || ex.station === true)) return true;
-  return false;
-}
+export const isRailwayCell = isRailwayHex;
+export const isRailwayStationCell = isRailwayStationHex;
 
 export function isRailwayUnitBattle(u: Record<string, unknown> | null | undefined): boolean {
   if (!u) return false;
-  if (String(u.type || '').toLowerCase() !== 'tech') return false;
   return unitHasPropKey(u, 'railwayDetachment');
 }
 

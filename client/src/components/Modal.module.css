@@ -12,6 +12,10 @@
   -webkit-backdrop-filter: blur(8px);
 }
 
+.backdropElevated {
+  z-index: 1300;
+}
+
 .dialog {
   position: relative;
   display: flex;
@@ -119,4 +123,37 @@
   background: rgba(255, 255, 255, 0.32);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+}
+
+.footer > * {
+  width: 100% !important;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1440px), (max-height: 900px) {
+  .backdrop {
+    padding: 12px;
+  }
+
+  .dialog {
+    max-height: 88vh;
+  }
+
+  .header {
+    padding: 14px 16px 10px;
+  }
+
+  .title {
+    font-size: 17px;
+  }
+
+  .body {
+    padding: 14px 16px;
+  }
+
+  .footer {
+    padding: 10px 16px 14px;
+  }
 }

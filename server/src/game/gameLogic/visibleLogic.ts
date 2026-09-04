@@ -93,6 +93,34 @@ function isRavine(cell: Cell | null | undefined): boolean {
   return effectiveElevationLevel(cell) === -1;
 }
 
+function hexFlagOn(v: unknown): boolean {
+  return v === true || v === 'true' || v === 1 || v === '1';
+}
+
+/** Река не закрывает обстрел: ни как овраг, ни как преграда видимости. */
+function hexLooksLikeRiver(cell: Cell | null | undefined): boolean {
+  if (!cell) return false;
+  const ex = (cell as { hexExtra?: Record<string, unknown> }).hexExtra;
+  if (ex && typeof ex === 'object') {
+    if (hexFlagOn(ex.moveWithRiverProp) || hexFlagOn(ex.moveWithWaterUnitProp)) return true;
+    if (hexFlagOn(ex.isRiver) || hexFlagOn(ex.river)) return true;
+    const cat = String(ex.category || '')
+      .trim()
+      .toLowerCase();
+    if (cat === 'rivers' || cat === 'river' || cat === 'water' || cat === 'waters') return true;
+  }
+  const rawType = String(cell.type || '').trim();
+  const t = rawType.toLowerCase().replace(/[\s_-]/g, '');
+  if (t === 'river' || t === 'rivers' || t === 'water') return true;
+  const name = String(cell.name || (ex && (ex.name || ex.label)) || '');
+  const img = String((cell as { img?: string }).img || (cell as { imagePath?: string }).imagePath || '');
+  const blob = `${rawType} ${name} ${img}`;
+  return (
+    /река|руч(?:ей|ья|ью)?|канал|речн|водн|брод|river|water|ford/i.test(blob) &&
+    !/озер|озёр|болот|swamp|marsh|lake/i.test(blob)
+  );
+}
+
 function isBattleAirUnitType(u: UnitFogFields | null | undefined): boolean {
   const t = String(u?.type ?? '');
   return t === 'lightAir' || t === 'heavyAir';
@@ -190,12 +218,14 @@ const LOS_BLOCKING_TERRAIN = new Set([
 ]);
 
 export function cellBlocksLineOfSight(cell: Cell): boolean {
+  if (hexLooksLikeRiver(cell)) return false;
   const ext = cell as unknown as {
     mapBuilding?: unknown;
     visionBlock?: unknown;
+    hexExtra?: { visionBlock?: unknown };
   };
   if (ext.mapBuilding != null) return true;
-  const vb = ext.visionBlock;
+  const vb = ext.visionBlock ?? ext.hexExtra?.visionBlock;
   if (vb === true || vb === 'true' || vb === 1 || vb === '1') return true;
 
   const vis = (cell as unknown as { visible?: boolean }).visible;
@@ -206,6 +236,24 @@ export function cellBlocksLineOfSight(cell: Cell): boolean {
     .toLowerCase();
   if (LOS_BLOCKING_TERRAIN.has(t)) return true;
   return false;
+}
+
+function cellHasSmoke(cell: Cell | undefined | null): boolean {
+  if (!cell) return false;
+  const raw = (cell as { builds?: { smoke?: unknown } }).builds?.smoke;
+  if (raw && typeof raw === 'object') return true;
+  return Number(raw) > 0;
+}
+
+/** Дым закрывает всю линию за собой, не только один гекс тени. */
+function lineOpenThroughSmoke(observer: Cell, target: Cell, cells: Cell[]): boolean {
+  const line = cubeLineDraw(cellToCube(observer), cellToCube(target));
+  for (let i = 1; i < line.length - 1; i++) {
+    const c = findCellByCube(cells, line[i]);
+    if (!c) return false;
+    if (cellHasSmoke(c)) return false;
+  }
+  return true;
 }
 
 export type HexVisibilityOptions = {
@@ -219,8 +267,8 @@ function ravineBlocksHexLoS(
   options?: HexVisibilityOptions,
 ): boolean {
   if (options?.airObserver) return false;
-  if (isRavine(observer) && dist > 1) return true;
-  if (isRavine(target) && dist > 1) return true;
+  if (isRavine(observer) && !hexLooksLikeRiver(observer) && dist > 1) return true;
+  if (isRavine(target) && !hexLooksLikeRiver(target) && dist > 1) return true;
   return false;
 }
 
@@ -231,6 +279,7 @@ function lineOpenWithElevationRidge(observer: Cell, target: Cell, cells: Cell[])
   for (let i = 1; i < line.length - 1; i++) {
     const c = findCellByCube(cells, line[i]);
     if (!c) return false;
+    if (hexLooksLikeRiver(c)) continue;
     if (effectiveElevationLevel(c) > obsE) return false;
   }
   return true;
@@ -268,6 +317,7 @@ export function isHexVisible(
   if (dist <= 0) return true;
   if (ravineBlocksHexLoS(observer, target, dist, options)) return false;
   if (!options?.airObserver && !lineOpenWithElevationRidge(observer, target, cells)) return false;
+  if (!lineOpenThroughSmoke(observer, target, cells)) return false;
   return lineOpenWithOneHexShadow(observer, target, cells);
 }
 
@@ -302,8 +352,8 @@ export function isUnitVisibleFromCell(
   const dist = hexDistCells(observerCell, targetCell);
   if (dist <= 0) return true;
   const airObs = observerUnit && isBattleAirUnitType(observerUnit);
-  if (isRavine(observerCell) && dist > 1 && !airObs) return false;
-  if (isRavine(targetCell) && dist > 1 && !airObs) return false;
+  if (isRavine(observerCell) && !hexLooksLikeRiver(observerCell) && dist > 1 && !airObs) return false;
+  if (isRavine(targetCell) && !hexLooksLikeRiver(targetCell) && dist > 1 && !airObs) return false;
   return isHexVisible(observerCell, targetCell, cells, { airObserver: !!airObs });
 }
 
@@ -322,7 +372,7 @@ export function analyzeLineOfSight(observer: Cell, target: Cell, cells: Cell[]):
   }
   const blockingCells: Cell[] = [];
   for (let i = 1; i < pathCells.length - 1; i++) {
-    if (cellBlocksLineOfSight(pathCells[i])) blockingCells.push(pathCells[i]);
+    if (cellBlocksLineOfSight(pathCells[i]) || cellHasSmoke(pathCells[i])) blockingCells.push(pathCells[i]);
   }
   const targetVisible = isHexVisible(observer, target, cells);
   return { pathCells, blockingCells, targetVisible };
@@ -392,11 +442,17 @@ export class VisibleLogic {
         if (unitFaction(u) !== faction) continue;
         if (getUnitStrength(u) <= 0) continue;
         const fromDot = dotOccupantVisionCellIds(cell, u, cells);
-        const ids =
-          fromDot ??
-          visibleCellIdsInRange(cell, readVisionRange(u), cells, {
-            airObserver: isBattleAirUnitType(u),
+        if (fromDot) {
+          revealed.add(cell.id);
+          fromDot.forEach((id) => {
+            const t = cells.find((x) => Number(x.id) === Number(id));
+            if (t && lineOpenThroughSmoke(cell, t, cells)) revealed.add(Number(id));
           });
+          continue;
+        }
+        const ids = visibleCellIdsInRange(cell, readVisionRange(u), cells, {
+          airObserver: isBattleAirUnitType(u),
+        });
         ids.forEach((id) => revealed.add(id));
       }
     }

@@ -1,7 +1,9 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { effectiveElevationLevel } from './cellElevation';
+import { specialMoveCountersAllow, stepUsesLimitedSpecialMove, waterCraftOnWaterCell, isDestroyedBridgeHex, unitCanEnterDestroyedBridge } from './battleSpecialTerrain';
 import { applyRainEntryCost } from './battleEnvironment';
 import { isPontonComplete } from './cellPonton';
+import { applyRailwayEntryDiscount } from './cellRailway';
 
 type HexExtra = Record<string, unknown>;
 
@@ -10,16 +12,29 @@ function hexExtraObj(cell: Cell | null | undefined): HexExtra | null {
   return ex && typeof ex === 'object' ? (ex as HexExtra) : null;
 }
 
+const PROP_KEY_NAME_ALIASES: Record<string, string[]> = {
+  waterUnit: ['водный юнит'],
+  crossingAWaterObstacle: ['преодоление водной преграды'],
+  movementThroughTheSwamp: ['преодоление болота'],
+};
+
 export function unitHasPropKey(u: { properties?: unknown } | null | undefined, key: string): boolean {
   const props = u?.properties;
   if (!Array.isArray(props)) return false;
   const want = String(key).trim();
   if (!want) return false;
+  const nameAliases = PROP_KEY_NAME_ALIASES[want] || [];
   for (let i = 0; i < props.length; i++) {
     const p = props[i];
-    if (p && typeof p === 'object' && String((p as { prop_key?: string }).prop_key ?? '').trim() === want) {
-      return true;
-    }
+    if (typeof p === 'string' && p.trim() === want) return true;
+    if (!p || typeof p !== 'object') continue;
+    const rec = p as { prop_key?: string; key?: string; propKey?: string; name?: string };
+    const pk = String(rec.prop_key ?? rec.key ?? rec.propKey ?? '').trim();
+    if (pk === want) return true;
+    const nm = String(rec.name ?? '')
+      .trim()
+      .toLowerCase();
+    if (nameAliases.includes(nm)) return true;
   }
   return false;
 }
@@ -52,15 +67,21 @@ function readBaseTerrainEntryCost(cell: Cell, unit: { type?: unknown }): number 
   return mcInf;
 }
 
+function hexMoveFlag(ex: HexExtra | null, key: string): boolean {
+  if (!ex) return false;
+  const v = ex[key];
+  return v === true || v === 'true' || v === 1 || v === '1';
+}
+
 function terrainPropBypassEntryCost(
   cell: Cell,
   unit: { properties?: unknown } | null | undefined,
 ): number | null {
   if (!cell || !unit) return null;
   const ex = hexExtraObj(cell);
-  if (!ex) return null;
-  if (ex.moveWithSwampProp === true && unitHasPropKey(unit, 'movementThroughTheSwamp')) return 1;
-  if (ex.moveWithRiverProp === true && unitHasPropKey(unit, 'crossingAWaterObstacle')) return 1;
+  if (hexMoveFlag(ex, 'moveWithSwampProp') && unitHasPropKey(unit, 'movementThroughTheSwamp')) return 1;
+  if (hexMoveFlag(ex, 'moveWithRiverProp') && unitHasPropKey(unit, 'crossingAWaterObstacle')) return 1;
+  if (hexMoveFlag(ex, 'moveWithWaterUnitProp') && unitHasPropKey(unit, 'waterUnit')) return 1;
   return null;
 }
 
@@ -72,6 +93,10 @@ export function isHill(cell: Cell | null | undefined): boolean {
 
 export function isRavine(cell: Cell | null | undefined): boolean {
   return effectiveElevationLevel(cell) === -1;
+}
+
+function treatsAsRavineForMove(cell: Cell | null | undefined): boolean {
+  return isRavine(cell) && !isPontonComplete(cell?.builds);
 }
 
 export function unitCannotCrossRavine(unit: { type?: unknown } | null | undefined): boolean {
@@ -103,16 +128,23 @@ export function slopeTransition(fromCell: Cell, toCell: Cell) {
 }
 
 export function isRavineExitDirection(fromCell: Cell, toCell: Cell): boolean {
-  if (!isRavine(fromCell)) return true;
+  if (!isRavine(fromCell) || isPontonComplete(fromCell.builds)) return true;
   if (isRavine(toCell)) return true;
   if (effectiveElevationLevel(toCell) === 0) return true;
   return false;
 }
 
-export type MoveSlopeCounters = { ravineHexes: number; gentleUp: number; steep: number; vertical: number };
+export type MoveSlopeCounters = {
+  ravineHexes: number;
+  gentleUp: number;
+  steep: number;
+  vertical: number;
+  stepsTaken: number;
+  limitedSpecial: number;
+};
 
 export function createMoveSlopeCounters(): MoveSlopeCounters {
-  return { ravineHexes: 0, gentleUp: 0, steep: 0, vertical: 0 };
+  return { ravineHexes: 0, gentleUp: 0, steep: 0, vertical: 0, stepsTaken: 0, limitedSpecial: 0 };
 }
 
 export function canUnitTraverseSlope(
@@ -134,6 +166,7 @@ export function slopeCountersAllow(
 ): boolean {
   const tr = slopeTransition(fromCell, toCell);
   if (!canUnitTraverseSlope(unit, tr)) return false;
+  if (!specialMoveCountersAllow(unit, counters, fromCell, toCell)) return false;
   if (tr.category === 'gentle' && tr.direction === 'up' && counters.gentleUp >= 1) return false;
   if (tr.category === 'steep' && counters.steep >= 1) return false;
   if (tr.category === 'vertical' && counters.vertical >= 1) return false;
@@ -141,16 +174,19 @@ export function slopeCountersAllow(
 }
 
 export function ravineCountersAllow(
-  unit: { type?: unknown },
+  unit: { type?: unknown; properties?: unknown },
   counters: MoveSlopeCounters,
   fromCell: Cell,
   toCell: Cell,
 ): boolean {
+  const fromR = treatsAsRavineForMove(fromCell);
+  const toR = treatsAsRavineForMove(toCell);
   if (unitCannotCrossRavine(unit)) {
-    if (isRavine(toCell) || isRavine(fromCell)) return false;
+    if (toR && !waterCraftOnWaterCell(unit, toCell)) return false;
+    if (fromR && !waterCraftOnWaterCell(unit, fromCell)) return false;
   }
-  if (isRavine(toCell)) {
-    const nextRavine = isRavine(fromCell) ? counters.ravineHexes : counters.ravineHexes + 1;
+  if (toR && !waterCraftOnWaterCell(unit, toCell)) {
+    const nextRavine = fromR ? counters.ravineHexes : counters.ravineHexes + 1;
     if (nextRavine > 1) return false;
   }
   return true;
@@ -160,18 +196,21 @@ export function applyMoveSlopeCounters(
   counters: MoveSlopeCounters,
   fromCell: Cell,
   toCell: Cell,
+  unit?: { type?: unknown; properties?: unknown } | null,
 ): MoveSlopeCounters {
-  const next = { ...counters };
+  const next = { ...counters, stepsTaken: (Number(counters.stepsTaken) || 0) + 1 };
   const tr = slopeTransition(fromCell, toCell);
   if (tr.category === 'gentle' && tr.direction === 'up') next.gentleUp += 1;
   if (tr.category === 'steep') next.steep += 1;
   if (tr.category === 'vertical') next.vertical += 1;
-  if (isRavine(toCell) && !isRavine(fromCell)) next.ravineHexes += 1;
+  if (treatsAsRavineForMove(toCell) && !treatsAsRavineForMove(fromCell)) next.ravineHexes += 1;
+  if (stepUsesLimitedSpecialMove(unit, fromCell, toCell)) next.limitedSpecial += 1;
   return next;
 }
 
 export function moveCountersKey(c: MoveSlopeCounters): string {
-  return `${c.ravineHexes}:${c.gentleUp}:${c.steep}:${c.vertical}`;
+  const moved = (Number(c.stepsTaken) || 0) > 0 ? 1 : 0;
+  return `${c.ravineHexes}:${c.gentleUp}:${c.steep}:${c.vertical}:${moved}:${c.limitedSpecial || 0}`;
 }
 
 export function extendRangeArrayForHill(rangeArray: number[]): number[] {
@@ -208,19 +247,20 @@ export function readHqZoneRadiusWithHill(
 
 /** Стоимость входа на гекс (как на сервере, с учётом свойств юнита). */
 export function terrainEntryCost(cell: Cell, unit: { type?: unknown; properties?: unknown }): number {
-  if (isRavine(cell) && unitCannotCrossRavine(unit)) return 0;
+  const pontonReady = isPontonComplete(cell.builds);
+  if (isDestroyedBridgeHex(cell) && !unitCanEnterDestroyedBridge(unit, cell)) {
+    return 0;
+  }
+  if (isRavine(cell) && unitCannotCrossRavine(unit) && !pontonReady && !waterCraftOnWaterCell(unit, cell)) {
+    return 0;
+  }
   const base = readBaseTerrainEntryCost(cell, unit);
-  let cost = 0;
-  if (base > 0) cost = base;
-  else {
-    const bypass = terrainPropBypassEntryCost(cell, unit);
-    cost = bypass != null ? bypass : 0;
-  }
-  if (cost <= 0) {
-    if (isPontonComplete(cell.builds)) cost = 1;
-  }
+  const bypass = terrainPropBypassEntryCost(cell, unit);
+  let cost = bypass != null ? bypass : base > 0 ? base : 0;
+  if (pontonReady) cost = cost > 0 ? Math.min(cost, 1) : 1;
   if (cost <= 0) return 0;
-  return applyRainEntryCost(cell, unit, cost);
+  cost = applyRainEntryCost(cell, unit, cost);
+  return applyRailwayEntryDiscount(cell, unitHasPropKey(unit, 'railwayDetachment'), cost);
 }
 
 export function normalizeUnitTypeForHexExtra(unitType: unknown): string {

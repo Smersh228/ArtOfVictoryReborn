@@ -2,11 +2,11 @@ import React from 'react'
 import {
   type EditorMapLogisticsOrderKey,
   type EditorMapUnitOrderEditorMeta,
-  isArtilleryTypeUnit,
   logisticsOrderKeysOnUnit,
   readArtilleryDeployMeta,
   readUnitOrderEditorMeta,
   unitHasOrderKey,
+  unitUsesGunDeployInEditor,
 } from '../../game/editorMapUnitOrderMeta'
 
 export type EditorMapCatalogUnitPick = {
@@ -206,7 +206,7 @@ const EditorMapUnitOrderMenu: React.FC<EditorMapUnitOrderMenuProps> = ({
     (k) => k !== 'unloading',
   )
   const showDesant = unitHasOrderKey(unit as { orders?: { order_key?: string }[] }, 'desant')
-  const showArtilleryDeploy = isArtilleryTypeUnit(unit)
+  const showArtilleryDeploy = unitUsesGunDeployInEditor(unit, catalogUnits)
 
   if (!showDesant && !logisticsKeys.length && !showArtilleryDeploy) return null
 
@@ -234,7 +234,7 @@ const EditorMapUnitOrderMenu: React.FC<EditorMapUnitOrderMenuProps> = ({
 
       {showArtilleryDeploy ? (
         <div style={{ padding: '6px 12px', borderTop: '1px solid #eee', fontSize: '12px' }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Артиллерия</div>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Сектор обстрела</div>
           <label
             style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
             onClick={(e) => e.stopPropagation()}

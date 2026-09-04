@@ -102,22 +102,11 @@ function collectDefenseBonusRows(
   return rows;
 }
 
-import { unitHasPropKey } from './battleTerrain';
-
 function collectArtilleryStatusRows(unit: Record<string, unknown>): { key: string; val: string }[] {
   if (String(unit.type || '').toLowerCase() !== 'artillery') return [];
-  const tac = unit.tactical as { artilleryDeployed?: boolean; artilleryFireSector?: boolean } | undefined;
+  const tac = unit.tactical as { artilleryDeployed?: boolean } | undefined;
   const deployed = tac?.artilleryDeployed === true;
-  const rows: { key: string; val: string }[] = [
-    { key: 'Орудие', val: deployed ? 'Развёрнуто' : 'Свёрнуто' },
-  ];
-  if (deployed && unitHasPropKey(unit, 'fireSector')) {
-    rows.push({
-      key: 'Сектор обстрела',
-      val: tac?.artilleryFireSector === true ? 'Включён' : 'Задайте направление',
-    });
-  }
-  return rows;
+  return [{ key: 'Орудие', val: deployed ? 'Развёрнуто' : 'Свёрнуто' }];
 }
 
 export function formatUnitAmmoLine(unit: Record<string, unknown>): string {
@@ -168,7 +157,7 @@ export function unitStatsRowsForTip(
     inTrench?: boolean;
     defendOrder?: boolean;
     trenchDigTurnsLeft?: number;
-    sapperJob?: { key?: string; turnsLeft?: number };
+    sapperJob?: { key?: string; turnsLeft?: number; mineKind?: 'infantry' | 'tank' };
     fireSuppression?: boolean;
     infantryCover?: boolean;
     meleeOpponentInstanceId?: unknown;
@@ -199,7 +188,11 @@ export function unitStatsRowsForTip(
           : jk === 'demining'
             ? 'Разминирование'
             : jk === 'mining'
-              ? 'Минирование'
+              ? tacTip?.sapperJob?.mineKind === 'tank'
+                ? 'Минирование (танковая)'
+                : tacTip?.sapperJob?.mineKind === 'infantry'
+                  ? 'Минирование (пехотная)'
+                  : 'Минирование'
               : 'Сапёрные работы';
     out.push({ key: jobLabel, val: `Выполняется (${jobLeft} ход.)` });
   }

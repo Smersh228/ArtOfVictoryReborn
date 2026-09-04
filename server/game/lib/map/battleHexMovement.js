@@ -80,14 +80,21 @@ function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counte
   if (allCells && cellForbidsThirdPartyMeleeEntry(allCells, cell, unit)) return false
   const smoke = require('./battleSmoke')
   if (!allowSmoke && smoke.hasSmokeOnCell(cell.builds)) return false
+  const fire = require('./battleSettlementFire')
+  if (fire.hasSettlementFire(cell)) return false
   const railway = require('./battleRailway')
-  if (railway.isRailwayUnit(unit)) {
-    if (!railway.isRailwayCell(cell)) return false
-    if (fromCell && !railway.isRailwayCell(fromCell)) return false
+  if (unitHasPropKey(unit, 'railwayDetachment')) {
+    if (!railway.cellAllowsRailwayDetachment(cell)) return false
+    if (fromCell && !railway.cellAllowsRailwayDetachment(fromCell)) return false
   }
+  const structureHp = require('./battleStructureHp')
+  if (!structureHp.unitCanEnterDamagedStructure(unit, cell)) return false
   if (fromCell && counters) {
     if (!canTraverseMoveEdge(fromCell, cell, unit, counters)) return false
   }
+  const special = require('./battleSpecialTerrain')
+  if (!special.canEnterElevation3(unit, cell)) return false
+  if (!special.waterUnitCanEnterCell(unit, cell)) return false
   if (terrainEntryCost(cell, unit) === 0) return false
   return true
 }
@@ -116,7 +123,7 @@ function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds) {
       const cost = moveStepCost(current.cell, neighbor, unit)
       const newSpent = current.spent + cost
       if (newSpent > maxPoints) continue
-      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor)
+      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor, unit)
       const vKey = `${neighbor.id}:${moveCountersKey(newCounters)}`
       const old = visited[vKey]
       if (old === undefined || newSpent < old) {
@@ -138,13 +145,17 @@ function findPath(start, target, allCells, unit, fogRevealedCellIds, allowSmoke)
   visited[startKey] = 0
   queue.push({ cell: start, cost: 0, counters: startCounters, key: startKey })
   let goalKey = null
+  let steps = 0
+  const maxSteps = Math.max(256, allCells.length * 12)
   while (queue.length > 0) {
+    if (++steps > maxSteps) break
     queue.sort((a, b) => a.cost - b.cost)
     const current = queue.shift()
     if (current.cell.id === target.id) {
       goalKey = current.key
       break
     }
+    if (!current.cell.coor) continue
     for (let dir = 0; dir < 6; dir++) {
       const nb = getNeighbor(current.cell.coor, dir)
       const neighbor = findCellByCoor(allCells, nb)
@@ -156,7 +167,7 @@ function findPath(start, target, allCells, unit, fogRevealedCellIds, allowSmoke)
       }
       const cost = moveStepCost(current.cell, neighbor, unit)
       const newCost = current.cost + cost
-      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor)
+      const newCounters = applyMoveSlopeCounters(current.counters, current.cell, neighbor, unit)
       const vKey = `${neighbor.id}:${moveCountersKey(newCounters)}`
       const oldCost = visited[vKey]
       if (oldCost === undefined || newCost < oldCost) {

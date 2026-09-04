@@ -6,6 +6,7 @@ import { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import LobbyPlayersPanel from '../components/lobby/LobbyPlayersPanel';
 import LobbyMissionPanels from '../components/lobby/LobbyMissionPanels';
 import LobbyRoomChat, { type LobbyChatView } from '../components/lobby/LobbyRoomChat';
+import { useSiteChat } from './hooks/useSiteChat';
 import { useAuth } from '../context/AuthContext';
 import {
   fetchRoomDetail,
@@ -112,11 +113,12 @@ const Lobby: React.FC = () => {
   const [chatMessages, setChatMessages] = useState<LobbyRoomChatMessage[]>([]);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatSending, setChatSending] = useState(false);
-  const [chatSeen, setChatSeen] = useState({ all: 0, team: 0 });
+  const [chatSeen, setChatSeen] = useState({ all: 0, team: 0, global: 0 });
   const { user } = useAuth();
+  const siteChat = useSiteChat();
 
   useEffect(() => {
-    setChatSeen({ all: 0, team: 0 })
+    setChatSeen({ all: 0, team: 0, global: 0 })
     setChatOpen(false)
     setChatError(null)
     setChatMessages([])
@@ -240,11 +242,16 @@ const Lobby: React.FC = () => {
   const canStartBattle = youAreHost && members.length > 0 && startBattleHint === '';
   const unreadAll = chatMessages.filter((m) => (m.channel === 'team' ? false : m.id > chatSeen.all)).length;
   const unreadTeam = chatMessages.filter((m) => m.channel === 'team' && m.id > chatSeen.team).length;
-  const chatUnreadCount = unreadAll + unreadTeam;
+  const unreadGlobal = siteChat.messages.filter((m) => m.id > chatSeen.global).length;
+  const chatUnreadCount = unreadAll + unreadTeam + unreadGlobal;
 
   const markChatSeen = useCallback((channel: LobbyChatView, lastId: number) => {
     if (!lastId) return
-    setChatSeen((prev) => (prev[channel] >= lastId ? prev : { ...prev, [channel]: lastId }))
+    setChatSeen((prev) => {
+      const key = channel === 'global' ? 'global' : channel === 'team' ? 'team' : 'all'
+      if (channel === 'rkka' || channel === 'wehrmacht') return prev
+      return prev[key] >= lastId ? prev : { ...prev, [key]: lastId }
+    })
   }, []);
 
   const runSendChat = async (text: string, channel: LobbyRoomChatChannel) => {
@@ -254,6 +261,18 @@ const Lobby: React.FC = () => {
     try {
       const data = await postRoomChat(serverId, text, channel);
       applyRoomDetail(data);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : 'Не удалось отправить');
+    } finally {
+      setChatSending(false);
+    }
+  };
+
+  const runSendGlobal = async (text: string) => {
+    setChatSending(true);
+    setChatError(null);
+    try {
+      await siteChat.send(text);
     } catch (e) {
       setChatError(e instanceof Error ? e.message : 'Не удалось отправить');
     } finally {
@@ -358,9 +377,13 @@ const Lobby: React.FC = () => {
         sending={chatSending}
         error={chatError}
         onSend={runSendChat}
+        onSendGlobal={runSendGlobal}
         onViewChannel={markChatSeen}
         unreadAll={unreadAll}
         unreadTeam={unreadTeam}
+        unreadGlobal={unreadGlobal}
+        globalMessages={siteChat.messages}
+        globalMuted={siteChat.muted}
       />
     </div>
   );

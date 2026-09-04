@@ -51,7 +51,7 @@ const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
         <span className={styles.battleUnitTipKey}>Игрок</span>
         <span className={styles.battleUnitTipVal}>{playerLabel}</span>
       </div>
-      {String(unit.type || '').toLowerCase() === 'tech' && cargoLine != null ? (
+      {cargoLine != null ? (
         <div className={styles.battleUnitTipRow}>
           <span className={styles.battleUnitTipKey}>В кузове</span>
           <span className={styles.battleUnitTipVal}>{cargoLine}</span>

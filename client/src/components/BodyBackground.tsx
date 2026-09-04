@@ -1,6 +1,6 @@
 import React, { useLayoutEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import menuBackgroundUrl from '../img/backgrondImage/Menu.jpg';
+import { menuThemeImage, SETTINGS_CHANGED_EVENT } from '../utils/userSettings';
 
 
 const BodyBackground: React.FC = () => {
@@ -10,11 +10,16 @@ const BodyBackground: React.FC = () => {
     if (pathname === '/battle') {
       return;
     }
-    document.body.style.backgroundImage = `url(${menuBackgroundUrl})`;
-    document.body.style.backgroundSize = '';
-    document.body.style.backgroundPosition = '';
-    document.body.style.backgroundRepeat = '';
-    document.body.style.backgroundAttachment = '';
+    const apply = () => {
+      document.body.style.backgroundImage = `url(${menuThemeImage()})`;
+      document.body.style.backgroundSize = '';
+      document.body.style.backgroundPosition = '';
+      document.body.style.backgroundRepeat = '';
+      document.body.style.backgroundAttachment = '';
+    };
+    apply();
+    window.addEventListener(SETTINGS_CHANGED_EVENT, apply);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, apply);
   }, [pathname]);
 
   return null;

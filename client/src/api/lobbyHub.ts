@@ -17,6 +17,19 @@ export type LobbyChatMessage = {
   roleKey?: LobbyRoleKey
 }
 
+export type LobbyOnlineWhere = 'site' | 'lobby' | 'battle'
+
+export type LobbyOnlinePlayer = {
+  id: number
+  username: string
+  lastSeen: number
+  where: LobbyOnlineWhere
+  roomName: string | null
+  roomId: number | null
+  highlight?: boolean
+  roleKey?: LobbyRoleKey
+}
+
 export type LobbyHubState = {
   online: number
   inBattle: number
@@ -25,6 +38,7 @@ export type LobbyHubState = {
   roleKey: LobbyRoleKey
   onlineReal?: number
   onlineBoost?: number
+  onlinePlayers?: LobbyOnlinePlayer[]
 }
 
 export type LobbyPlayerKills = Record<string, number>
@@ -36,6 +50,7 @@ export type LobbyPlayerProfile = {
   username: string
   createdAt: string | null
   online: boolean
+  lastSeenAt: string | null
   highlight: boolean
   role: string
   roleKey: LobbyRoleKey
@@ -136,7 +151,37 @@ export class LobbyHubError extends Error {
   }
 }
 
-function parseState(data: Partial<LobbyHubState>): LobbyHubState {
+function parseOnlineWhere(raw: unknown): LobbyOnlineWhere {
+  const t = String(raw || '').trim().toLowerCase()
+  if (t === 'battle' || t === 'lobby') return t
+  return 'site'
+}
+
+function parseOnlinePlayers(raw: unknown): LobbyOnlinePlayer[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const out: LobbyOnlinePlayer[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const row = item as Partial<LobbyOnlinePlayer>
+    const id = Number(row.id)
+    const username = String(row.username || '').trim()
+    if (!Number.isFinite(id) || id <= 0 || !username) continue
+    const roomIdRaw = Number(row.roomId)
+    out.push({
+      id,
+      username,
+      lastSeen: Number(row.lastSeen) || 0,
+      where: parseOnlineWhere(row.where),
+      roomName: row.roomName ? String(row.roomName) : null,
+      roomId: Number.isFinite(roomIdRaw) && roomIdRaw > 0 ? roomIdRaw : null,
+      highlight: row.highlight === true,
+      roleKey: resolveLobbyRoleKey(row.roleKey, row.highlight),
+    })
+  }
+  return out
+}
+
+function parseState(data: Partial<LobbyHubState> & { onlinePlayers?: unknown }): LobbyHubState {
   const onlineBoostRaw = Number(data.onlineBoost)
   const onlineRealRaw = Number(data.onlineReal)
   return {
@@ -147,6 +192,7 @@ function parseState(data: Partial<LobbyHubState>): LobbyHubState {
     roleKey: resolveLobbyRoleKey(data.roleKey),
     onlineBoost: Number.isFinite(onlineBoostRaw) ? Math.max(0, Math.floor(onlineBoostRaw)) : undefined,
     onlineReal: Number.isFinite(onlineRealRaw) ? Math.max(0, Math.floor(onlineRealRaw)) : undefined,
+    onlinePlayers: parseOnlinePlayers(data.onlinePlayers),
   }
 }
 
@@ -201,6 +247,7 @@ function parseProfile(raw: Partial<LobbyPlayerProfile> | undefined): LobbyPlayer
     username: String(raw.username || ''),
     createdAt: raw.createdAt ?? null,
     online: raw.online === true,
+    lastSeenAt: raw.lastSeenAt ? String(raw.lastSeenAt) : null,
     highlight: raw.highlight === true,
     role: String(raw.role || 'Игрок'),
     roleKey: resolveLobbyRoleKey(raw.roleKey, raw.highlight),

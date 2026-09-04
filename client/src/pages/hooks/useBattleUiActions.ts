@@ -38,6 +38,12 @@ export function useBattleUiActions(params: {
     candidates: import('../../game/battleAirSupport').AccompanimentEscortCandidate[];
   } | null;
   setAccompanimentPickModal: React.Dispatch<React.SetStateAction<any>>;
+  miningPickModal: {
+    unitInstanceId: number;
+    targetCellId: number;
+    orderLabel: string;
+  } | null;
+  setMiningPickModal: React.Dispatch<React.SetStateAction<any>>;
   cells: Cell[];
 }) {
   const {
@@ -66,6 +72,8 @@ export function useBattleUiActions(params: {
     setUnloadCargoPickModal,
     accompanimentPickModal,
     setAccompanimentPickModal,
+    miningPickModal,
+    setMiningPickModal,
     cells,
   } = params;
 
@@ -266,6 +274,31 @@ export function useBattleUiActions(params: {
     [accompanimentPickModal, cells, setPendingOrders, setAccompanimentPickModal],
   );
 
+  const onCloseMiningModal = useCallback(() => {
+    setMiningPickModal(null);
+  }, [setMiningPickModal]);
+
+  const onSelectMineKind = useCallback(
+    (kind: 'infantry' | 'tank') => {
+      if (!miningPickModal) return;
+      const uid = Number(miningPickModal.unitInstanceId);
+      const cid = Number(miningPickModal.targetCellId);
+      if (!Number.isFinite(uid) || !Number.isFinite(cid)) return;
+      setPendingOrders((prev) => {
+        const next = prev.filter((x) => x.unitInstanceId !== uid);
+        next.push({
+          unitInstanceId: uid,
+          orderKey: 'mining',
+          targetCellId: cid,
+          mineKind: kind,
+        });
+        return next;
+      });
+      setMiningPickModal(null);
+    },
+    [miningPickModal, setPendingOrders, setMiningPickModal],
+  );
+
   return {
     closeLeftMenu,
     closeCenterModal,
@@ -288,5 +321,7 @@ export function useBattleUiActions(params: {
     onSelectUnloadCargo,
     onCloseAccompanimentModal,
     onSelectAccompanimentTarget,
+    onCloseMiningModal,
+    onSelectMineKind,
   };
 }

@@ -6,10 +6,16 @@ const at = require('./battleAntiTankEdges')
 const { getMines, setMines } = require('../unit/battleUnitResources')
 
 const PONTON_MIN_STR = 2
-const DEFAULT_PONTON_TURNS = 4
-const DEFAULT_CUT_EJ_TURNS = 2
-const DEFAULT_DEMINE_TURNS = 2
-const DEFAULT_MINE_TURNS = 2
+const DEFAULT_PONTON_TURNS = 1
+const DEFAULT_CUT_EJ_TURNS = 1
+const DEFAULT_DEMINE_TURNS = 1
+const DEFAULT_MINE_TURNS = 1
+const DEMOLITION_TURNS = 2
+const REPAIR_RAILWAY_TURNS = 4
+
+function sapperWorkTurns() {
+  return 1
+}
 
 function readOrderDuration(unit, orderKey, fallback) {
   const orders = unit && unit.orders
@@ -19,7 +25,7 @@ function readOrderDuration(unit, orderKey, fallback) {
       if (!o || typeof o !== 'object') continue
       const k = String(o.order_key || o.key || '').trim()
       if (k !== orderKey) continue
-      for (const field of ['turns', 'duration', 'time', 'orderTurns', 'turns_count', 'number']) {
+      for (const field of ['turns', 'duration', 'time', 'orderTurns', 'turns_count']) {
         const n = Number(o[field])
         if (Number.isFinite(n) && n >= 1) return Math.floor(n)
       }
@@ -52,6 +58,8 @@ function sapperBusyReason(unit) {
   if (k === 'cutEj') return 'снимает противотанковые заграждения'
   if (k === 'demining') return 'разминирует'
   if (k === 'mining') return 'минирует'
+  if (k === 'explomost' || k === 'demolition') return 'подрывает сооружение'
+  if (k === 'repairRailway') return 'ремонтирует железную дорогу'
   return 'сапёрные работы'
 }
 
@@ -87,7 +95,7 @@ function riverAcceptsSapper(cell, unit, getStr, unitFaction) {
 }
 
 function startJob(unit, job) {
-  ensureTac(unit).sapperJob = job
+  ensureTac(unit).sapperJob = { ...job, skipTick: true }
 }
 
 function forceMoveOnto(cur, dest, deps) {
@@ -119,7 +127,7 @@ function startBuildPonton(cells, cur, o, le, ph, deps) {
     le(ph, `Наведение переправы: ${cur.unit.instanceId} — цель не река`)
     return
   }
-  if (hexDistCells(cur.cell, river) !== 1) {
+  if (!ponton.isAdjacentRiverTarget(cur.cell, river)) {
     le(ph, `Наведение переправы: ${cur.unit.instanceId} — отряд должен стоять на соседнем с рекой гексе`)
     return
   }
@@ -132,7 +140,7 @@ function startBuildPonton(cells, cur, o, le, ph, deps) {
     return
   }
   forceMoveOnto(cur, river, deps)
-  const duration = readOrderDuration(cur.unit, 'buildPonton', DEFAULT_PONTON_TURNS)
+  const duration = sapperWorkTurns()
   startJob(cur.unit, {
     key: 'buildPonton',
     turnsLeft: duration,
@@ -190,7 +198,7 @@ function startCutEj(cells, cur, o, le, ph, deps) {
       return
     }
   }
-  const duration = readOrderDuration(cur.unit, 'cutEj', DEFAULT_CUT_EJ_TURNS)
+  const duration = sapperWorkTurns()
   startJob(cur.unit, {
     key: 'cutEj',
     turnsLeft: duration,
@@ -227,7 +235,7 @@ function startDemining(cells, cur, o, le, ph, deps) {
     le(ph, `Разминирование: минное поле на кл. ${tgt.id} не обнаружено`)
     return
   }
-  const duration = readOrderDuration(cur.unit, 'demining', DEFAULT_DEMINE_TURNS)
+  const duration = sapperWorkTurns()
   startJob(cur.unit, {
     key: 'demining',
     turnsLeft: duration,
@@ -256,24 +264,32 @@ function startMining(cells, cur, o, le, ph) {
     le(ph, `Минирование: на кл. ${cur.cell.id} уже есть минное поле`)
     return
   }
+  const trench = require('./battleTrench')
+  if (trench.cellBlocksSapperPlacement(cur.cell)) {
+    le(ph, `Минирование: на кл. ${cur.cell.id} нельзя минировать (ДОТ, склад или понтон)`)
+    return
+  }
   setMines(cur.unit, stock - 1)
-  const duration = readOrderDuration(cur.unit, 'mining', DEFAULT_MINE_TURNS)
+  const duration = sapperWorkTurns()
+  const mineKind = o && o.mineKind === 'tank' ? 'tank' : 'infantry'
   startJob(cur.unit, {
     key: 'mining',
     turnsLeft: duration,
     stayCellId: Number(cur.cell.id),
     workCellId: Number(cur.cell.id),
-    mineKind: 'infantry',
+    mineKind,
     mineTeam: mineTeamFromUnit(cur.unit),
   })
+  const kindLabel = mineKind === 'tank' ? 'танковая' : 'пехотная'
   le(
     ph,
-    `Минирование: юнит ${cur.unit.instanceId} начал минирование кл. ${cur.cell.id} (${duration} ход., мин осталось ${stock - 1})`,
+    `Минирование: юнит ${cur.unit.instanceId} начал минирование кл. ${cur.cell.id} (${kindLabel}, ${duration} ход., мин осталось ${stock - 1})`,
     {
       sapperJob: 'mining',
       sapperJobTurnsLeft: duration,
       sapperWorkCellId: Number(cur.cell.id),
       sapperMinesLeft: stock - 1,
+      mineKind,
       unitInstanceId: Number(cur.unit.instanceId),
     },
   )
@@ -311,6 +327,147 @@ function completeDemining(cells, unit, job, le, ph) {
   return true
 }
 
+function startDemolition(cells, cur, o, le, ph, deps) {
+  const { hexDistCells } = deps
+  if (isSapperBusy(cur.unit)) {
+    le(ph, `Подрыв: ${cur.unit.instanceId} — ${sapperBusyReason(cur.unit)}`)
+    return
+  }
+  const demo = require('./battleDemolition')
+  if (!demo.canPayDemolitionCharge(cur.unit)) {
+    const via = demo.unitPaysWithMines(cur.unit) ? 'мин' : 'взрывчатки'
+    le(ph, `Подрыв: юнит ${cur.unit.instanceId} — нет ${via}`)
+    return
+  }
+  const cid = Number(o.targetCellId)
+  if (!Number.isFinite(cid)) {
+    le(ph, `Подрыв: юнит ${cur.unit.instanceId} — укажите сооружение`)
+    return
+  }
+  const tc = cells.find((c) => Number(c.id) === cid)
+  if (!tc) {
+    le(ph, `Подрыв: клетка не найдена`)
+    return
+  }
+  if (hexDistCells(cur.cell, tc) !== 1) {
+    le(ph, `Подрыв: отряд должен стоять на соседнем гексе`)
+    return
+  }
+  const kind = demo.structureKind(tc)
+  if (!kind) {
+    le(ph, `Подрыв: на кл. ${tc.id} нет сооружения`)
+    return
+  }
+  const paid = demo.consumeDemolitionCharge(cur.unit)
+  const duration = DEMOLITION_TURNS
+  startJob(cur.unit, {
+    key: 'explomost',
+    turnsLeft: duration,
+    stayCellId: Number(cur.cell.id),
+    workCellId: Number(tc.id),
+    structureKind: kind,
+  })
+  const via = paid.via === 'mine' ? '−1 мина' : '−1 ВВ'
+  le(ph, `Подрыв: юнит ${cur.unit.instanceId} начал подрыв ${demo.structureLabel(kind)} на кл. ${tc.id} (${duration} ход., ${via})`, {
+    sapperJob: 'explomost',
+    sapperJobTurnsLeft: duration,
+    sapperWorkCellId: Number(tc.id),
+    unitInstanceId: Number(cur.unit.instanceId),
+  })
+}
+
+function startRepairRailway(cells, cur, o, le, ph, deps) {
+  const hexDistCells = deps && deps.hexDistCells
+  if (isSapperBusy(cur.unit)) {
+    le(ph, `Ремонт ЖД: ${cur.unit.instanceId} — ${sapperBusyReason(cur.unit)}`)
+    return
+  }
+  const railway = require('./battleRailway')
+  let work = cur.cell
+  const cid = Number(o && o.targetCellId)
+  if (Number.isFinite(cid)) {
+    const tc = cells.find((c) => Number(c.id) === cid)
+    if (!tc) {
+      le(ph, `Ремонт ЖД: клетка не найдена`)
+      return
+    }
+    const d = typeof hexDistCells === 'function' ? hexDistCells(cur.cell, tc) : 99
+    if (!(d === 0 || d === 1)) {
+      le(ph, `Ремонт ЖД: отряд должен стоять на разрушенном пути или на соседнем гексе`)
+      return
+    }
+    work = tc
+  }
+  if (!railway.isDestroyedRailwayHex(work)) {
+    le(ph, `Ремонт ЖД: юнит ${cur.unit.instanceId} — нужен гекс с разрушенной железной дорогой`)
+    return
+  }
+  const duration = REPAIR_RAILWAY_TURNS
+  startJob(cur.unit, {
+    key: 'repairRailway',
+    turnsLeft: duration,
+    stayCellId: Number(cur.cell.id),
+    workCellId: Number(work.id),
+  })
+  le(ph, `Ремонт ЖД: юнит ${cur.unit.instanceId} начал ремонт на кл. ${work.id} (${duration} ход.)`, {
+    sapperJob: 'repairRailway',
+    sapperJobTurnsLeft: duration,
+    sapperWorkCellId: Number(work.id),
+    unitInstanceId: Number(cur.unit.instanceId),
+  })
+}
+
+function startArson(cells, cur, o, le, ph) {
+  if (isSapperBusy(cur.unit)) {
+    le(ph, `Поджог: ${cur.unit.instanceId} — ${sapperBusyReason(cur.unit)}`)
+    return
+  }
+  const fire = require('./battleSettlementFire')
+  const cell = cur.cell
+  if (!fire.settlementKind(cell)) {
+    le(ph, `Поджог: юнит ${cur.unit.instanceId} — нужен гекс населённого пункта (город, деревня или станция)`)
+    return
+  }
+  if (fire.hasSettlementFire(cell)) {
+    le(ph, `Поджог: на кл. ${cell.id} уже идёт пожар`)
+    return
+  }
+  if (fire.isSettlementDestroyed(cell)) {
+    le(ph, `Поджог: населённый пункт на кл. ${cell.id} уже разрушен`)
+    return
+  }
+  fire.tryStartFire(cell, cells, le, ph, `поджог отрядом ${cur.unit.instanceId}`)
+  void o
+}
+
+function completeDemolition(cells, unit, job, le, ph, deps) {
+  const demo = require('./battleDemolition')
+  const work = cells.find((c) => Number(c.id) === Number(job.workCellId))
+  if (!work) return false
+  const kind = job.structureKind || demo.structureKind(work)
+  if (!kind) return false
+  demo.destroyStructure(cells, work, kind, le, ph, deps)
+  le(ph, `Подрыв: юнит ${unit.instanceId} уничтожил ${demo.structureLabel(kind)} на кл. ${work.id}`, {
+    sapperJobDone: 'explomost',
+    sapperWorkCellId: Number(work.id),
+    unitInstanceId: Number(unit.instanceId),
+  })
+  return true
+}
+
+function completeRepairRailway(cells, unit, job, le, ph) {
+  const railway = require('./battleRailway')
+  const work = cells.find((c) => Number(c.id) === Number(job.workCellId))
+  if (!work || !railway.isDestroyedRailwayHex(work)) return false
+  railway.repairRailwayOnCell(work)
+  le(ph, `Ремонт ЖД: юнит ${unit.instanceId} восстановил путь на кл. ${work.id}`, {
+    sapperJobDone: 'repairRailway',
+    sapperWorkCellId: Number(work.id),
+    unitInstanceId: Number(unit.instanceId),
+  })
+  return true
+}
+
 function completeMining(cells, unit, job, le, ph) {
   const work = cells.find((c) => Number(c.id) === Number(job.workCellId))
   if (!work) return false
@@ -328,12 +485,16 @@ function completeMining(cells, unit, job, le, ph) {
   return true
 }
 
-function tickSapperJobs(cells, le, ph) {
+function tickSapperJobs(cells, le, ph, deps) {
   if (!Array.isArray(cells)) return
   for (const c of cells) {
     for (const u of c.units || []) {
       const job = u && u.tactical && u.tactical.sapperJob
       if (!job || typeof job !== 'object') continue
+      if (job.skipTick) {
+        delete job.skipTick
+        continue
+      }
       let left = Number(job.turnsLeft)
       if (!Number.isFinite(left) || left <= 0) {
         clearSapperJob(u)
@@ -359,14 +520,16 @@ function tickSapperJobs(cells, le, ph) {
             unitInstanceId: Number(u.instanceId),
           },
         )
-        if (added.complete || left <= 0) {
-          if (added.complete) {
-            le(ph, `Наведение переправы: юнит ${u.instanceId} полностью навел мост на кл. ${work.id}`, {
-              sapperJobDone: 'buildPonton',
-              sapperWorkCellId: Number(work.id),
-              unitInstanceId: Number(u.instanceId),
-            })
-          }
+        if (added.complete) {
+          le(ph, `Наведение переправы: юнит ${u.instanceId} полностью навел мост на кл. ${work.id}`, {
+            sapperJobDone: 'buildPonton',
+            sapperWorkCellId: Number(work.id),
+            unitInstanceId: Number(u.instanceId),
+          })
+          clearSapperJob(u)
+          continue
+        }
+        if (left <= 0) {
           clearSapperJob(u)
           continue
         }
@@ -386,6 +549,8 @@ function tickSapperJobs(cells, le, ph) {
       if (job.key === 'cutEj') completeCutEj(cells, u, job, le, ph)
       else if (job.key === 'demining') completeDemining(cells, u, job, le, ph)
       else if (job.key === 'mining') completeMining(cells, u, job, le, ph)
+      else if (job.key === 'explomost' || job.key === 'demolition') completeDemolition(cells, u, job, le, ph, deps)
+      else if (job.key === 'repairRailway') completeRepairRailway(cells, u, job, le, ph)
       clearSapperJob(u)
     }
   }
@@ -397,6 +562,8 @@ module.exports = {
   DEFAULT_CUT_EJ_TURNS,
   DEFAULT_DEMINE_TURNS,
   DEFAULT_MINE_TURNS,
+  DEMOLITION_TURNS,
+  REPAIR_RAILWAY_TURNS,
   isSapperBusy,
   sapperBusyReason,
   clearSapperJob,
@@ -404,6 +571,9 @@ module.exports = {
   startCutEj,
   startDemining,
   startMining,
+  startDemolition,
+  startRepairRailway,
+  startArson,
   tickSapperJobs,
   mineTeamFromUnit,
   getMines,

@@ -4,7 +4,7 @@ import type { BattleOrderPayload } from '../api/rooms';
 import type { LobbyFaction } from '../api/rooms';
 import { findUnitCellByInstanceId } from './battleMovePreview';
 import { ensureCellBuilds } from './editorMapFortifications';
-import { unitIsMineOnMap } from '../pages/battlePageUtils';
+import { unitHasPropKey } from './battleTerrain';
 
 function hexDistDot(a: Cell, b: Cell): number {
   const ax = Number(a.coor?.x);
@@ -51,8 +51,24 @@ function factionsOpposedDot(fa: string, fb: string): boolean {
   const axisB = b === 'germany' || b === 'wehrmacht';
   return (sov && axisB) || (axis && sovB);
 }
-export const DOT_INF_RANGE = [3, 2, 1] as const;
-export const DOT_ART_RANGE = [2, 2, 1, 1] as const;
+
+function unitIsMineForDot(unit: Record<string, unknown>, viewerFaction: LobbyFaction): boolean {
+  if (viewerFaction === 'none') return true;
+  const raw = String(unit.faction ?? '')
+    .trim()
+    .toLowerCase();
+  const unitIsSoviet = raw === 'ussr' || raw === 'rkka';
+  const unitIsAxis = raw === 'germany' || raw === 'wehrmacht';
+  if (!unitIsSoviet && !unitIsAxis) return false;
+  if (viewerFaction === 'rkka') return unitIsSoviet;
+  if (viewerFaction === 'wehrmacht') return unitIsAxis;
+  return false;
+}
+/** Индекс = дистанция гекса (0 не используется), как у обычных таблиц range. */
+export const DOT_INF_RANGE = [0, 3, 2, 1] as const;
+export const DOT_ART_RANGE = [0, 2, 2, 1, 1] as const;
+export const DOT_INF_MAX_STEPS = DOT_INF_RANGE.length - 1;
+export const DOT_ART_MAX_STEPS = DOT_ART_RANGE.length - 1;
 export const DOT_INF_INTENSITY: Record<string, number> = { inf: 10, art: 10, tech: 10 };
 export const DOT_ART_INTENSITY: Record<string, number> = {
   inf: 6,
@@ -139,6 +155,7 @@ export function canUnitOccupySurfaceOnCell(
 }
 
 export function canEnterDotUnitType(unit: Record<string, unknown>): boolean {
+  if (unitHasPropKey(unit, 'fireAirGun')) return false;
   const t = String(unit.type || '').toLowerCase();
   return t === 'infantry' || t === 'artillery';
 }
@@ -314,7 +331,7 @@ export function dotOccupancySide(
 ): DotOccupancySide {
   const occ = resolveDotOccupantUnit(dotCell, allCells);
   if (!occ) return 'empty';
-  return unitIsMineOnMap(occ.unit, viewerFaction) ? 'friendly' : 'enemy';
+  return unitIsMineForDot(occ.unit, viewerFaction) ? 'friendly' : 'enemy';
 }
 
 export type DotHoverTip = {
@@ -402,7 +419,7 @@ export function resolveDotFacingDir(dotCell: Cell, allCells?: Cell[]): number {
 }
 
 export function dotFireSectorMaxSteps(unit: Record<string, unknown> | null | undefined): number {
-  return String(unit?.type || '').toLowerCase() === 'artillery' ? DOT_ART_RANGE.length : DOT_INF_RANGE.length;
+  return String(unit?.type || '').toLowerCase() === 'artillery' ? DOT_ART_MAX_STEPS : DOT_INF_MAX_STEPS;
 }
 
 /** Сектор стрельбы ДОТ: заполненный веер (фронт + два соседних направления). */
@@ -470,7 +487,7 @@ export function computeEditorDotFireSectorCellIds(
   facingDirOverride?: number,
 ): number[] {
   if (!hasDotOnCell(dotCell.builds) && facingDirOverride == null) return [];
-  return computeDotFireSectorCellIds(dotCell, allCells, DOT_INF_RANGE.length, facingDirOverride);
+  return computeDotFireSectorCellIds(dotCell, allCells, DOT_INF_MAX_STEPS, facingDirOverride);
 }
 
 /** Цели огня из ДОТ: враги в секторе (3 направления) и дальности, без LOS. */
@@ -482,7 +499,7 @@ export function computeDotFireHighlights(
 ): { instanceIds: Set<number>; areaCellIds: Set<number> } {
   const instanceIds = new Set<number>();
   const areaCellIds = new Set<number>();
-  const maxD = String(attacker.type || '').toLowerCase() === 'artillery' ? DOT_ART_RANGE.length : DOT_INF_RANGE.length;
+  const maxD = String(attacker.type || '').toLowerCase() === 'artillery' ? DOT_ART_MAX_STEPS : DOT_INF_MAX_STEPS;
   const af = String(attacker.faction ?? '');
   const fogHas = (id: number) => {
     if (fogRevealedCellIds == null) return true;

@@ -40,6 +40,15 @@ function isValidMeleeRetreatCell(fromCell, toCell, unit, cells, deps) {
   if (hexDistCells(fromCell, toCell) !== 1) return false
   const { terrainEntryCost, unitFaction: uf } = deps
   if (typeof terrainEntryCost === 'function' && terrainEntryCost(toCell, unit) === 0) return false
+  const { unitHasPropKey } = require('../../core/battleUnitType')
+  const special = require('../map/battleSpecialTerrain')
+  if (!special.canEnterElevation3(unit, toCell)) return false
+  if (!special.waterUnitCanEnterCell(unit, toCell)) return false
+  if (require('../map/battleSettlementFire').hasSettlementFire(toCell)) return false
+  if (unitHasPropKey(unit, 'railwayDetachment')) {
+    const railway = require('../map/battleRailway')
+    if (!railway.cellAllowsRailwayDetachment(toCell) || !railway.cellAllowsRailwayDetachment(fromCell)) return false
+  }
   const fac = (uf || unitFaction)(unit)
   if (cellHasEnemy(toCell, fac, deps)) return false
   if (cellHasOtherMelee(toCell, unit.instanceId, cells, deps)) return false
@@ -121,7 +130,7 @@ function captureMeleeWithoutAmmo(cells, ordersByUnit, le, ph, deps) {
 }
 
 function oppositeNeighbor(fromCell, towardCell, cells) {
-  if (!fromCell || !towardCell) return null
+  if (!fromCell || !towardCell || !fromCell.coor || !towardCell.coor) return null
   const dx = fromCell.coor.x - towardCell.coor.x
   const dy = fromCell.coor.y - towardCell.coor.y
   const dz = fromCell.coor.z - towardCell.coor.z
@@ -196,21 +205,29 @@ function disembarkInfantryAfterTransportMelee(cells, truck, attacker, le, ph, de
 }
 
 function tryFlankSteadfastness(le, ph, defender, defenderCell, approachCell, deps) {
-  if (!flank.isFlankOrRearAttack(defender, approachCell)) return true
-  if (flank.flanksCoveredOnCell(defender, defenderCell, deps)) {
-    le(ph, `Фланг: юнит ${defender.instanceId} — фланги прикрыты союзником без сектора`)
+  try {
+    if (!flank.isFlankOrRearAttack(defender, approachCell)) return true
+    if (flank.flanksCoveredOnCell(defender, defenderCell, deps)) {
+      le(ph, `Фланг: юнит ${defender.instanceId} — фланги прикрыты союзником без сектора`)
+      return true
+    }
+    morale.rollTankFearSteadfastness(
+      le,
+      ph,
+      defender,
+      'Атака во фланг/тыл',
+      true,
+      false,
+      deps || {},
+    )
+    return true
+  } catch (err) {
+    console.error('tryFlankSteadfastness', err)
+    if (typeof le === 'function') {
+      le(ph, `Фланг: юнит ${defender && defender.instanceId} — сбой теста стойкости`)
+    }
     return true
   }
-  morale.rollTankFearSteadfastness(
-    le,
-    ph,
-    defender,
-    'Атака во фланг/тыл',
-    true,
-    false,
-    deps,
-  )
-  return true
 }
 
 module.exports = {

@@ -7,13 +7,15 @@ export interface ModalProps {
   isOpen: boolean
   onClose: () => void
   title: React.ReactNode
-  subtitle?: string
+  subtitle?: React.ReactNode
   size?: ModalSize
   children: React.ReactNode
   footer?: React.ReactNode
+  /** Выше обычных модалок (профиль поверх белого списка). */
+  elevated?: boolean
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, size = 'md', children, footer }) => {
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, size = 'md', children, footer, elevated }) => {
   useEffect(() => {
     if (!isOpen) return
     const prev = document.body.style.overflow
@@ -29,7 +31,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, size = 
 
   return (
     <div
-      className={styles.backdrop}
+      className={`${styles.backdrop} ${elevated ? styles.backdropElevated : ''}`}
       role="presentation"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose()

@@ -2,12 +2,14 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import sovBattleTopicUrl from '../img/backgrondImage/SOVTopic.png';
 import werBattleTopicUrl from '../img/backgrondImage/WERTopic1.png';
 import menuBackgroundUrl from '../img/backgrondImage/Menu.jpg';
+import { menuThemeImage } from '../utils/userSettings';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import styles from './styleModules/battle.module.css';
 import BattleMapStage from '../components/battle/BattleMapStage';
 import BattleCenterModals from '../components/battle/BattleCenterModals';
 import BattleHqRewritePanel from '../components/battle/BattleHqRewritePanel';
+import BattleDeployPanel, { type BattleDeployPick } from '../components/battle/BattleDeployPanel';
 import BattleActionModals from '../components/battle/BattleActionModals';
 import BattleSidePanel from '../components/battle/BattleSidePanel';
 import BattleAirSupportPanel from '../components/battle/BattleAirSupportPanel';
@@ -15,10 +17,11 @@ import { formatBattleAirDesantLine, type AccompanimentEscortCandidate } from '..
 import BattleToolbar from '../components/battle/BattleToolbar';
 import LobbyRoomChat, { type LobbyChatView } from '../components/lobby/LobbyRoomChat';
 import { useAuth } from '../context/AuthContext';
+import { useSiteChat } from './hooks/useSiteChat';
 import BattleUnitOrdersPanel from '../components/battle/BattleUnitOrdersPanel';
 import BattleUnitTipCard from '../components/battle/BattleUnitTipCard';
 import BattleDotTipCard from '../components/battle/BattleDotTipCard';
-import type { BattleHoverTipView } from '../components/battle/BattleDotTipCard';
+import type { BattleHoverTipView } from '../components/battle/battleHoverTip';
 import { useBattleDerivedState } from './hooks/useBattleDerivedState';
 import { useBattleHudLayout } from './hooks/useBattleHudLayout';
 import { useBattleReportRows } from './hooks/useBattleReportRows';
@@ -61,6 +64,9 @@ import {
   fetchRoomDetail,
   fetchRoomLobbyMap,
   leaveRoom,
+  postBattleDeployPlace,
+  postBattleDeployReady,
+  postBattleDeployRemove,
   postRoomChat,
   type BattleOrderPayload,
   type LobbyFaction,
@@ -68,6 +74,7 @@ import {
   type LobbyRoomChatMessage,
 } from '../api/rooms';
 import type { EditorMapPayloadLobby } from '../api/maps';
+import { fetchEditorCatalog } from '../api/editorCatalog';
 import { getBattleOrderIconUrl } from '../game/battleOrderIcons';
 import {
   battleLogEntryReplayWithFallback,
@@ -121,7 +128,9 @@ type OrderPickState = {
   patrolTargetCellId?: number;
   patrolFlightPathCellIds?: number[];
   useFireAdjustment?: boolean;
-  fireMoveStep?: 'target' | 'dest' | 'shot';
+  fireModeStep?: 'mode';
+  useReactiveFire?: boolean;
+  fireMoveStep?: 'dest' | 'target';
   fireMoveTargetUnitId?: number;
   fireMoveDestCellId?: number;
   reconRangeStep?: 'radius';
@@ -181,6 +190,8 @@ const Battle: React.FC = () => {
     Number(roomDetail?.battleTurnAckNeed || 0) > 0 &&
     Number(roomDetail?.battleTurnAckCount || 0) > 0;
   const hqRewrite = roomDetail?.battleHqRewrite ?? null;
+  const battleDeploy = roomDetail?.battleDeploy?.active ? roomDetail.battleDeploy : null;
+  const deployActive = Boolean(battleDeploy);
   const waitingHqRewrite = Boolean(hqRewrite?.pending && !hqRewrite.youCanRewrite);
   const showResolvingOverlay =
     (waitingNextTurn || spectatorResolving || waitingHqRewrite) &&
@@ -209,7 +220,7 @@ const Battle: React.FC = () => {
     document.body.style.backgroundRepeat = 'no-repeat';
     document.body.style.backgroundAttachment = 'fixed';
     return () => {
-      document.body.style.backgroundImage = `url(${menuBackgroundUrl})`;
+      document.body.style.backgroundImage = `url(${menuThemeImage()})`;
       document.body.style.backgroundSize = '';
       document.body.style.backgroundPosition = '';
       document.body.style.backgroundRepeat = '';
@@ -232,6 +243,7 @@ const Battle: React.FC = () => {
   const [cells, setCells] = useState<Cell[]>([]);
   const [battleMapLoad, setBattleMapLoad] = useState<'loading' | 'ready'>('loading');
   const [leftMenu, setLeftMenu] = useState<BattleLeftPanelId | null>(null);
+  const [hqRevealedHoverId, setHqRevealedHoverId] = useState<number | null>(null);
   const [airSupportOpen, setAirSupportOpen] = useState(false);
   const [airSupportPanelHover, setAirSupportPanelHover] = useState<{ cellId: number; instanceId: number } | null>(
     null,
@@ -240,11 +252,12 @@ const Battle: React.FC = () => {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatSending, setChatSending] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [chatSeen, setChatSeen] = useState({ all: 0, team: 0, rkka: 0, wehrmacht: 0 });
+  const [chatSeen, setChatSeen] = useState({ all: 0, team: 0, rkka: 0, wehrmacht: 0, global: 0 });
   const { user } = useAuth();
+  const siteChat = useSiteChat();
 
   useEffect(() => {
-    setChatSeen({ all: 0, team: 0, rkka: 0, wehrmacht: 0 });
+    setChatSeen({ all: 0, team: 0, rkka: 0, wehrmacht: 0, global: 0 });
     setChatOpen(false);
     setChatError(null);
   }, [apiRoomId]);
@@ -258,9 +271,10 @@ const Battle: React.FC = () => {
   const unreadWehrmacht = chatMessages.filter(
     (m) => m.channel === 'team' && m.teamKey === 'wehrmacht' && m.id > chatSeen.wehrmacht,
   ).length;
+  const unreadGlobal = siteChat.messages.filter((m) => m.id > chatSeen.global).length;
   const chatUnreadCount = readonlyBattle
-    ? unreadAll + unreadRkka + unreadWehrmacht
-    : unreadAll + unreadTeam;
+    ? unreadAll + unreadRkka + unreadWehrmacht + unreadGlobal
+    : unreadAll + unreadTeam + unreadGlobal;
 
   const markChatSeen = useCallback((channel: LobbyChatView, lastId: number) => {
     if (!lastId) return;
@@ -302,6 +316,18 @@ const Battle: React.FC = () => {
     },
     [apiRoomId, setRoomDetail, readonlyBattle],
   );
+
+  const runSendGlobal = useCallback(async (text: string) => {
+    setChatSending(true);
+    setChatError(null);
+    try {
+      await siteChat.send(text);
+    } catch (e) {
+      setChatError(e instanceof Error ? e.message : 'Не удалось отправить');
+    } finally {
+      setChatSending(false);
+    }
+  }, [siteChat.send]);
   const mapWrapRef = useRef<HTMLDivElement>(null);
   const hasGrid = cells.length > 0;
   const [battleUnitTip, setBattleUnitTip] = useState<BattleUnitTipState | null>(null);
@@ -314,6 +340,13 @@ const Battle: React.FC = () => {
  
   const [battleHoverCellId, setBattleHoverCellId] = useState<number | null>(null);
   const [battleUnitOrders, setBattleUnitOrders] = useState<BattleUnitOrdersState | null>(null);
+  const [deployPick, setDeployPick] = useState<BattleDeployPick | null>(null);
+  const [deployBusy, setDeployBusy] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [deployCatalog, setDeployCatalog] = useState<{
+    units: Array<{ id: number; name: string; imagePath: string }>;
+    buildings: Array<{ dbId: number; name: string; imagePath: string }>;
+  }>({ units: [], buildings: [] });
   const [battleMapPayload, setBattleMapPayload] = useState<EditorMapPayloadLobby | null>(null);
   const lastBattleFieldRevisionRef = useRef<number>(0);
   const [pendingOrders, setPendingOrders] = useState<BattleOrderPayload[]>([]);
@@ -325,9 +358,54 @@ const Battle: React.FC = () => {
     hqRewriteLoadedSeqRef.current = seq;
     setPendingOrders(hqRewrite.yourDraftOrders);
   }, [hqRewrite?.youCanRewrite, hqRewrite?.seq, hqRewrite?.yourDraftOrders]);
+
+  useEffect(() => {
+    if (!hqRewrite?.youCanRewrite) setHqRevealedHoverId(null);
+  }, [hqRewrite?.youCanRewrite]);
   const [orderPick, setOrderPick] = useState<OrderPickState | null>(null);
   const orderPickRef = useRef<OrderPickState | null>(null);
   orderPickRef.current = orderPick;
+
+  useEffect(() => {
+    if (!deployActive) {
+      setDeployPick(null);
+      setDeployError(null);
+      return;
+    }
+    let cancelled = false;
+    fetchEditorCatalog()
+      .then((c) => {
+        if (cancelled) return;
+        setDeployCatalog({
+          units: (c.units || []).map((u) => ({ id: u.id, name: u.name, imagePath: u.imagePath })),
+          buildings: (c.buildings || []).map((b) => ({
+            dbId: b.dbId,
+            name: b.name,
+            imagePath: b.imagePath,
+          })),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [deployActive]);
+
+  useEffect(() => {
+    if (!deployActive) return;
+    setAirSupportOpen(false);
+    setBattleUnitOrders(null);
+    setOrderPick(null);
+  }, [deployActive]);
+
+  useEffect(() => {
+    if (!deployPick) return;
+    if (deployPick.kind === 'unit') {
+      if (!battleDeploy?.remaining?.unitIds.includes(deployPick.catalogUnitId)) setDeployPick(null);
+      return;
+    }
+    if (!battleDeploy?.remaining?.structureIds.includes(deployPick.structureId)) setDeployPick(null);
+  }, [battleDeploy?.remaining, deployPick]);
   const [battleAmmoModal, setBattleAmmoModal] = useState<{
     giver: Record<string, unknown>;
     receiver: Record<string, unknown>;
@@ -347,6 +425,11 @@ const Battle: React.FC = () => {
     orderLabel: string;
     candidates: AccompanimentEscortCandidate[];
   } | null>(null);
+  const [miningPickModal, setMiningPickModal] = useState<{
+    unitInstanceId: number;
+    targetCellId: number;
+    orderLabel: string;
+  } | null>(null);
   const [battleReportReplay, setBattleReportReplay] = useState<BattleLogReplayState | null>(null);
   const [reportAcknowledgedTurn, setReportAcknowledgedTurn] = useState<number | null>(null);
 
@@ -359,6 +442,7 @@ const Battle: React.FC = () => {
     setBattleAmmoModal(null);
     setUnloadCargoPickModal(null);
     setAccompanimentPickModal(null);
+    setMiningPickModal(null);
   }, []);
 
   useEffect(() => {
@@ -481,6 +565,7 @@ const Battle: React.FC = () => {
     battleAreaFireCellIds,
     battleDotSectorCellIds,
     battlePendingShootPreview,
+    battlePendingOrderHover,
     battlePendingLogisticsPreview,
     battleDefendHover,
     defendRangeOrderPreview,
@@ -490,6 +575,10 @@ const Battle: React.FC = () => {
     battlePatrolCenterCellId,
     patrolRangePickCellIds,
     reconRangePickCellIds,
+    battleReconHoverAreaCellIds,
+    battleReconHoverCenterCellId,
+    battleReconHoverUnitInstanceId,
+    battleReconHoverOrderKey,
     battleBombardmentAreaCellIds,
     bombardmentDirectionPickCellIds,
     bombardmentApproachCellId,
@@ -518,6 +607,9 @@ const Battle: React.FC = () => {
     airSupportOpen,
     battleReconByFaction: roomDetail?.battleReconByFaction ?? null,
     visionPenalty: Number(roomDetail?.battleEnvironment?.visionPenalty) || 0,
+    extraRevealedCellIds: deployActive ? battleDeploy?.zoneCellIds ?? [] : null,
+    hqRevealedOrders: hqRewrite?.youCanRewrite ? hqRewrite.revealedOrders ?? [] : null,
+    hqListHoverInstanceId: hqRewrite?.youCanRewrite ? hqRevealedHoverId : null,
   });
 
   const handleHoverReportRow = useCallback(
@@ -564,6 +656,100 @@ const Battle: React.FC = () => {
       return next;
     });
   }, [setLeftMenu, airSupportDisabled]);
+
+  const deployMembersReady = useMemo(
+    () =>
+      (battleDeploy?.membersReady ?? []).map((row) => ({
+        ...row,
+        label: roomDetail?.members?.find((m) => m.key === row.key)?.label || 'Игрок',
+      })),
+    [battleDeploy?.membersReady, roomDetail?.members],
+  );
+
+  const battleDeployZones = useMemo(() => {
+    if (!deployActive || viewerBattleTeam == null) return null;
+    return (battleDeploy?.zoneCellIds ?? []).map((cellId) => ({ cellId, team: viewerBattleTeam }));
+  }, [deployActive, viewerBattleTeam, battleDeploy?.zoneCellIds]);
+
+  const runDeployAction = useCallback(
+    async (info: { cell: Cell; unit: { [key: string]: any } | null }) => {
+      if (!deployActive || readonlyBattle || apiRoomId == null || !Number.isFinite(apiRoomId)) return;
+      if (deployBusy) return;
+      if (battleDeploy?.youReady) {
+        setDeployError('Снимите готовность, чтобы менять расстановку');
+        return;
+      }
+      const zone = new Set((battleDeploy?.zoneCellIds ?? []).map((id) => Number(id)));
+      const yourPlaced = battleDeploy?.yourPlaced ?? [];
+      setDeployError(null);
+      try {
+        setDeployBusy(true);
+        if (info.unit && !deployPick) {
+          const iid = Number(info.unit.instanceId);
+          const mine = yourPlaced.find((p) => p.kind === 'unit' && Number(p.instanceId) === iid);
+          if (!mine || !Number.isFinite(iid)) return;
+          const data = await postBattleDeployRemove(apiRoomId, { kind: 'unit', instanceId: iid });
+          setRoomDetail(data);
+          return;
+        }
+        if (!zone.has(Number(info.cell.id))) {
+          setDeployError('Ставить можно только в своей зоне');
+          return;
+        }
+        if (deployPick?.kind === 'unit') {
+          const data = await postBattleDeployPlace(apiRoomId, {
+            kind: 'unit',
+            catalogUnitId: deployPick.catalogUnitId,
+            cellId: Number(info.cell.id),
+          });
+          setRoomDetail(data);
+          return;
+        }
+        if (deployPick?.kind === 'structure') {
+          const data = await postBattleDeployPlace(apiRoomId, {
+            kind: 'structure',
+            structureId: deployPick.structureId,
+            cellId: Number(info.cell.id),
+          });
+          setRoomDetail(data);
+          return;
+        }
+        const rec = [...yourPlaced]
+          .reverse()
+          .find((p) => p.kind === 'structure' && Number(p.cellId) === Number(info.cell.id) && p.structureId);
+        if (rec?.structureId) {
+          const data = await postBattleDeployRemove(apiRoomId, {
+            kind: 'structure',
+            cellId: Number(info.cell.id),
+            structureId: rec.structureId,
+          });
+          setRoomDetail(data);
+        }
+      } catch (e) {
+        setDeployError(e instanceof Error ? e.message : 'Не удалось изменить расстановку');
+      } finally {
+        setDeployBusy(false);
+      }
+    },
+    [deployActive, readonlyBattle, apiRoomId, deployBusy, battleDeploy, deployPick, setRoomDetail],
+  );
+
+  const onDeployReady = useCallback(
+    async (ready: boolean) => {
+      if (apiRoomId == null || !Number.isFinite(apiRoomId) || deployBusy) return;
+      setDeployError(null);
+      setDeployBusy(true);
+      try {
+        const data = await postBattleDeployReady(apiRoomId, ready);
+        setRoomDetail(data);
+      } catch (e) {
+        setDeployError(e instanceof Error ? e.message : 'Не удалось сменить готовность');
+      } finally {
+        setDeployBusy(false);
+      }
+    },
+    [apiRoomId, deployBusy, setRoomDetail],
+  );
 
   useEffect(() => {
     if (!showAirSupportButton) setAirSupportOpen(false);
@@ -619,6 +805,8 @@ const Battle: React.FC = () => {
     onSelectUnloadCargo,
     onCloseAccompanimentModal,
     onSelectAccompanimentTarget,
+    onCloseMiningModal,
+    onSelectMineKind,
   } = useBattleUiActions({
     leftMenu,
     setLeftMenu,
@@ -645,6 +833,8 @@ const Battle: React.FC = () => {
     setUnloadCargoPickModal,
     accompanimentPickModal,
     setAccompanimentPickModal,
+    miningPickModal,
+    setMiningPickModal,
     cells,
   });
 
@@ -721,15 +911,18 @@ const Battle: React.FC = () => {
   }, [battleUnitTip, pendingOrders]);
 
   const dimBackdrop = centerModal !== null || battleEndedOverlay;
+  const hqRewriteActive = Boolean(hqRewrite?.youCanRewrite);
 
-  const showOverlay = leftMenu !== null || centerModal !== null || battleEndedOverlay || airSupportOpen;
+  const showOverlay =
+    leftMenu !== null || centerModal !== null || battleEndedOverlay || airSupportOpen || hqRewriteActive;
+  const mapHoverPassThrough = Boolean(orderPick) || hqRewriteActive || leftMenu === 'report';
 
   const overlayPortal =
     showOverlay &&
     createPortal(
       <>
         <div
-          className={`${styles.leftMenuBackdrop} ${dimBackdrop ? styles.leftMenuBackdropDim : ''} ${orderPick ? styles.leftMenuBackdropPassThrough : ''}`}
+          className={`${styles.leftMenuBackdrop} ${dimBackdrop ? styles.leftMenuBackdropDim : ''} ${mapHoverPassThrough ? styles.leftMenuBackdropPassThrough : ''}`}
           role="presentation"
           aria-hidden
           onMouseDown={backdropMouseDown}
@@ -786,6 +979,7 @@ const Battle: React.FC = () => {
             setPendingOrders,
             pendingOrders,
             setAccompanimentPickModal,
+            setMiningPickModal,
           }}
         />
         <BattleCenterModals
@@ -809,6 +1003,7 @@ const Battle: React.FC = () => {
             revealedOrders={hqRewrite.revealedOrders ?? []}
             hqRoll={hqRewrite.hqRoll}
             onKeepOrders={onKeepHqOrders}
+            onHoverRevealedUnit={setHqRevealedHoverId}
           />
         ) : null}
       </>,
@@ -816,7 +1011,7 @@ const Battle: React.FC = () => {
     );
 
   const toolbarBusy = showResolvingOverlay || battleEndedOverlay;
-  const battleControlsDisabled = toolbarBusy || readonlyBattle;
+  const battleControlsDisabled = toolbarBusy || readonlyBattle || deployActive;
 
   const unitHudPortal =
     (battleUnitTip || battleDotTip || battleUnitOrders) &&
@@ -878,15 +1073,36 @@ const Battle: React.FC = () => {
             setPendingOrders={setPendingOrders}
             pendingOrders={pendingOrders}
             setAccompanimentPickModal={setAccompanimentPickModal}
+            setMiningPickModal={setMiningPickModal}
           />
         )}
       </>,
       document.body,
     );
 
+  const deployPortal =
+    deployActive &&
+    createPortal(
+      <BattleDeployPanel
+        youReady={Boolean(battleDeploy?.youReady)}
+        readonlyBattle={readonlyBattle}
+        remaining={battleDeploy?.remaining ?? { unitIds: [], structureIds: [] }}
+        membersReady={deployMembersReady}
+        selected={deployPick}
+        onSelect={setDeployPick}
+        onReady={onDeployReady}
+        busy={deployBusy}
+        error={deployError}
+        catalogUnits={deployCatalog.units}
+        catalogBuildings={deployCatalog.buildings}
+      />,
+      document.body,
+    );
+
   return (
     <>
       {overlayPortal}
+      {deployPortal}
       {unitHudPortal}
       <BattleActionModals
         battleAmmoModal={battleAmmoModal}
@@ -911,6 +1127,10 @@ const Battle: React.FC = () => {
         accompanimentIconUrl={getBattleOrderIconUrl('accompaniment')}
         onCloseAccompanimentModal={onCloseAccompanimentModal}
         onSelectAccompanimentTarget={onSelectAccompanimentTarget}
+        miningPickModal={miningPickModal}
+        miningIconUrl={getBattleOrderIconUrl('mining')}
+        onCloseMiningModal={onCloseMiningModal}
+        onSelectMineKind={onSelectMineKind}
       />
       <div ref={battleRef} className={styles.battle}>
         <BattleToolbar
@@ -920,8 +1140,8 @@ const Battle: React.FC = () => {
           waitingNextTurn={waitingNextTurn}
           turn={turn}
           environmentLabels={roomDetail?.battleEnvironment?.labels ?? []}
-          showAirSupportButton={showAirSupportButton}
-          airSupportDisabled={airSupportDisabled}
+          showAirSupportButton={showAirSupportButton && !deployActive}
+          airSupportDisabled={airSupportDisabled || deployActive}
           onToggleAirSupport={toggleAirSupport}
           onLeaveOrSurrender={onLeaveOrSurrender}
           onShowReport={onShowReport}
@@ -956,9 +1176,7 @@ const Battle: React.FC = () => {
           moveReachableCellIds={
             sapperHexTargetCellIds
               ? Array.from(sapperHexTargetCellIds)
-              : reconRangePickCellIds
-                ? Array.from(reconRangePickCellIds)
-                : exitDotTargetCellIds
+              : exitDotTargetCellIds
                 ? Array.from(exitDotTargetCellIds)
                 : moveReachableCellIds
                   ? Array.from(moveReachableCellIds)
@@ -970,6 +1188,7 @@ const Battle: React.FC = () => {
           battleDefendHover={battleDefendHover}
           battleFireTargetInstanceIds={battleFireTargetInstanceIds ? Array.from(battleFireTargetInstanceIds) : null}
           battlePendingShootPreview={battlePendingShootPreview}
+          battlePendingOrderHover={battlePendingOrderHover}
           cellsHoverPath={cellsHoverPath}
           cellsHoverPathIsAirMission={cellsHoverPathIsAirMission}
           battleReportReplayHighlight={battleReportReplayHighlight}
@@ -1006,6 +1225,15 @@ const Battle: React.FC = () => {
           patrolRangePickCellIds={
             patrolRangePickCellIds ? Array.from(patrolRangePickCellIds) : null
           }
+          reconRangePickCellIds={
+            reconRangePickCellIds ? Array.from(reconRangePickCellIds) : null
+          }
+          battleReconHoverAreaCellIds={
+            battleReconHoverAreaCellIds ? Array.from(battleReconHoverAreaCellIds) : null
+          }
+          battleReconHoverCenterCellId={battleReconHoverCenterCellId}
+          battleReconHoverUnitInstanceId={battleReconHoverUnitInstanceId}
+          battleReconHoverOrderKey={battleReconHoverOrderKey}
           battleBombardmentAreaCellIds={
             battleBombardmentAreaCellIds ? Array.from(battleBombardmentAreaCellIds) : null
           }
@@ -1017,6 +1245,10 @@ const Battle: React.FC = () => {
           battleAirUnitsInFlight={battleAirUnitsInFlight}
           fireAdjustmentToggleAvailable={fireAdjustmentToggleAvailable}
           hiddenBattleInstanceIds={hiddenBattleInstanceIds}
+          battleDeployActive={deployActive}
+          battleDeployZones={battleDeployZones}
+          battleDeployBrushTeam={viewerBattleTeam}
+          onBattleDeployAction={runDeployAction}
         />
       </div>
       <LobbyRoomChat
@@ -1029,11 +1261,15 @@ const Battle: React.FC = () => {
         sending={chatSending}
         error={chatError}
         onSend={runSendChat}
+        onSendGlobal={runSendGlobal}
         onViewChannel={markChatSeen}
         unreadAll={unreadAll}
         unreadTeam={unreadTeam}
         unreadRkka={unreadRkka}
         unreadWehrmacht={unreadWehrmacht}
+        unreadGlobal={unreadGlobal}
+        globalMessages={siteChat.messages}
+        globalMuted={siteChat.muted}
         readOnly={readonlyBattle}
         spectator={readonlyBattle}
       />

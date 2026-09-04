@@ -80,7 +80,17 @@ function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrd
   const aliveBeforeInfo = collectAliveUnitsOnField(cells)
   const aliveBefore = new Set(aliveBeforeInfo.keys())
 
-  resolveTurn(cells, merged, log, turnIdx)
+  try {
+    resolveTurn(cells, merged, log, turnIdx)
+  } catch (err) {
+    console.error('resolveTurn', err)
+    log.push(
+      makeLogMeta(
+        turnIdx,
+        `Сбой расчёта хода: ${err && err.message ? err.message : err}`,
+      ),
+    )
+  }
 
   if (room) syncBattleReconByFaction(room, cells)
 

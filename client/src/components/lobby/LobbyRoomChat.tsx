@@ -3,8 +3,13 @@ import Button from '../Button'
 import Modal from '../Modal'
 import styles from '../../pages/styleModules/lobby.module.css'
 import type { LobbyFaction, LobbyRoomChatChannel, LobbyRoomChatMessage } from '../../api/rooms'
+import {
+  decorateLobbyNick,
+  lobbyNickClass,
+  type LobbyChatMessage,
+} from '../../api/lobbyHub'
 
-export type LobbyChatView = 'all' | 'team' | 'rkka' | 'wehrmacht'
+export type LobbyChatView = 'global' | 'all' | 'team' | 'rkka' | 'wehrmacht'
 
 function formatChatTime(ts: number): string {
   const d = new Date(ts)
@@ -20,17 +25,21 @@ type LobbyRoomChatProps = {
   isOpen: boolean
   onClose: () => void
   messages: LobbyRoomChatMessage[]
+  globalMessages?: LobbyChatMessage[]
   selfLabel: string
   selfUserId?: number
   selfFaction?: LobbyFaction
   sending: boolean
   error: string | null
   onSend: (text: string, channel: LobbyRoomChatChannel) => Promise<void>
+  onSendGlobal?: (text: string) => Promise<void>
   onViewChannel: (channel: LobbyChatView, lastId: number) => void
   unreadAll: number
   unreadTeam: number
   unreadRkka?: number
   unreadWehrmacht?: number
+  unreadGlobal?: number
+  globalMuted?: boolean
   readOnly?: boolean
   spectator?: boolean
 }
@@ -39,17 +48,21 @@ const LobbyRoomChat: React.FC<LobbyRoomChatProps> = ({
   isOpen,
   onClose,
   messages,
+  globalMessages = [],
   selfLabel,
   selfUserId,
   selfFaction,
   sending,
   error,
   onSend,
+  onSendGlobal,
   onViewChannel,
   unreadAll,
   unreadTeam,
   unreadRkka = 0,
   unreadWehrmacht = 0,
+  unreadGlobal = 0,
+  globalMuted = false,
   readOnly = false,
   spectator = false,
 }) => {
@@ -57,7 +70,8 @@ const LobbyRoomChat: React.FC<LobbyRoomChatProps> = ({
   const [view, setView] = useState<LobbyChatView>('all')
   const listRef = useRef<HTMLDivElement | null>(null)
   const canUseTeam = selfFaction === 'rkka' || selfFaction === 'wehrmacht'
-  const visible = useMemo(() => {
+  const isGlobal = view === 'global'
+  const visibleRoom = useMemo(() => {
     if (view === 'all') return messages.filter((m) => messageChannel(m) === 'all')
     if (view === 'rkka') {
       return messages.filter((m) => messageChannel(m) === 'team' && m.teamKey === 'rkka')
@@ -65,18 +79,24 @@ const LobbyRoomChat: React.FC<LobbyRoomChatProps> = ({
     if (view === 'wehrmacht') {
       return messages.filter((m) => messageChannel(m) === 'team' && m.teamKey === 'wehrmacht')
     }
-    return messages.filter((m) => messageChannel(m) === 'team')
+    if (view === 'team') return messages.filter((m) => messageChannel(m) === 'team')
+    return []
   }, [messages, view])
-  const lastId = visible.length ? visible[visible.length - 1].id : 0
+  const lastRoomId = visibleRoom.length ? visibleRoom[visibleRoom.length - 1].id : 0
+  const lastGlobalId = globalMessages.length ? globalMessages[globalMessages.length - 1].id : 0
+  const lastId = isGlobal ? lastGlobalId : lastRoomId
   const sendChannel: LobbyRoomChatChannel = view === 'all' ? 'all' : 'team'
-  const canSend =
+  const canSendRoom =
     !readOnly && !sending && draft.trim().length > 0 && (sendChannel === 'all' || canUseTeam)
+  const canSendGlobal = Boolean(onSendGlobal) && !globalMuted && !sending && draft.trim().length > 0
+  const canSend = isGlobal ? canSendGlobal : canSendRoom
+  const showForm = isGlobal ? Boolean(onSendGlobal) : !readOnly
 
   useEffect(() => {
     const el = listRef.current
     if (!el) return
     el.scrollTop = el.scrollHeight
-  }, [lastId, isOpen, view])
+  }, [lastId, isOpen, view, globalMessages.length])
 
   useEffect(() => {
     if (!isOpen) setDraft('')
@@ -91,32 +111,50 @@ const LobbyRoomChat: React.FC<LobbyRoomChatProps> = ({
     const text = draft.trim()
     if (!text || !canSend) return
     setDraft('')
+    if (isGlobal) {
+      if (onSendGlobal) await onSendGlobal(text)
+      return
+    }
     await onSend(text, sendChannel)
   }
 
   const teamLabel = selfFaction === 'rkka' ? 'РККА' : selfFaction === 'wehrmacht' ? 'Вермахт' : ''
-  const subtitle = readOnly
-    ? 'Режим наблюдения: все чаты видны, писать нельзя'
-    : view === 'team'
-      ? canUseTeam
-        ? `Командный чат · ${teamLabel}`
-        : 'Командный чат доступен после выбора фракции'
-      : view === 'rkka'
-        ? 'Командный чат РККА'
-        : view === 'wehrmacht'
-          ? 'Командный чат Вермахта'
-          : 'Общий чат видят все игроки комнаты'
+  const subtitle = isGlobal
+    ? 'Глобальный чат виден всем на сайте'
+    : readOnly
+      ? 'Режим наблюдения: все чаты видны, писать нельзя'
+      : view === 'team'
+        ? canUseTeam
+          ? `Командный чат · ${teamLabel}`
+          : 'Командный чат доступен после выбора фракции'
+        : view === 'rkka'
+          ? 'Командный чат РККА'
+          : view === 'wehrmacht'
+            ? 'Командный чат Вермахта'
+            : 'Общий чат видят все игроки комнаты'
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Чат комнаты"
+      title="Чат"
       subtitle={subtitle}
       footer={<Button name="Закрыть" size={160} onClick={onClose} />}
     >
       <div className={styles.lobbyChat}>
         <div className={styles.lobbyChatTabs} role="tablist" aria-label="Каналы чата">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === 'global'}
+            className={`${styles.lobbyChatTab} ${view === 'global' ? styles.lobbyChatTabActive : ''}`}
+            onClick={() => setView('global')}
+          >
+            Глобальный
+            {unreadGlobal > 0 && view !== 'global' ? (
+              <span className={styles.lobbyChatTabBadge}>{unreadGlobal > 99 ? '99+' : unreadGlobal}</span>
+            ) : null}
+          </button>
           <button
             type="button"
             role="tab"
@@ -174,12 +212,35 @@ const LobbyRoomChat: React.FC<LobbyRoomChatProps> = ({
           )}
         </div>
         <div ref={listRef} className={styles.lobbyChatList}>
-          {!spectator && view === 'team' && !canUseTeam ? (
+          {!isGlobal && !spectator && view === 'team' && !canUseTeam ? (
             <div className={styles.lobbyChatEmpty}>Сначала выберите фракцию</div>
-          ) : visible.length === 0 ? (
+          ) : isGlobal ? (
+            globalMessages.length === 0 ? (
+              <div className={styles.lobbyChatEmpty}>Пока нет сообщений</div>
+            ) : (
+              globalMessages.map((m) => {
+                const mine = selfUserId != null && selfUserId > 0 && Number(m.userId) === selfUserId
+                const nickClass = m.system ? styles.lobbyChatNameSystem : styles[lobbyNickClass(m.roleKey, m.highlight)]
+                return (
+                  <div
+                    key={`g:${m.id}`}
+                    className={`${styles.lobbyChatRow} ${mine ? styles.lobbyChatRowMine : ''} ${m.system ? styles.lobbyChatRowSystem : ''}`}
+                  >
+                    <div className={styles.lobbyChatMeta}>
+                      <span className={`${styles.lobbyChatName} ${nickClass || ''}`}>
+                        {m.system ? m.username : decorateLobbyNick(m.username, m.roleKey, m.highlight)}
+                      </span>
+                      <span className={styles.lobbyChatTime}>{formatChatTime(m.ts)}</span>
+                    </div>
+                    <div className={styles.lobbyChatText}>{m.text}</div>
+                  </div>
+                )
+              })
+            )
+          ) : visibleRoom.length === 0 ? (
             <div className={styles.lobbyChatEmpty}>Пока нет сообщений</div>
           ) : (
-            visible.map((m) => {
+            visibleRoom.map((m) => {
               const mine =
                 (selfUserId != null && selfUserId > 0 && Number(m.userId) === selfUserId) ||
                 m.username === selfLabel
@@ -198,9 +259,12 @@ const LobbyRoomChat: React.FC<LobbyRoomChatProps> = ({
             })
           )}
         </div>
-        {error ? <div className={styles.lobbyChatError}>{error}</div> : null}
-        {readOnly ? (
-          <div className={styles.lobbyChatEmpty}>Наблюдатель не может писать в чат</div>
+        {isGlobal && globalMuted ? (
+          <div className={styles.lobbyChatError}>Вы получили системный мут</div>
+        ) : null}
+        {error && !(isGlobal && globalMuted) ? <div className={styles.lobbyChatError}>{error}</div> : null}
+        {!showForm ? (
+          <div className={styles.lobbyChatEmpty}>Наблюдатель не может писать в чат комнаты</div>
         ) : (
           <form
             className={styles.lobbyChatForm}
@@ -214,15 +278,22 @@ const LobbyRoomChat: React.FC<LobbyRoomChatProps> = ({
               type="text"
               maxLength={240}
               placeholder={
-                sendChannel === 'team'
-                  ? canUseTeam
-                    ? 'Сообщение команде…'
-                    : 'Выберите фракцию'
-                  : 'Сообщение всем…'
+                isGlobal
+                  ? globalMuted
+                    ? 'Чат недоступен'
+                    : 'Сообщение на сайт…'
+                  : sendChannel === 'team'
+                    ? canUseTeam
+                      ? 'Сообщение команде…'
+                      : 'Выберите фракцию'
+                    : 'Сообщение всем…'
               }
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              disabled={sending || (sendChannel === 'team' && !canUseTeam)}
+              disabled={
+                sending ||
+                (isGlobal ? globalMuted : sendChannel === 'team' && !canUseTeam)
+              }
             />
             <button className={styles.lobbyChatSend} type="submit" disabled={!canSend}>
               Отправить

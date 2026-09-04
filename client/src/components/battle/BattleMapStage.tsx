@@ -1,18 +1,21 @@
 import React from 'react';
 import Cells from '../map/Cells';
 import styles from '../../pages/styleModules/battle.module.css';
+import type { BattleOrderPayload } from '../../api/rooms';
 import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
 import BattleMapHud from './BattleMapHud';
 import BattleResolvingOverlay from './BattleResolvingOverlay';
-import { findUnitCellByInstanceId, findGroundBattleUnitByInstanceId, battleInstanceIdInList, findMovementPath } from '../../game/battleMovePreview';
+import { findUnitCellByInstanceId, findGroundBattleUnitByInstanceId, battleInstanceIdInList } from '../../game/battleMovePreview';
 import { airOrderNeedsHexTarget, computeBombardmentAreaCellIds, isAirUnitAirborneForInterception, isBattleAirUnitType, readAirFlightPositionCellId, readBattleVisionRange, readReconRingStepsFromUnit } from '../../game/battleAirSupport';
-import { battleUnitHasPropKey, hexDistCells, maxAirMissionHexStepsForUnit, maxShootRangeStepsForUnit } from '../../game/battleFirePreview';
+import { battleUnitHasPropKey, hexDistCells, maxAirMissionHexStepsForUnit, maxGunSectorRangeStepsForUnit, maxShootRangeStepsForUnit, computeBattleFireHighlights, explainNoFireTargets } from '../../game/battleFirePreview';
+import { isShootableStructureCell, unitHasBuildFire, structureInspectOf } from '../../game/cellStructureHp';
 import { cellsEligibleForCutWire, edgeIndexFromPoint } from '../../game/cellWireEdges';
 import { cellsEligibleForTrenchFacing, isTrenchForbiddenOnCell } from '../../game/cellTrenchEdges';
 import { cellsEligibleForCutEj } from '../../game/cellAntiTankEdges';
 import { cellsEligibleForPonton } from '../../game/cellPonton';
 import { cellsEligibleForDemining } from '../../game/editorMapFortifications';
-import { cellsEligibleForExplomost } from '../../game/cellSmoke';
+import { cellsEligibleForDemolition } from '../../game/cellDemolition';
+import { cellsEligibleForRepairRailway } from '../../game/cellRailway';
 import { getCellCenter } from '../map/cellsInteraction';
 import {
   buildDotHoverTip,
@@ -24,16 +27,26 @@ import {
 } from '../../game/cellDot';
 import { computeHexFlightPathCellIds, computeInterceptionMeetingCell } from '../../game/battleFlightPath';
 import { cellHasWarehouse, buildStorageHoverTip, maxAmmoLoadFromWarehouse, maxAmmoTransferFromTruckTo, readStorageAmmo } from '../../game/battleLogisticsUi';
-import { hoverTipFromDot, type BattleHoverTipView } from './BattleDotTipCard';
+import { hoverTipFromDot, hoverTipFromStructure, type BattleHoverTipView } from './battleHoverTip';
 import { buildMineHoverTip, isMineVisibleOnBattleMap } from '../../game/editorMapFortifications';
-import { fireMoveLosCellIds } from '../../game/battleHiddenState';
+import type { BattlePendingOrderHover } from '../../game/battlePendingOrderHover';
 
 type BattleMapStageProps = {
   battleMapLoad: 'loading' | 'ready';
   hasGrid: boolean;
   mapWrapRef: React.RefObject<HTMLDivElement | null>;
   battleHoverCellId: number | null;
-  orderPick: { orderKey?: string; unit?: { instanceId?: number | string; faction?: string }; unloadCargoInstanceId?: number | string | null; defendStep?: 'facing' | 'range'; defendFacingPickedId?: number } | null;
+  orderPick: {
+    orderKey?: string;
+    orderLabel?: string;
+    unit?: { instanceId?: number | string; faction?: string; name?: string };
+    unloadCargoInstanceId?: number | string | null;
+    defendStep?: 'facing' | 'range';
+    defendFacingPickedId?: number;
+    fireModeStep?: 'mode';
+    useReactiveFire?: boolean;
+    useFireAdjustment?: boolean;
+  } | null;
   battleAreaFireCellIds: number[] | null;
   battleDotSectorCellIds?: number[] | null;
   enterDotGlowCellIds?: number[] | null;
@@ -64,6 +77,7 @@ type BattleMapStageProps = {
   battleDefendHover: any;
   battleFireTargetInstanceIds: number[] | null;
   battlePendingShootPreview: any;
+  battlePendingOrderHover?: BattlePendingOrderHover | null;
   cellsHoverPath: Cell[] | null;
   cellsHoverPathIsAirMission?: boolean;
   battleReportReplayHighlight: any;
@@ -79,6 +93,11 @@ type BattleMapStageProps = {
   bombardmentDirectionPickCellIds: number[] | null;
   bombardmentApproachCellId: number | null;
   patrolRangePickCellIds: number[] | null;
+  reconRangePickCellIds?: number[] | null;
+  battleReconHoverAreaCellIds?: number[] | null;
+  battleReconHoverCenterCellId?: number | null;
+  battleReconHoverUnitInstanceId?: number | null;
+  battleReconHoverOrderKey?: 'razvedka' | 'svzy' | null;
   battleAirInterceptionTargets: import('../../game/battleAirSupport').AirInterceptionTarget[] | null;
   battleAirUnitsInFlight: import('../../game/battleAirSupport').AirUnitInFlight[];
   fireAdjustmentToggleAvailable?: boolean;
@@ -101,6 +120,10 @@ type BattleMapStageProps = {
   resolvingTitle?: string;
   resolvingHint?: string;
   hiddenBattleInstanceIds?: number[] | null;
+  battleDeployActive?: boolean;
+  battleDeployZones?: { cellId: number; team: number }[] | null;
+  battleDeployBrushTeam?: number | null;
+  onBattleDeployAction?: (info: { cell: Cell; unit: { [key: string]: any } | null }) => void;
 };
 
 const BattleMapStage: React.FC<BattleMapStageProps> = ({
@@ -131,6 +154,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   battleDefendHover,
   battleFireTargetInstanceIds,
   battlePendingShootPreview,
+  battlePendingOrderHover = null,
   cellsHoverPath,
   cellsHoverPathIsAirMission,
   battleReportReplayHighlight,
@@ -146,6 +170,11 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   bombardmentDirectionPickCellIds,
   bombardmentApproachCellId,
   patrolRangePickCellIds,
+  reconRangePickCellIds = null,
+  battleReconHoverAreaCellIds = null,
+  battleReconHoverCenterCellId = null,
+  battleReconHoverUnitInstanceId = null,
+  battleReconHoverOrderKey = null,
   battleAirInterceptionTargets,
   battleAirUnitsInFlight,
   fireAdjustmentToggleAvailable,
@@ -168,6 +197,10 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   resolvingTitle,
   resolvingHint,
   hiddenBattleInstanceIds = null,
+  battleDeployActive = false,
+  battleDeployZones = null,
+  battleDeployBrushTeam = null,
+  onBattleDeployAction,
 }) => {
   const parseId = (value: string | number | null | undefined): number => parseInt(`${value ?? ''}`, 10);
   const isValidId = (value: number): boolean => Number.isFinite(value);
@@ -214,6 +247,8 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
     'demining',
     'smoke',
     'explomost',
+    'demolition',
+    'repairRailway',
     'move',
     'moveWar',
     'unloading',
@@ -231,6 +266,8 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
   const ignoreUnitClicks = Boolean(
     orderPick?.orderKey &&
       (hexTargetOrderKeys.has(String(orderPick.orderKey)) ||
+        ((orderPick.orderKey === 'fire' || orderPick.orderKey === 'fireHard') &&
+          (orderPick as { fireModeStep?: string }).fireModeStep === 'mode') ||
         (orderPick.orderKey === 'fireMove' &&
           (orderPick as { fireMoveStep?: string }).fireMoveStep &&
           (orderPick as { fireMoveStep?: string }).fireMoveStep !== 'target')),
@@ -248,8 +285,66 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
     return isValidId(tid) ? tid : null;
   })();
   const loadingSupHoverPreview = battlePendingLogisticsPreview;
-  const fireOrderExtras = (pick: { orderKey?: string; useFireAdjustment?: boolean }) =>
-    pick.orderKey === 'fire' && pick.useFireAdjustment ? { useFireAdjustment: true as const } : {};
+  const fireOrderExtras = (pick: {
+    orderKey?: string;
+    useFireAdjustment?: boolean;
+    useReactiveFire?: boolean;
+  }) => {
+    const extra: { useFireAdjustment?: true; useReactiveFire?: true } = {};
+    if (pick.orderKey === 'fire' && pick.useFireAdjustment) extra.useFireAdjustment = true;
+    if ((pick.orderKey === 'fire' || pick.orderKey === 'fireHard') && pick.useReactiveFire) {
+      extra.useReactiveFire = true;
+    }
+    return extra;
+  };
+  const applyFireMode = (reactive: boolean) => {
+    const pick = orderPickRef.current as {
+      orderKey?: string;
+      unit?: { instanceId?: number | string };
+      useFireAdjustment?: boolean;
+      fireModeStep?: string;
+      orderLabel?: string;
+    } | null;
+    if (!pick || (pick.orderKey !== 'fire' && pick.orderKey !== 'fireHard')) return;
+    const uid = parseId(pick.unit?.instanceId);
+    const live = isValidId(uid) ? findGroundBattleUnitByInstanceId(cells, uid) : null;
+    if (!live || live.inCargo) {
+      dismissOrderPicking();
+      return;
+    }
+    const u = live.unit as Record<string, unknown>;
+    const ok = pick.orderKey as 'fire' | 'fireHard';
+    const fh = computeBattleFireHighlights(
+      u,
+      live.cell,
+      cells,
+      ok,
+      battleFogRevealedCellIds,
+      {
+        viewerFaction: myBattleFaction,
+        useFireAdjustment: !!pick.useFireAdjustment,
+        useReactiveFire: reactive,
+      },
+    );
+    const areaCount = fh.areaCellIds instanceof Set ? fh.areaCellIds.size : 0;
+    const targetCount = fh.instanceIds instanceof Set ? fh.instanceIds.size : 0;
+    if (areaCount < 1 && targetCount < 1) {
+      window.alert(
+        explainNoFireTargets(u, live.cell, cells, ok, battleFogRevealedCellIds, {
+          viewerFaction: myBattleFaction,
+          useFireAdjustment: !!pick.useFireAdjustment,
+          useReactiveFire: reactive,
+        }),
+      );
+      dismissOrderPicking();
+      return;
+    }
+    setOrderPick({
+      ...pick,
+      fireModeStep: undefined,
+      useReactiveFire: reactive,
+    });
+  };
   const upsertOrder = (
     prev: BattleOrderPayload[],
     unitInstanceId: number,
@@ -282,6 +377,20 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
       clientX,
       clientY,
       tip: buildMineHoverTip(cell.builds),
+      pinned: true,
+    });
+  };
+
+  const pinStructureInfo = (cell: Cell, clientX: number, clientY: number) => {
+    const tip = hoverTipFromStructure(cell);
+    if (!tip) return;
+    pinnedMineCellIdRef.current = Number(cell.id);
+    setBattleUnitTip(null);
+    setBattleDotTip({
+      cell,
+      clientX,
+      clientY,
+      tip,
       pinned: true,
     });
   };
@@ -418,6 +527,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             orderPick={orderPick}
             battleAreaFireCellIds={battleAreaFireCellIds}
             fireAdjustmentToggleAvailable={fireAdjustmentToggleAvailable}
+            onApplyFireMode={applyFireMode}
             onToggleFireAdjustment={() => {
               setOrderPick((prev: { useFireAdjustment?: boolean } | null) =>
                 prev ? { ...prev, useFireAdjustment: !prev.useFireAdjustment } : prev,
@@ -508,6 +618,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             enterDotGlowCellIds={enterDotGlowCellIds}
             loadingSupGlowCellIds={loadingSupGlowCellIds}
             battlePendingShootPreview={battlePendingShootPreview}
+            battlePendingOrderHover={battlePendingOrderHover}
             hoverPath={cellsHoverPath}
             hoverPathIsAirMission={cellsHoverPathIsAirMission}
             battleReportReplayHighlight={battleReportReplayHighlight}
@@ -525,12 +636,23 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
             bombardmentDirectionPickCellIds={bombardmentDirectionPickCellIds}
             bombardmentApproachCellId={bombardmentApproachCellId}
             patrolRangePickCellIds={patrolRangePickCellIds}
+            reconRangePickCellIds={reconRangePickCellIds}
+            battleReconHoverAreaCellIds={battleReconHoverAreaCellIds}
+            battleReconHoverCenterCellId={battleReconHoverCenterCellId}
+            battleReconHoverUnitInstanceId={battleReconHoverUnitInstanceId}
+            battleReconHoverOrderKey={battleReconHoverOrderKey}
             battleAirInterceptionTargets={battleAirInterceptionTargets}
             battleAirUnitsInFlight={battleAirUnitsInFlight}
             battleLogisticsUnitDecal={null}
             battlePendingLogisticsPreview={loadingSupHoverPreview}
+            editorDeployZones={battleDeployZones}
+            editorDeployBrushTeam={battleDeployBrushTeam}
             onUnitClick={(unit, cell, e) => {
               const u = unit as { [key: string]: any };
+              if (battleDeployActive) {
+                onBattleDeployAction?.({ cell, unit: u });
+                return;
+              }
               const iid = parseId(u.instanceId);
               const pick = orderPickRef.current;
               if (!pick) clearPinnedMineInfo();
@@ -543,17 +665,39 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
               ) {
                 if (trySubmitInterceptionPick(u as Record<string, unknown>)) return;
               }
+              if (pick && pick.orderKey === 'smoke') {
+                if (apiRoomId == null || !isFinite(apiRoomId)) {
+                  dismissOrderPicking();
+                  return;
+                }
+                if (battleAreaFireCellIds == null || !battleAreaFireCellIds.includes(cell.id)) {
+                  dismissOrderPicking();
+                  return;
+                }
+                setBattleUnitTip(null);
+                setPendingOrders((prev) => {
+                  return upsertOrder(prev, parseId(pick.unit.instanceId), {
+                    unitInstanceId: parseId(pick.unit.instanceId),
+                    orderKey: 'smoke',
+                    targetCellId: Number(cell.id),
+                  });
+                });
+                dismissOrderPicking();
+                return;
+              }
               if (
                 pick &&
                 apiRoomId != null &&
                 isValidId(iid) &&
                 ['fire', 'fireHard', 'attack', 'hardMove', 'fireMove'].includes(pick.orderKey)
               ) {
+                if ((pick as { fireModeStep?: string }).fireModeStep === 'mode') return;
                 setBattleUnitTip(null);
                 const attacker = pick.unit;
                 if (
                   (pick.orderKey === 'fire' || pick.orderKey === 'fireHard') &&
-                  battleUnitHasPropKey(attacker as { [key: string]: any }, 'areaFire')
+                  (pick.useReactiveFire ||
+                    battleUnitHasPropKey(attacker as { [key: string]: any }, 'areaFire'))
                 ) {
                   if (battleAreaFireCellIds == null || !battleAreaFireCellIds.includes(cell.id)) {
                     dismissOrderPicking();
@@ -591,11 +735,24 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   return;
                 }
                 if (pick.orderKey === 'fireMove') {
-                  setOrderPick({
-                    ...pick,
-                    fireMoveStep: 'dest',
-                    fireMoveTargetUnitId: iid,
+                  if ((pick as { fireMoveStep?: string }).fireMoveStep !== 'target') {
+                    return;
+                  }
+                  const destId = Number((pick as { fireMoveDestCellId?: number }).fireMoveDestCellId);
+                  if (!Number.isFinite(destId)) {
+                    dismissOrderPicking();
+                    return;
+                  }
+                  setPendingOrders((prev) => {
+                    return upsertOrder(prev, parseId(pick.unit.instanceId), {
+                      unitInstanceId: parseId(pick.unit.instanceId),
+                      orderKey: 'fireMove',
+                      targetCellId: destId,
+                      targetUnitInstanceId: iid,
+                      fireFromCellId: destId,
+                    });
                   });
+                  dismissOrderPicking();
                   return;
                 }
                 setPendingOrders((prev) => {
@@ -613,7 +770,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 pick &&
                 apiRoomId != null &&
                 isValidId(iid) &&
-                ['getSup', 'loading', 'tow', 'railLoading'].includes(pick.orderKey)
+                ['getSup', 'loading', 'tow', 'railLoading', 'medical'].includes(pick.orderKey)
               ) {
                 setBattleUnitTip(null);
                 if (pick.orderKey === 'getSup') {
@@ -654,8 +811,10 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
               if (pick && (pick.orderKey === 'unloading' || pick.orderKey === 'railUnloading' || pick.orderKey === 'loadingSup')) {
                 return;
               }
-              if (pick && (pick.orderKey === 'enterDot' || pick.orderKey === 'exitDot' || pick.orderKey === 'cutWire' || pick.orderKey === 'trenches' || pick.orderKey === 'buildPonton' || pick.orderKey === 'cutEj' || pick.orderKey === 'demining' || pick.orderKey === 'smoke' || pick.orderKey === 'explomost')) {
-                return;
+              let cancelledHexPick = false;
+              if (pick && (pick.orderKey === 'enterDot' || pick.orderKey === 'exitDot' || pick.orderKey === 'cutWire' || pick.orderKey === 'trenches' || pick.orderKey === 'buildPonton' || pick.orderKey === 'cutEj' || pick.orderKey === 'demining' || pick.orderKey === 'smoke' || pick.orderKey === 'explomost' || pick.orderKey === 'demolition' || pick.orderKey === 'repairRailway')) {
+                dismissOrderPicking();
+                cancelledHexPick = true;
               }
               if (pick && pick.orderKey === 'bombardment' && pick.bombardmentStep === 'direction') {
                 return;
@@ -666,7 +825,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
               if (pick && (pick.orderKey === 'razvedka' || pick.orderKey === 'svzy')) {
                 return;
               }
-              if (pick) {
+              if (pick && !cancelledHexPick) {
                 dismissOrderPicking();
                 return;
               }
@@ -690,6 +849,11 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
               });
             }}
             onCellClick={(cell, unitId, clickPos) => {
+              if (battleDeployActive) {
+                if (unitId != null) return;
+                onBattleDeployAction?.({ cell, unit: null });
+                return;
+              }
               const pick = orderPickRef.current;
 
               if (trySubmitAirHexOrderPick(cell)) return;
@@ -825,7 +989,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 return;
               }
 
-              if (pick && ['getSup', 'loading', 'tow', 'railLoading'].includes(pick.orderKey)) {
+              if (pick && ['getSup', 'loading', 'tow', 'railLoading', 'medical'].includes(pick.orderKey)) {
                 if (unitId !== undefined && unitId !== null && String(unitId) !== '') return;
                 const onCell = findLogisticsTargetOnCell(cell);
                 if (onCell) {
@@ -905,7 +1069,10 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                     dismissOrderPicking();
                     return;
                   }
-                  const wmax = maxShootRangeStepsForUnit(pick.unit as { [key: string]: any });
+                  const wmax =
+                    pick.orderKey === 'deploy' || pick.orderKey === 'changeSector'
+                      ? maxGunSectorRangeStepsForUnit(pick.unit as { [key: string]: any })
+                      : maxShootRangeStepsForUnit(pick.unit as { [key: string]: any });
                   if (wmax < 1) {
                     dismissOrderPicking();
                     return;
@@ -992,12 +1159,14 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   return;
                 }
                 if (isTrenchForbiddenOnCell(live.cell)) {
+                  dismissOrderPicking();
                   return;
                 }
                 const trenchOk = cellsEligibleForTrenchFacing(live.cell, cells).some((c) =>
                   sameCellId(c.id, cell.id),
                 );
                 if (!trenchOk) {
+                  dismissOrderPicking();
                   return;
                 }
                 setPendingOrders((prev) => {
@@ -1023,6 +1192,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 }
                 const wireOk = cellsEligibleForCutWire(live.cell, cells).some((c) => sameCellId(c.id, cell.id));
                 if (!wireOk) {
+                  dismissOrderPicking();
                   return;
                 }
                 const sameHex = sameCellId(live.cell.id, cell.id);
@@ -1059,6 +1229,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 }
                 const ok = cellsEligibleForPonton(live.cell, cells).some((c) => sameCellId(c.id, cell.id));
                 if (!ok) {
+                  dismissOrderPicking();
                   return;
                 }
                 setPendingOrders((prev) => {
@@ -1083,6 +1254,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 }
                 const ok = cellsEligibleForCutEj(live.cell, cells).some((c) => sameCellId(c.id, cell.id));
                 if (!ok) {
+                  dismissOrderPicking();
                   return;
                 }
                 const sameHex = sameCellId(live.cell.id, cell.id);
@@ -1121,6 +1293,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   sameCellId(c.id, cell.id),
                 );
                 if (!ok) {
+                  dismissOrderPicking();
                   return;
                 }
                 setPendingOrders((prev) => {
@@ -1138,7 +1311,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   dismissOrderPicking();
                   return;
                 }
-                if (!cellIdInList(moveReachableCellIds, cell.id)) {
+                if (battleAreaFireCellIds == null || !battleAreaFireCellIds.includes(cell.id)) {
                   return;
                 }
                 setPendingOrders((prev) => {
@@ -1151,7 +1324,7 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 dismissOrderPicking();
                 return;
               }
-              if (pick && pick.orderKey === 'explomost') {
+              if (pick && (pick.orderKey === 'explomost' || pick.orderKey === 'demolition')) {
                 if (apiRoomId == null || !isFinite(apiRoomId)) {
                   dismissOrderPicking();
                   return;
@@ -1161,14 +1334,38 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   dismissOrderPicking();
                   return;
                 }
-                const ok = cellsEligibleForExplomost(live.cell, cells).some((c) => sameCellId(c.id, cell.id));
+                const ok = cellsEligibleForDemolition(live.cell, cells).some((c) => sameCellId(c.id, cell.id));
                 if (!ok) {
                   return;
                 }
                 setPendingOrders((prev) => {
                   return upsertOrder(prev, parseId(pick.unit.instanceId), {
                     unitInstanceId: parseId(pick.unit.instanceId),
-                    orderKey: 'explomost',
+                    orderKey: pick.orderKey,
+                    targetCellId: Number(cell.id),
+                  });
+                });
+                dismissOrderPicking();
+                return;
+              }
+              if (pick && pick.orderKey === 'repairRailway') {
+                if (apiRoomId == null || !isFinite(apiRoomId)) {
+                  dismissOrderPicking();
+                  return;
+                }
+                const live = findUnitCellByInstanceId(cells, Number(pick.unit.instanceId));
+                if (!live) {
+                  dismissOrderPicking();
+                  return;
+                }
+                const ok = cellsEligibleForRepairRailway(live.cell, cells).some((c) => sameCellId(c.id, cell.id));
+                if (!ok) {
+                  return;
+                }
+                setPendingOrders((prev) => {
+                  return upsertOrder(prev, parseId(pick.unit.instanceId), {
+                    unitInstanceId: parseId(pick.unit.instanceId),
+                    orderKey: 'repairRailway',
                     targetCellId: Number(cell.id),
                   });
                 });
@@ -1254,29 +1451,6 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 dismissOrderPicking();
                 return;
               }
-              if (pick && pick.orderKey === 'fireMove' && (pick as { fireMoveStep?: string }).fireMoveStep === 'shot') {
-                if (apiRoomId == null || !isFinite(apiRoomId)) {
-                  dismissOrderPicking();
-                  return;
-                }
-                if (!moveReachableCellIds?.includes(cell.id)) {
-                  dismissOrderPicking();
-                  return;
-                }
-                const destId = Number((pick as { fireMoveDestCellId?: number }).fireMoveDestCellId);
-                const tgtId = Number((pick as { fireMoveTargetUnitId?: number }).fireMoveTargetUnitId);
-                setPendingOrders((prev) =>
-                  upsertOrder(prev, parseId(pick.unit.instanceId), {
-                    unitInstanceId: parseId(pick.unit.instanceId),
-                    orderKey: 'fireMove',
-                    targetCellId: destId,
-                    targetUnitInstanceId: tgtId,
-                    fireFromCellId: cell.id,
-                  }),
-                );
-                dismissOrderPicking();
-                return;
-              }
               if (pick && pick.orderKey === 'fireMove' && (pick as { fireMoveStep?: string }).fireMoveStep === 'dest') {
                 if (apiRoomId == null || !isFinite(apiRoomId)) {
                   dismissOrderPicking();
@@ -1286,49 +1460,18 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                   dismissOrderPicking();
                   return;
                 }
-                const uid = parseId(pick.unit.instanceId);
-                const live = findUnitCellByInstanceId(cells, uid);
-                const dest = cells.find((c) => c.id === cell.id);
-                const tgtId = Number((pick as { fireMoveTargetUnitId?: number }).fireMoveTargetUnitId);
-                const tgtLive = findUnitCellByInstanceId(cells, tgtId);
-                if (!live || !dest || !tgtLive) {
-                  dismissOrderPicking();
-                  return;
-                }
-                const u = live.unit as Record<string, unknown>;
-                const path = findMovementPath(
-                  live.cell,
-                  dest,
-                  cells,
-                  {
-                    type: String(u.type ?? 'infantry'),
-                    faction: String(u.faction ?? ''),
-                    properties: u.properties,
-                  },
-                  null,
-                );
-                const los = path ? fireMoveLosCellIds(path, tgtLive.cell, cells) : [];
-                if (los.length <= 1) {
-                  setPendingOrders((prev) =>
-                    upsertOrder(prev, uid, {
-                      unitInstanceId: uid,
-                      orderKey: 'fireMove',
-                      targetCellId: dest.id,
-                      targetUnitInstanceId: tgtId,
-                      fireFromCellId: los[0] ?? dest.id,
-                    }),
-                  );
-                  dismissOrderPicking();
-                  return;
-                }
                 setOrderPick({
                   ...pick,
-                  fireMoveStep: 'shot',
-                  fireMoveDestCellId: dest.id,
+                  fireMoveStep: 'target',
+                  fireMoveDestCellId: cell.id,
                 });
                 return;
               }
               if (pick && ['fire', 'fireHard', 'attack', 'hardMove'].includes(pick.orderKey)) {
+                if ((pick as { fireModeStep?: string }).fireModeStep === 'mode') {
+                  dismissOrderPicking();
+                  return;
+                }
                 if (apiRoomId == null || !isFinite(apiRoomId)) {
                   dismissOrderPicking();
                   return;
@@ -1336,17 +1479,39 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 const uAtk = pick.unit as { [key: string]: any };
                 if (
                   (pick.orderKey === 'fire' || pick.orderKey === 'fireHard') &&
-                  battleUnitHasPropKey(uAtk, 'areaFire')
+                  battleAreaFireCellIds != null &&
+                  battleAreaFireCellIds.includes(cell.id) &&
+                  (pick.useReactiveFire ||
+                    battleUnitHasPropKey(uAtk, 'areaFire') ||
+                    (unitHasBuildFire(uAtk, !!pick.useReactiveFire) && isShootableStructureCell(cell)))
                 ) {
-                  if (battleAreaFireCellIds == null || !battleAreaFireCellIds.includes(cell.id)) {
-                    dismissOrderPicking();
-                    return;
-                  }
                   setPendingOrders((prev) => {
                     return upsertOrder(prev, parseId(pick.unit.instanceId), {
                       unitInstanceId: parseId(pick.unit.instanceId),
                       orderKey: pick.orderKey,
                       targetCellId: cell.id,
+                      ...fireOrderExtras(pick),
+                    });
+                  });
+                  dismissOrderPicking();
+                  return;
+                }
+                let fireTgtOnCell: number | null = null;
+                if (battleFireTargetInstanceIds) {
+                  for (const raw of cell.units || []) {
+                    const iid = parseId((raw as { instanceId?: unknown }).instanceId);
+                    if (isValidId(iid) && battleInstanceIdInList(battleFireTargetInstanceIds, iid)) {
+                      fireTgtOnCell = iid;
+                      break;
+                    }
+                  }
+                }
+                if (fireTgtOnCell != null) {
+                  setPendingOrders((prev) => {
+                    return upsertOrder(prev, parseId(pick.unit.instanceId), {
+                      unitInstanceId: parseId(pick.unit.instanceId),
+                      orderKey: pick.orderKey,
+                      targetUnitInstanceId: fireTgtOnCell,
                       ...fireOrderExtras(pick),
                     });
                   });
@@ -1393,6 +1558,22 @@ const BattleMapStage: React.FC<BattleMapStageProps> = ({
                 }
                 pinMineInfo(cell, cx, cy);
                 return;
+              }
+              if (structureInspectOf(cell)) {
+                const fogHidesBuilding =
+                  battleFogRevealedCellIds != null &&
+                  viewerBattleFaction !== 'none' &&
+                  !battleFogRevealedCellIds.some((id) => Number(id) === Number(cell.id));
+                if (!fogHidesBuilding) {
+                  const cx = clickPos?.clientX ?? 0;
+                  const cy = clickPos?.clientY ?? 0;
+                  if (pinnedMineCellIdRef.current === Number(cell.id)) {
+                    clearPinnedMineInfo();
+                    return;
+                  }
+                  pinStructureInfo(cell, cx, cy);
+                  return;
+                }
               }
               if (pinnedMineCellIdRef.current != null) clearPinnedMineInfo();
               if (hasDotOnCell(cell.builds)) {

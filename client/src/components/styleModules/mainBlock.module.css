@@ -27,11 +27,11 @@
 
 .onlineBadge {
   position: static;
-  align-self: flex-end;
+  align-self: stretch;
   z-index: 3;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
   padding: 8px 14px;
   border-radius: 16px;
@@ -45,15 +45,17 @@
   -webkit-backdrop-filter: blur(10px);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
   font-size: 13px;
-  font-weight: 700;
-  color: rgba(25, 25, 30, 0.92);
+  font-weight: 800;
+  color: #000;
+  text-align: center;
   white-space: nowrap;
+  min-width: 220px;
 }
 
 .onlineBoostRow {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 6px;
   margin-top: 6px;
   white-space: nowrap;
@@ -77,6 +79,7 @@
   font-size: 12px;
   font-weight: 700;
   color: #111;
+  cursor: url("../../img/cursors/cursorPar.cur"), text;
 }
 
 .onlineBoostBtn {
@@ -93,6 +96,58 @@
 .onlineBoostBtn:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+.onlineModalList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(60vh, 520px);
+  overflow: auto;
+}
+
+.onlineModalEmpty {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(40, 40, 48, 0.72);
+  padding: 12px 4px;
+}
+
+.onlineModalItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.onlineModalName {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111;
+  text-align: left;
+}
+
+.onlineModalName:hover {
+  text-decoration: underline;
+}
+
+.onlineModalWhere {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(25, 25, 30, 0.62);
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .serverZone {
@@ -165,24 +220,233 @@
 .actions {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   margin-top: 4px;
 }
 
 .actions > div {
-  width: 100%;
-  max-width: 400px;
+  width: 100% !important;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+.chatList {
+  flex: none;
+  height: min(520px, calc(100dvh - 280px));
+  max-height: min(520px, calc(100dvh - 280px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 4px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.28);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  cursor: url("../../img/cursors/cursorDefault.cur"), default;
+}
+
+.chatList::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chatList::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+}
+
+.chatList::-webkit-scrollbar-thumb {
+  background: rgba(40, 40, 48, 0.45);
+  border-radius: 8px;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
+}
+
+.chatList::-webkit-scrollbar-thumb:hover {
+  background: rgba(40, 40, 48, 0.62);
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
+}
+
+@media (max-width: 1440px) {
+  .layout {
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .panel {
+    max-width: min(400px, 34vw);
+    padding: 18px 18px 20px;
+    gap: 10px;
+  }
+
+  .title {
+    font-size: 20px;
+    margin-bottom: 2px;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .actions {
+    gap: 8px;
+  }
+
+  .rightCol {
+    width: min(300px, 30vw);
+  }
+
+  .chatList {
+    height: min(420px, calc(100dvh - 240px));
+    max-height: min(420px, calc(100dvh - 240px));
+  }
+
+  .serverZone {
+    min-height: 0;
+  }
+
+  .onlineModalList {
+    max-height: min(48vh, 380px);
+  }
+
+  .onlineModalItem {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    padding: 8px 10px;
+  }
+
+  .onlineModalName {
+    font-size: 15px;
+  }
+
+  .profilePanel {
+    min-height: 0;
+    max-height: calc(100dvh - 32px);
+    padding: 16px 18px 18px;
+  }
+
+  .profilePanelHead {
+    margin-bottom: 14px;
+  }
+
+  .profilePanelTitle {
+    font-size: 22px;
+  }
 }
 
 @media (max-width: 1280px) {
   .layout {
-    gap: 16px;
+    gap: 14px;
   }
 
   .panel {
-    max-width: min(440px, 38vw);
-    padding: 22px 22px 24px;
+    max-width: min(380px, 36vw);
+    padding: 16px 16px 18px;
+  }
+
+  .rightCol {
+    width: min(280px, 28vw);
+  }
+
+  .chatList {
+    height: min(360px, calc(100dvh - 220px));
+    max-height: min(360px, calc(100dvh - 220px));
+  }
+}
+
+@media (max-height: 900px) {
+  .panel {
+    padding: 16px 16px 18px;
+    gap: 8px;
+    max-height: calc(100dvh - 28px);
+    overflow-y: auto;
+  }
+
+  .serverZone {
+    min-height: 0;
+  }
+
+  .title {
+    font-size: 20px;
+  }
+
+  .actions {
+    gap: 7px;
+  }
+
+  .chatList {
+    height: min(340px, calc(100dvh - 220px));
+    max-height: min(340px, calc(100dvh - 220px));
+  }
+
+  .onlineModalList {
+    max-height: min(42vh, 320px);
+  }
+}
+
+@media (max-height: 768px) {
+  .layout {
+    padding-top: 0;
+  }
+
+  .panel {
+    padding: 12px 14px 14px;
+    gap: 6px;
+    max-height: calc(100dvh - 20px);
+    overflow-y: auto;
+  }
+
+  .serverZone {
+    min-height: 0;
+  }
+
+  .title {
+    font-size: 18px;
+    margin-bottom: 0;
+  }
+
+  .subtitle {
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+
+  .actions {
+    gap: 6px;
+  }
+
+  .chatTitle {
+    margin-bottom: 6px;
+    font-size: 15px;
+  }
+
+  .chatList {
+    height: min(260px, calc(100dvh - 200px));
+    max-height: min(260px, calc(100dvh - 200px));
+  }
+
+  .onlineBadge {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 0;
+  }
+
+  .onlineBoostRow {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .profilePanel {
+    min-height: 0;
+    max-height: calc(100dvh - 20px);
+    padding: 12px 14px 14px;
+  }
+
+  .profilePanelHead {
+    margin-bottom: 10px;
+    gap: 10px;
+  }
+
+  .profilePanelTitle {
+    font-size: 18px;
   }
 }
 
@@ -274,18 +538,6 @@
   color: rgba(25, 25, 30, 0.92);
 }
 
-.chatList {
-  flex: none;
-  height: 520px;
-  max-height: 520px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 6px 4px 8px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.28);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
 .chatEmpty {
   padding: 16px 8px;
   text-align: center;
@@ -317,10 +569,10 @@
   border: none;
   background: none;
   font: inherit;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 800;
   color: #111;
-  cursor: pointer;
+  cursor: url("../../img/cursors/cursorPointer.cur"), pointer;
 }
 
 .chatNameBtn:hover {
@@ -336,12 +588,12 @@
 
 .nick_moderator,
 .chatRowMine .nick_moderator {
-  color: #1565c0 !important;
+  color: #0004bf !important;
 }
 
 .nick_veteran,
 .chatRowMine .nick_veteran {
-  color: #ef6c00 !important;
+  color: #e6b000 !important;
 }
 
 .nick_veteran_moderator,
@@ -359,10 +611,8 @@
 }
 
 .chatNickMenu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 8;
+  position: fixed;
+  z-index: 1400;
   min-width: 180px;
   padding: 4px 0;
   border-radius: 8px;
@@ -397,11 +647,13 @@
 
 .profilePanel {
   flex: 1;
-  min-width: min(520px, 100%);
-  margin-top: 36px;
+  min-width: 0;
+  width: 100%;
+  max-width: min(720px, 100%);
+  margin-top: 0;
   box-sizing: border-box;
-  min-height: min(72vh, 720px);
-  max-height: min(88vh, 900px);
+  min-height: min(52vh, 560px);
+  max-height: min(88vh, calc(100dvh - 32px));
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -590,8 +842,8 @@
 }
 
 .chatName {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 800;
   color: #111;
 }
 
@@ -601,7 +853,8 @@
 }
 
 .chatText {
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 800;
   line-height: 1.35;
   color: #111;
   word-break: break-word;
@@ -745,6 +998,32 @@
 .maintenanceRegisteredName {
   font-weight: 600;
   color: #000;
+}
+
+.maintenanceListNick {
+  font-weight: 600;
+  color: #000;
+}
+
+.maintenanceNickBtn {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maintenanceNickBtn:hover,
+.maintenanceNickBtn:focus-visible {
+  text-decoration: underline;
 }
 
 .maintenanceRegisteredEmail {

@@ -42,6 +42,14 @@ function readImageSize(file: File): Promise<{ width: number; height: number }> {
   })
 }
 
+function formatLastSeen(online: boolean, iso: string | null): string {
+  if (online) return 'сейчас'
+  if (!iso) return 'нет данных'
+  const d = new Date(iso)
+  if (!Number.isFinite(d.getTime())) return 'нет данных'
+  return d.toLocaleString('ru-RU')
+}
+
 function formatProfileDate(iso: string | null): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -141,6 +149,7 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
       isOpen
       onClose={onClose}
       size="xl"
+      elevated
       title={
         profile ? (
           <span className={nickClass}>{decorateLobbyNick(profile.username, profile.roleKey, profile.highlight)}</span>
@@ -202,6 +211,10 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
               <div className={styles.profileRow}>
                 <span>Статус</span>
                 <strong>{profile.online ? 'В сети' : 'Не в сети'}</strong>
+              </div>
+              <div className={styles.profileRow}>
+                <span>Был в сети</span>
+                <strong>{formatLastSeen(profile.online, profile.lastSeenAt)}</strong>
               </div>
               <div className={styles.profileRow}>
                 <span>Роль</span>

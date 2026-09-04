@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import styles from '../../pages/styleModules/editorUnit.module.css';
 import {
   HEX_FORM_CATEGORIES,
@@ -70,6 +70,21 @@ export const EditorHexEditorFields: React.FC<Props> = ({
   };
 
   const category = typeof ex.category === 'string' && ex.category ? String(ex.category) : 'nature';
+  const hexKey = String(hexRow.id ?? hexRow.name ?? 'new');
+  const [flagRailway, setFlagRailway] = useState(ex.isRailway === true || ex.railway === true || ex.rail === true);
+  const [flagRailStation, setFlagRailStation] = useState(ex.isRailStation === true);
+  const [flagBridge, setFlagBridge] = useState(ex.isBridge === true);
+  const [flagRailwayBridge, setFlagRailwayBridge] = useState(ex.isRailwayBridge === true);
+
+  useEffect(() => {
+    setFlagRailway(ex.isRailway === true || ex.railway === true || ex.rail === true);
+    setFlagRailStation(ex.isRailStation === true);
+    setFlagBridge(ex.isBridge === true);
+    setFlagRailwayBridge(ex.isRailwayBridge === true);
+  }, [hexKey, ex.isRailway, ex.railway, ex.rail, ex.isRailStation, ex.isBridge, ex.isRailwayBridge]);
+
+  const showDestroyedBridgeImage = flagBridge || flagRailwayBridge;
+  const showDestroyedRailwayImage = flagRailway || flagRailStation || flagRailwayBridge;
 
   return (
     <div className={styles.hexEditorLayout}>
@@ -113,14 +128,74 @@ export const EditorHexEditorFields: React.FC<Props> = ({
               Населённый пункт
             </label>
             <label className={styles.fireMeleeCb}>
-              <input type="checkbox" name="hex_flag_rail" defaultChecked={ex.isRailStation === true} />
+              <input type="checkbox" name="hex_flag_city" defaultChecked={ex.isCity === true} />
+              Город (пожар 9 ходов)
+            </label>
+            <label className={styles.fireMeleeCb}>
+              <input type="checkbox" name="hex_flag_village" defaultChecked={ex.isVillage === true} />
+              Деревня
+            </label>
+            <label className={styles.fireMeleeCb}>
+              <input
+                type="checkbox"
+                name="hex_flag_rail"
+                checked={flagRailStation}
+                onChange={(e) => setFlagRailStation(e.target.checked)}
+              />
               Ж/д станция
             </label>
             <label className={styles.fireMeleeCb}>
-              <input type="checkbox" name="hex_flag_bridge" defaultChecked={ex.isBridge === true} />
+              <input
+                type="checkbox"
+                name="hex_flag_railway"
+                checked={flagRailway}
+                onChange={(e) => setFlagRailway(e.target.checked)}
+              />
+              Ж/д дорога
+            </label>
+            <label className={styles.fireMeleeCb}>
+              <input
+                type="checkbox"
+                name="hex_flag_bridge"
+                checked={flagBridge}
+                onChange={(e) => setFlagBridge(e.target.checked)}
+              />
               Мост
             </label>
+            <label className={styles.fireMeleeCb}>
+              <input
+                type="checkbox"
+                name="hex_flag_railway_bridge"
+                checked={flagRailwayBridge}
+                onChange={(e) => setFlagRailwayBridge(e.target.checked)}
+              />
+              Ж/д мост
+            </label>
+            <label className={styles.fireMeleeCb}>
+              <input type="checkbox" name="hex_flag_ford" defaultChecked={ex.isFord === true} />
+              Брод
+            </label>
           </div>
+          {showDestroyedBridgeImage ? (
+            <EditorImageField
+              label="Изображение разрушенного моста"
+              value={imagePaths.hex_image_destroyed_bridge ?? ''}
+              thumbClass={styles.thumb64}
+              labelClass={styles.fieldLabel}
+              onUpload={(f: File | null) => handleImageUpload('hex_image_destroyed_bridge', f)}
+              onClear={() => handleImageClear('hex_image_destroyed_bridge')}
+            />
+          ) : null}
+          {showDestroyedRailwayImage ? (
+            <EditorImageField
+              label="Изображение разрушенной ЖД"
+              value={imagePaths.hex_image_destroyed_railway ?? ''}
+              thumbClass={styles.thumb64}
+              labelClass={styles.fieldLabel}
+              onUpload={(f: File | null) => handleImageUpload('hex_image_destroyed_railway', f)}
+              onClear={() => handleImageClear('hex_image_destroyed_railway')}
+            />
+          ) : null}
         </div>
       </div>
 

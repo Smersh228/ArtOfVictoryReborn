@@ -4,6 +4,7 @@ import moveOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/moveOrders/mo
 import fireOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/fireOrders/fire.png'
 import fireHardOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/fireOrders/fireHard.png'
 import attackOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/moveOrders/attack.png'
+import hardMoveOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/moveOrders/hardMove.png'
 import defenseOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/defenseOrders/defense.png'
 import ambushOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/defenseOrders/ambush.png'
 import towTrailerDecalUrl from '../../img/orderUnits/ordinaryOrders/trunksOrders/trailer.png'
@@ -14,7 +15,10 @@ import landingOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/trunksOrde
 import deployOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/deploy.png'
 import changeSectorOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/changeSector.png'
 import clottingOrderDecalUrl from '../../img/orderUnits/ordinaryOrders/clotting.png'
+import razvedkaOrderDecalUrl from '../../img/orderUnits/specialOrders/razvedka.png'
+import svzyOrderDecalUrl from '../../img/orderUnits/specialOrders/svzy.png'
 import fireSupIconUrl from '../../img/fireSup.png'
+import longOrderClockUrl from '../../img/orderUnits/chasi.png'
 import airDepartureDecalUrl from '../../img/propertis/И16.png'
 import fireAirGunDecalUrl from '../../img/propertis/fireAirGun.png'
 import { EDITOR_BATTLE_ORDER_DEFS } from '../../game/battleOrderIcons'
@@ -24,7 +28,7 @@ import {
   STORAGE_SPRITE_URL,
   ANTITANK_SPRITE_URL,
   TRENCH_SPRITE_URL,
-  PONTON_SPRITE_URL,
+  PONTON_STAGE_SPRITE_URLS,
 } from '../../game/editorMapFortifications'
 import { SMOKE_SPRITE_URL } from '../../game/cellSmoke'
 
@@ -38,6 +42,7 @@ interface ShootOrderIcons {
   fire?: HTMLImageElement
   fireHard?: HTMLImageElement
   attack?: HTMLImageElement
+  hardMove?: HTMLImageElement
 }
 
 interface LogisticsOrderIcons {
@@ -47,17 +52,25 @@ interface LogisticsOrderIcons {
   loadingSup?: HTMLImageElement
 }
 
+interface ReconOrderIcons {
+  razvedka?: HTMLImageElement
+  svzy?: HTMLImageElement
+}
+
 export function useCellsAssets() {
   const moveDecalImgRef = useRef<HTMLImageElement | null>(null)
   const defendOrderDecalImgRef = useRef<HTMLImageElement | null>(null)
   const ambushOrderDecalImgRef = useRef<HTMLImageElement | null>(null)
   const shootOrderDecalImgRef = useRef<ShootOrderIcons>({})
   const logisticsUnitDecalImgRef = useRef<LogisticsOrderIcons>({})
+  const reconOrderDecalImgRef = useRef<ReconOrderIcons>({})
+  const orderDecalImgRef = useRef<Record<string, HTMLImageElement>>({})
   const unloadCellDecalImgRef = useRef<HTMLImageElement | null>(null)
   const deployOrderDecalImgRef = useRef<HTMLImageElement | null>(null)
   const changeSectorOrderDecalImgRef = useRef<HTMLImageElement | null>(null)
   const clottingOrderDecalImgRef = useRef<HTMLImageElement | null>(null)
   const fireSupIconImgRef = useRef<HTMLImageElement | null>(null)
+  const longOrderClockImgRef = useRef<HTMLImageElement | null>(null)
   /** Иконки авиаприказов на целевом гексе (превью из панели «Авиаподдержка»). */
   const airMissionOrderDecalImgRef = useRef<Record<string, HTMLImageElement>>({})
   /** Иконка точки вылета авиации на карте. */
@@ -70,6 +83,7 @@ export function useCellsAssets() {
   const dotImgRef = useRef<HTMLImageElement | null>(null)
   const storageImgRef = useRef<HTMLImageElement | null>(null)
   const pontonImgRef = useRef<HTMLImageElement | null>(null)
+  const pontonStageImgRef = useRef<(HTMLImageElement | null)[]>([])
   const smokeImgRef = useRef<HTMLImageElement | null>(null)
   const imageCacheRef = useRef<Record<string, HTMLImageElement>>({})
   const [textureVersion, setTextureVersion] = useState(0)
@@ -140,10 +154,18 @@ export function useCellsAssets() {
   }, [])
 
   useEffect(() => {
+    longOrderClockImgRef.current = buildImage(longOrderClockUrl)
+    return () => {
+      longOrderClockImgRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
     shootOrderDecalImgRef.current = {
       fire: buildImage(fireOrderDecalUrl),
       fireHard: buildImage(fireHardOrderDecalUrl),
       attack: buildImage(attackOrderDecalUrl),
+      hardMove: buildImage(hardMoveOrderDecalUrl),
     }
     return () => {
       shootOrderDecalImgRef.current = {}
@@ -159,6 +181,28 @@ export function useCellsAssets() {
     }
     return () => {
       logisticsUnitDecalImgRef.current = {}
+    }
+  }, [])
+
+  useEffect(() => {
+    reconOrderDecalImgRef.current = {
+      razvedka: buildImage(razvedkaOrderDecalUrl),
+      svzy: buildImage(svzyOrderDecalUrl),
+    }
+    return () => {
+      reconOrderDecalImgRef.current = {}
+    }
+  }, [])
+
+  useEffect(() => {
+    const next: Record<string, HTMLImageElement> = {}
+    for (const d of EDITOR_BATTLE_ORDER_DEFS) {
+      if (!d.icon) continue
+      next[d.order_key] = buildImage(d.icon)
+    }
+    orderDecalImgRef.current = next
+    return () => {
+      orderDecalImgRef.current = {}
     }
   }, [])
 
@@ -212,8 +256,11 @@ export function useCellsAssets() {
   }, [])
 
   useEffect(() => {
-    pontonImgRef.current = buildImage(PONTON_SPRITE_URL)
+    const stages = PONTON_STAGE_SPRITE_URLS.map((url) => buildImage(url))
+    pontonStageImgRef.current = stages
+    pontonImgRef.current = stages[stages.length - 1] ?? null
     return () => {
+      pontonStageImgRef.current = []
       pontonImgRef.current = null
     }
   }, [])
@@ -271,11 +318,14 @@ export function useCellsAssets() {
       ambushOrderDecalImgRef,
       shootOrderDecalImgRef,
       logisticsUnitDecalImgRef,
+      reconOrderDecalImgRef,
+      orderDecalImgRef,
       unloadCellDecalImgRef,
       deployOrderDecalImgRef,
       changeSectorOrderDecalImgRef,
       clottingOrderDecalImgRef,
       fireSupIconImgRef,
+      longOrderClockImgRef,
       airMissionOrderDecalImgRef,
       airDepartureDecalImgRef,
       fireAirGunDecalImgRef,
@@ -285,6 +335,7 @@ export function useCellsAssets() {
       dotImgRef,
       storageImgRef,
       pontonImgRef,
+      pontonStageImgRef,
       smokeImgRef,
     },
   }

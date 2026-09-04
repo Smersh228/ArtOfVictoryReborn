@@ -64,7 +64,25 @@ smoke?: {
   originCellId: number
   offset: number
   windDir: number | null
+  fromFire?: boolean
 } | number;
+/** Пожар в населённом пункте. */
+settlementFire?: {
+  kind: 'village' | 'station' | 'city'
+  markers: number
+  turn: number
+  windDir: number
+  smokeCellIds: number[]
+  skipTick?: boolean
+};
+/** HP домов / моста: защита и прочность. */
+structureHp?: {
+  kind: 'city' | 'village' | 'station' | 'bridge' | 'railBridge'
+  str: number
+  maxStr: number
+  def: number
+  maxDef: number
+};
 }
 
 

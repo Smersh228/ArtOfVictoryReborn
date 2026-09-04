@@ -703,7 +703,7 @@
   top: 18px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 5;
+  z-index: 1002;
   width: min(420px, calc(100% - 24px));
   padding: 10px 12px;
   border-radius: 12px;
@@ -737,11 +737,141 @@
   color: #334155;
 }
 
+.battleHqRewriteListItem {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 2px 4px 2px 0;
+}
+
+.battleHqRewriteListItem:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+
 .battleHqRewriteActions {
   margin-top: 8px;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.battleDeployPanel {
+  max-height: min(680px, calc(100dvh - 40px));
+  pointer-events: auto;
+  color: #111;
+}
+
+.leftMenuPanelStandard.battleDeployPanel .leftMenuTitle,
+.leftMenuPanelStandard.battleDeployPanel .leftMenuSubtitle,
+.leftMenuPanelStandard.battleDeployPanel .leftMenuText {
+  color: #111;
+  text-shadow: none;
+}
+
+.leftMenuPanelStandard.battleDeployPanel .leftMenuHeader {
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+
+.leftMenuPanelStandard.battleDeployPanel .leftMenuFooter {
+  border-top-color: rgba(0, 0, 0, 0.12);
+  color: #111;
+}
+
+.battleDeployReadyBtn {
+  color: #111;
+}
+
+.battleDeployTabs {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+
+.battleDeployTab {
+  flex: 1;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.55);
+  color: #111;
+  border-radius: 16px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.battleDeployTabActive {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(0, 0, 0, 0.5);
+  color: #111;
+}
+
+.battleDeployGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.battleDeployCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.55);
+  color: #111;
+  cursor: pointer;
+}
+
+.battleDeployCard:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.battleDeployCardActive {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(35, 35, 40, 0.85);
+  color: #1e293b;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.16);
+}
+
+.battleDeployCardName {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.battleDeployCardCount {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.battleDeployHint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111;
+  line-height: 1.35;
+}
+
+.battleDeployMembers {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111;
+}
+
+.battleDeployMemberReady {
+  color: #14532d;
+}
+
+.battleDeployError {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #b91c1c;
 }
 
 /* Закреплённый счётчик id клетки (бой) */
@@ -795,6 +925,31 @@
 .battleHudOrderMeta {
   font-weight: 600;
   color: rgba(28, 32, 40, 0.78);
+}
+
+.battleHudFireModeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  pointer-events: auto;
+}
+
+.battleHudFireModeBtn {
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(40, 48, 64, 0.22);
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(28, 32, 40, 0.92);
+}
+
+.battleHudFireModeBtn:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(40, 48, 64, 0.38);
 }
 
 .battleCellsRoot {
@@ -1040,6 +1195,16 @@
   border-color: rgba(0, 0, 0, 0.08);
 }
 
+.battleUnitOrderBtnReady {
+  border-color: rgba(30, 90, 180, 0.65);
+  box-shadow: 0 0 0 2px rgba(56, 132, 220, 0.35);
+  background: rgba(210, 228, 255, 0.72);
+}
+
+.battleUnitOrderBtnPending {
+  border-color: rgba(20, 90, 50, 0.7);
+  background: rgba(190, 230, 200, 0.75);
+}
 
 .battleModalBackdrop {
   position: fixed;

@@ -46,31 +46,40 @@ function readBaseTerrainEntryCost(cell, unit) {
 }
 
 /** Стоимость входа при проходе по свойству юнита (если на гексе включена соответствующая галочка). */
+function hexMoveFlag(ex, key) {
+  if (!ex) return false
+  const v = ex[key]
+  return v === true || v === 'true' || v === 1 || v === '1'
+}
+
 function terrainPropBypassEntryCost(cell, unit) {
   if (!cell || !unit) return null
   const ex = hexExtraObj(cell)
-  if (!ex) return null
-  if (ex.moveWithSwampProp === true && unitHasPropKey(unit, 'movementThroughTheSwamp')) return 1
-  if (ex.moveWithRiverProp === true && unitHasPropKey(unit, 'crossingAWaterObstacle')) return 1
+  if (hexMoveFlag(ex, 'moveWithSwampProp') && unitHasPropKey(unit, 'movementThroughTheSwamp')) return 1
+  if (hexMoveFlag(ex, 'moveWithRiverProp') && unitHasPropKey(unit, 'crossingAWaterObstacle')) return 1
+  if (hexMoveFlag(ex, 'moveWithWaterUnitProp') && unitHasPropKey(unit, 'waterUnit')) return 1
   return null
 }
 
 function terrainEntryCost(cell, unit) {
-  if (isRavine(cell) && unitCannotCrossRavine(unit)) return 0
+  const ponton = require('./battlePonton')
+  const pontonReady = ponton.isPontonComplete(cell && cell.builds)
+  const special = require('./battleSpecialTerrain')
+  if (special.isDestroyedBridgeHex(cell) && !special.unitCanEnterDestroyedBridge(unit, cell)) {
+    return 0
+  }
+  if (isRavine(cell) && unitCannotCrossRavine(unit) && !pontonReady && !special.waterCraftOnWaterCell(unit, cell)) {
+    return 0
+  }
   const base = readBaseTerrainEntryCost(cell, unit)
-  let cost = 0
-  if (base > 0) cost = base
-  else {
-    const bypass = terrainPropBypassEntryCost(cell, unit)
-    cost = bypass != null ? bypass : 0
-  }
-  if (cost <= 0) {
-    const ponton = require('./battlePonton')
-    if (ponton.isPontonComplete(cell && cell.builds)) cost = 1
-  }
+  const bypass = terrainPropBypassEntryCost(cell, unit)
+  let cost = bypass != null ? bypass : base > 0 ? base : 0
+  if (pontonReady) cost = cost > 0 ? Math.min(cost, 1) : 1
   if (cost <= 0) return 0
   const { applyRainEntryCost } = require('../scenario/battleEnvironment')
-  return applyRainEntryCost(cell, unit, cost)
+  cost = applyRainEntryCost(cell, unit, cost)
+  const railway = require('./battleRailway')
+  return railway.applyRailwayEntryDiscount(cell, unit, cost)
 }
 
 function normalizeUnitTypeForHexExtra(unitType) {

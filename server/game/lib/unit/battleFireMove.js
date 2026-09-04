@@ -171,6 +171,17 @@ function resolveFireMoveShot(cells, o, moverPack, path, endStepIndex, le, ph, de
   )
   setAmmo(moverPack.unit, ammo - 1)
   if (isHiddenConcealed(tgt.unit)) revealHiddenUnit(tgt.unit)
+  const structureHp = require('../map/battleStructureHp')
+  structureHp.applyMissRerollsToStructure(
+    cells,
+    tgt.cell,
+    res.rollResults,
+    res.accuracy,
+    moverPack.unit,
+    le,
+    ph,
+    { intensityArrayFor, getDiceCount: deps.getDiceCount, computeShoot, rangeArrayForAtCell, logUnitDestroyed: deps.logUnitDestroyed },
+  )
   const { setStr, logUnitDestroyed, isTruckUnit, applyCargoDamageFromTruckHit, sweepCorpses } = deps
   const prev = getStr(tgt.unit)
   setStr(tgt.unit, prev - (Number(res.damages) || 0))

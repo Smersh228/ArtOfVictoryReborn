@@ -17,6 +17,7 @@ import {
   unitDrawSize,
   unitPositionsForDraw,
 } from './cellsDrawBase'
+import type { BattlePendingOrderHover } from '../../game/battlePendingOrderHover'
 
 interface CachedImageState {
   ready: HTMLImageElement | null
@@ -28,6 +29,7 @@ interface ShootDecalMap {
   fire?: HTMLImageElement
   fireHard?: HTMLImageElement
   attack?: HTMLImageElement
+  hardMove?: HTMLImageElement
 }
 
 interface LogisticsDecalMap {
@@ -35,6 +37,11 @@ interface LogisticsDecalMap {
   loading?: HTMLImageElement
   getSup?: HTMLImageElement
   loadingSup?: HTMLImageElement
+}
+
+interface ReconDecalMap {
+  razvedka?: HTMLImageElement
+  svzy?: HTMLImageElement
 }
 
 function drawCircleDecal(
@@ -69,6 +76,7 @@ function getReportShootKey(brDecal: any, unitId: any) {
   if (brDecal.orderKey === 'fire') return 'fire'
   if (brDecal.orderKey === 'fireHard') return 'fireHard'
   if (brDecal.orderKey === 'attack') return 'attack'
+  if (brDecal.orderKey === 'hardMove') return 'hardMove'
   return null
 }
 
@@ -86,6 +94,7 @@ function getPendingShootKey(pp: any, unitId: any) {
   if (pp.orderKey === 'fire') return 'fire'
   if (pp.orderKey === 'fireHard') return 'fireHard'
   if (pp.orderKey === 'attack') return 'attack'
+  if (pp.orderKey === 'hardMove') return 'hardMove'
   return null
 }
 
@@ -128,9 +137,15 @@ export function drawUnitsOnCell(
     battleDefendHover: any
     shootOrderDecalImgRef: React.MutableRefObject<ShootDecalMap>
     logisticsUnitDecalImgRef: React.MutableRefObject<LogisticsDecalMap>
+    reconOrderDecalImgRef: React.MutableRefObject<ReconDecalMap>
+    battleReconHoverUnitInstanceId?: number | null
+    battleReconHoverOrderKey?: 'razvedka' | 'svzy' | null
+    battlePendingOrderHover?: BattlePendingOrderHover | null
+    orderDecalImgRef?: React.MutableRefObject<Record<string, HTMLImageElement>>
     defendOrderDecalImgRef: React.MutableRefObject<HTMLImageElement | null>
     ambushOrderDecalImgRef: React.MutableRefObject<HTMLImageElement | null>
     fireSupIconImgRef: React.MutableRefObject<HTMLImageElement | null>
+    longOrderClockImgRef?: React.MutableRefObject<HTMLImageElement | null>
     resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
     isEnemyUnitHiddenByFog: (unit: { faction?: string }, cell: Cell) => boolean
     extraHiddenInstanceIds?: ReadonlySet<number> | null
@@ -155,9 +170,15 @@ export function drawUnitsOnCell(
     battleDefendHover,
     shootOrderDecalImgRef,
     logisticsUnitDecalImgRef,
+    reconOrderDecalImgRef,
+    battleReconHoverUnitInstanceId = null,
+    battleReconHoverOrderKey = null,
+    battlePendingOrderHover = null,
+    orderDecalImgRef,
     defendOrderDecalImgRef,
     ambushOrderDecalImgRef,
     fireSupIconImgRef,
+    longOrderClockImgRef,
     resolveEditorCachedImage,
     isEnemyUnitHiddenByFog,
     extraHiddenInstanceIds,
@@ -326,11 +347,61 @@ export function drawUnitsOnCell(
       drawCircleDecal(ctx, defImg, unitX, unitY, Math.max(6, cellSize * 0.13))
     }
 
+    if (
+      mode === 'battle' &&
+      battleReconHoverOrderKey &&
+      battleReconHoverUnitInstanceId != null &&
+      Number(unitId) === Number(battleReconHoverUnitInstanceId)
+    ) {
+      const reconDecal = reconOrderDecalImgRef.current[battleReconHoverOrderKey]
+      drawCircleDecal(ctx, reconDecal, unitX, unitY, Math.max(6, cellSize * 0.13))
+    }
+
+    if (
+      mode === 'battle' &&
+      battlePendingOrderHover?.orderKey !== 'medical' &&
+      battlePendingOrderHover?.iconUnitInstanceIds?.some((id) => Number(id) === Number(unitId))
+    ) {
+      const orderDecal = orderDecalImgRef?.current[battlePendingOrderHover.orderKey]
+      drawCircleDecal(ctx, orderDecal, unitX, unitY, Math.max(6, cellSize * 0.13))
+    }
+
     if (mode === 'battle') {
-      const tac = unit.tactical as { fireSuppression?: boolean } | undefined
+      const medicalIds = battlePendingOrderHover?.medicalIconUnitInstanceIds
+      const showMedical =
+        medicalIds?.some((id) => Number(id) === Number(unitId)) ||
+        (battlePendingOrderHover?.orderKey === 'medical' &&
+          battlePendingOrderHover.iconUnitInstanceIds?.some((id) => Number(id) === Number(unitId)))
+      if (showMedical) {
+        drawCircleDecal(ctx, orderDecalImgRef?.current?.medical, unitX, unitY, Math.max(6, cellSize * 0.13))
+      }
+      const tac = unit.tactical as {
+        fireSuppression?: boolean
+        trenchDigTurnsLeft?: number
+        sapperJob?: { turnsLeft?: number }
+        railJob?: { turnsLeft?: number }
+        dotEnterTurnsLeft?: number
+        dotExitTurnsLeft?: number
+      } | undefined
       if (tac?.fireSuppression === true) {
         const fsImg = fireSupIconImgRef.current
         drawCircleDecal(ctx, fsImg, unitX, unitY, Math.max(9, Math.min(size * 0.225, cellSize * 0.206)))
+      }
+      const longOrder =
+        Number(tac?.trenchDigTurnsLeft) > 0 ||
+        Number(tac?.sapperJob?.turnsLeft) > 0 ||
+        Number(tac?.railJob?.turnsLeft) > 0 ||
+        Number(tac?.dotEnterTurnsLeft) > 0 ||
+        Number(tac?.dotExitTurnsLeft) > 0
+      if (longOrder) {
+        const clockR = Math.max(5, Math.round(cellSize * 0.085))
+        drawCircleDecal(
+          ctx,
+          longOrderClockImgRef?.current,
+          unitX + size * 0.42,
+          unitY - size * 0.42,
+          clockR,
+        )
       }
     }
 

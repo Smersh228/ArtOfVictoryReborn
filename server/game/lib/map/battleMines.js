@@ -191,10 +191,6 @@ function planMinePath(path, unit, orderKey, isTruckUnit) {
     }
     return { endIndex, blasts, reveals }
   }
-  if (mineAffectsUnit(path[0], unit, isTruckUnit) && path.length >= 2) {
-    endIndex = Math.min(endIndex, 1)
-    blasts.push({ index: 0, reason: 'start' })
-  }
   for (let i = 1; i <= endIndex; i++) {
     if (!mineAffectsUnit(path[i], unit, isTruckUnit)) continue
     endIndex = i
@@ -210,10 +206,7 @@ function blastsReachedOnMove(plan, endStepIndex) {
   for (let i = 0; i < blasts.length; i++) {
     const b = blasts[i]
     const idx = Number(b.index)
-    if (b.reason === 'start') {
-      if (endStepIndex >= 1) out.push(b)
-      continue
-    }
+    if (b.reason === 'start') continue
     if (idx >= 1 && idx <= endStepIndex) out.push(b)
   }
   return out
@@ -276,6 +269,9 @@ function resolveOneMineBlast(cell, unit, cells, le, ph, blast, deps) {
   )
   logUnitDestroyed(le, ph, unit, prevStr, 'подрыв на мине', cell.id)
   if (isTruckUnit(unit) && damages > 0) applyCargoDamageFromTruckHit(cells, unit, damages)
+  if (damages > 0 && getStr(unit) > 0 && typeof deps.trySteadfastnessAfterOverwatchDamage === 'function') {
+    deps.trySteadfastnessAfterOverwatchDamage(le, ph, unit, damages, deps)
+  }
   if (typeof sweepCorpses === 'function') sweepCorpses(cells)
   return getStr(unit) <= 0
 }

@@ -96,6 +96,7 @@ function wireBlocksGroundMove(fromCell, toCell, unit, unitHasPropKey) {
 }
 
 function applyWireBreakthroughOnStep(fromCell, toCell, unit, unitHasPropKey) {
+  if (typeof unitHasPropKey !== 'function') return false
   if (!unitHasPropKey(unit, 'breakingThroughBarbedWire')) return false
   const dir = findMoveDir(fromCell, toCell)
   if (dir < 0) return false
@@ -134,12 +135,31 @@ function cutWireOnCellEdge(cell, edgeDir) {
   return true
 }
 
+function listWireEdgeDirs(builds) {
+  const mask = getWireEdgesMask(builds)
+  const out = []
+  for (let d = 0; d < 6; d++) {
+    if ((mask & (1 << d)) !== 0) out.push(d)
+  }
+  return out
+}
+
 function tryDestroyBarbedWireFromFire(targetCell, attacker, unitHasPropKey, le, ph) {
   if (!targetCell || !attacker) return false
   if (!unitHasPropKey(attacker, 'destructionOfBarbedWire')) return false
-  if (!hasWireOnCell(targetCell.builds)) return false
-  targetCell.builds = clearAllWireOnBuilds(targetCell.builds)
-  le(ph, `Подрыв проволоки: юнит ${attacker.instanceId} уничтожил колючую проволоку на кл. ${targetCell.id}`)
+  const edges = listWireEdgeDirs(targetCell.builds)
+  if (!edges.length) return false
+  const edgeDir = edges[Math.floor(Math.random() * edges.length)]
+  targetCell.builds = clearWireEdgeOnBuilds(targetCell.builds, edgeDir)
+  const left = listWireEdgeDirs(targetCell.builds).length
+  le(ph, `Подрыв проволоки: юнит ${attacker.instanceId} уничтожил колючую проволоку на кл. ${targetCell.id}`, {
+    wireDestroyed: {
+      unitInstanceId: Number(attacker.instanceId),
+      cellId: Number(targetCell.id),
+      edgeDir,
+      remaining: left,
+    },
+  })
   return true
 }
 
@@ -154,6 +174,7 @@ module.exports = {
   hasWireOnMoveDir,
   wireBlocksGroundMove,
   applyWireBreakthroughOnStep,
+  listWireEdgeDirs,
   tryDestroyBarbedWireFromFire,
   cutWireAlongSharedEdge,
   cutWireOnCellEdge,

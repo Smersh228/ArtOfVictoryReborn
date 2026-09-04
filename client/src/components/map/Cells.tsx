@@ -20,11 +20,12 @@ import { drawCellsCanvas } from './cellsDraw'
 import CellContextMenus from './CellContextMenus'
 import type { EditorMapCatalogUnitPick } from './EditorMapUnitOrderMenu'
 import { useCellsAssets } from './useCellsAssets'
+import type { BattlePendingOrderHover } from '../../game/battlePendingOrderHover'
 
 export interface BattlePendingShootPreview {
   targetInstanceId?: number
   targetCellId?: number
-  orderKey: 'fire' | 'fireHard' | 'attack'
+  orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove'
 }
 
 export interface BattlePendingLogisticsPreview {
@@ -37,7 +38,7 @@ export interface BattlePendingLogisticsPreview {
 export interface BattleReportReplayHighlight {
   glowInstanceIds: number[]
   targetDecal?: {
-    orderKey: 'fire' | 'fireHard' | 'attack' | 'tow' | 'loading' | 'getSup'
+    orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove' | 'tow' | 'loading' | 'getSup'
     
     targetInstanceIds: number[]
   }
@@ -111,6 +112,7 @@ interface CellsProps {
   /** Выбор склада: серое свечение спрайта, без заливки гекса. */
   loadingSupGlowCellIds?: number[] | null
   battlePendingShootPreview?: BattlePendingShootPreview | null
+  battlePendingOrderHover?: BattlePendingOrderHover | null
   battleFogRevealedCellIds?: number[] | null
   battleReportReplayHighlight?: BattleReportReplayHighlight | null
   battleLogisticsPickInstanceIds?: number[] | null
@@ -127,6 +129,15 @@ interface CellsProps {
   battlePatrolCenterCellId?: number | null
   /** Патруль: клетки для выбора радиуса зоны. */
   patrolRangePickCellIds?: number[] | null
+  /** Разведка/радиоперехват: клетки, на которых можно задать радиус. */
+  reconRangePickCellIds?: number[] | null
+  /** Разведка/радиоперехват: зона при наведении курсора. */
+  battleReconHoverAreaCellIds?: number[] | null
+  /** Разведка/радиоперехват: гекс юнита (центр зоны). */
+  battleReconHoverCenterCellId?: number | null
+  /** Назначенный приказ: иконка на юните при наведении. */
+  battleReconHoverUnitInstanceId?: number | null
+  battleReconHoverOrderKey?: 'razvedka' | 'svzy' | null
   /** Область бомбардировки при наведении на цель. */
   battleBombardmentAreaCellIds?: number[] | null
   /** Бомбардировка: соседние гексы цели — выбор стороны захода. */
@@ -142,6 +153,8 @@ interface CellsProps {
   /** Редактор карты: подсветка края для установки малой/большой авиации */
   editorAviationEdgeHighlight?: boolean
   editorAviationEdgeCellIds?: ReadonlySet<number>
+  editorDeployZones?: { cellId: number; team: number }[] | null
+  editorDeployBrushTeam?: number | null
   /** Обновление данных ячейки из контекстного меню (hexExtra и т.д.) */
   onEditorCellPatch?: (cellId: number, patch: (cell: Cell) => Cell) => void
   editorCatalogUnits?: EditorMapCatalogUnitPick[]
@@ -210,6 +223,7 @@ const Cells: React.FC<CellsProps> = ({
   enterDotGlowCellIds = null,
   loadingSupGlowCellIds = null,
   battlePendingShootPreview = null,
+  battlePendingOrderHover = null,
   battleFogRevealedCellIds = null,
   battleReportReplayHighlight = null,
   battleLogisticsPickInstanceIds = null,
@@ -220,6 +234,11 @@ const Cells: React.FC<CellsProps> = ({
   battlePatrolVisibilityCellIds = null,
   battlePatrolCenterCellId = null,
   patrolRangePickCellIds = null,
+  reconRangePickCellIds = null,
+  battleReconHoverAreaCellIds = null,
+  battleReconHoverCenterCellId = null,
+  battleReconHoverUnitInstanceId = null,
+  battleReconHoverOrderKey = null,
   battleBombardmentAreaCellIds = null,
   bombardmentDirectionPickCellIds = null,
   bombardmentApproachCellId = null,
@@ -229,6 +248,8 @@ const Cells: React.FC<CellsProps> = ({
   battleAirUnitsInFlight = [],
   editorAviationEdgeHighlight = false,
   editorAviationEdgeCellIds,
+  editorDeployZones = null,
+  editorDeployBrushTeam = null,
   wrapClassName,
   onEditorCellPatch,
   editorCatalogUnits,
@@ -262,11 +283,14 @@ const Cells: React.FC<CellsProps> = ({
   const ambushOrderDecalImgRef = assets.refs.ambushOrderDecalImgRef
   const shootOrderDecalImgRef = assets.refs.shootOrderDecalImgRef
   const logisticsUnitDecalImgRef = assets.refs.logisticsUnitDecalImgRef
+  const reconOrderDecalImgRef = assets.refs.reconOrderDecalImgRef
+  const orderDecalImgRef = assets.refs.orderDecalImgRef
   const unloadCellDecalImgRef = assets.refs.unloadCellDecalImgRef
   const deployOrderDecalImgRef = assets.refs.deployOrderDecalImgRef
   const changeSectorOrderDecalImgRef = assets.refs.changeSectorOrderDecalImgRef
   const clottingOrderDecalImgRef = assets.refs.clottingOrderDecalImgRef
   const fireSupIconImgRef = assets.refs.fireSupIconImgRef
+  const longOrderClockImgRef = assets.refs.longOrderClockImgRef
   const airMissionOrderDecalImgRef = assets.refs.airMissionOrderDecalImgRef
   const airDepartureDecalImgRef = assets.refs.airDepartureDecalImgRef
   const fireAirGunDecalImgRef = assets.refs.fireAirGunDecalImgRef
@@ -276,6 +300,7 @@ const Cells: React.FC<CellsProps> = ({
   const dotImgRef = assets.refs.dotImgRef
   const storageImgRef = assets.refs.storageImgRef
   const pontonImgRef = assets.refs.pontonImgRef
+  const pontonStageImgRef = assets.refs.pontonStageImgRef
   const smokeImgRef = assets.refs.smokeImgRef
   const [hoverCell, setHoverCell] = useState<Cell | null>(null)
   const [hoveredUnit, setHoveredUnit] = useState<HoveredUnitState | null>(null)
@@ -522,13 +547,19 @@ const Cells: React.FC<CellsProps> = ({
       battlePendingLogisticsPreview,
       battleReportReplayHighlight,
       battlePendingShootPreview,
+      battlePendingOrderHover,
       battleLogisticsUnitDecal,
       battleDefendHover,
       shootOrderDecalImgRef,
       logisticsUnitDecalImgRef,
+      reconOrderDecalImgRef,
+      orderDecalImgRef,
+      battleReconHoverUnitInstanceId,
+      battleReconHoverOrderKey,
       defendOrderDecalImgRef,
       ambushOrderDecalImgRef,
       fireSupIconImgRef,
+      longOrderClockImgRef,
       resolveEditorCachedImage,
       isEnemyUnitHiddenByFog,
       extraHiddenInstanceIds: hiddenBattleInstanceIdSet,
@@ -597,11 +628,16 @@ const Cells: React.FC<CellsProps> = ({
       battleAirInterceptionTargetCellIds:
         battleAirInterceptionTargets?.map((t) => t.engagementCell.id) ?? null,
       patrolRangePickCellIds,
+      reconRangePickCellIds,
+      battleReconHoverAreaCellIds,
+      battleReconHoverCenterCellId,
       battleBombardmentAreaCellIds,
       bombardmentDirectionPickCellIds,
       bombardmentApproachCellId,
       battlePendingLogisticsPreview,
       battlePendingShootPreview,
+      battlePendingOrderHover,
+      orderDecals: orderDecalImgRef.current,
       getCellCenter,
       getCellCorners,
       getTexture,
@@ -620,12 +656,15 @@ const Cells: React.FC<CellsProps> = ({
       fireAirGunDecalImg: fireAirGunDecalImgRef.current,
       editorAviationEdgeHighlight,
       editorAviationEdgeCellIds,
+      editorDeployZones,
+      editorDeployBrushTeam,
       wireEdgeImg: wireEdgeImgRef.current,
       trenchImg: trenchImgRef.current,
       antiTankImg: antiTankImgRef.current,
       dotImg: dotImgRef.current,
       storageImg: storageImgRef.current,
       pontonImg: pontonImgRef.current,
+      pontonStageImgs: pontonStageImgRef.current,
       smokeImg: smokeImgRef.current,
       viewerBattleFaction,
       battleFogRevealedCellIds,
@@ -672,6 +711,7 @@ const Cells: React.FC<CellsProps> = ({
     enterDotGlowCellIds,
     loadingSupGlowCellIds,
     battlePendingShootPreview,
+    battlePendingOrderHover,
     battleFogRevealedCellIds,
     battleReportReplayHighlight,
     battleLogisticsPickInstanceIds,
@@ -683,6 +723,11 @@ const Cells: React.FC<CellsProps> = ({
     battlePatrolCenterCellId,
     battleAirInterceptionTargets,
     patrolRangePickCellIds,
+    reconRangePickCellIds,
+    battleReconHoverAreaCellIds,
+    battleReconHoverCenterCellId,
+    battleReconHoverUnitInstanceId,
+    battleReconHoverOrderKey,
     battleBombardmentAreaCellIds,
     bombardmentDirectionPickCellIds,
     bombardmentApproachCellId,
@@ -692,6 +737,8 @@ const Cells: React.FC<CellsProps> = ({
     battleAirUnitsInFlight,
     editorAviationEdgeHighlight,
     editorAviationEdgeCellIds,
+    editorDeployZones,
+    editorDeployBrushTeam,
     editorFacingPickCellIds,
     artilleryFacingPick,
     dotFacingPick,

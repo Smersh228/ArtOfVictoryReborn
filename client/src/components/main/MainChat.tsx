@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import styles from '../styleModules/mainBlock.module.css'
 import { decorateLobbyNick, lobbyNickClass, type LobbyChatMessage } from '../../api/lobbyHub'
 import { useAuth } from '../../context/AuthContext'
 import { isCatalogEditorAdmin } from '../../utils/catalogEditorAdmin'
 
 const CHAT_COOLDOWN_MS = 5_000
+const NICK_MENU_H = 44
 
 function formatChatTime(ts: number): string {
   const d = new Date(ts)
@@ -12,7 +14,7 @@ function formatChatTime(ts: number): string {
   return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
 
-type NickMenu = { messageId: number; userId: number; username: string }
+type NickMenu = { messageId: number; userId: number; top: number; left: number }
 
 type MainChatProps = {
   messages: LobbyChatMessage[]
@@ -62,17 +64,20 @@ const MainChat: React.FC<MainChatProps> = ({
     if (!nickMenu) return
     const close = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null
-      if (t?.closest(`.${styles.chatNickWrap}`)) return
+      if (t?.closest(`.${styles.chatNickWrap}`) || t?.closest(`.${styles.chatNickMenu}`)) return
       setNickMenu(null)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setNickMenu(null)
     }
+    const onScroll = () => setNickMenu(null)
     document.addEventListener('mousedown', close)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       document.removeEventListener('mousedown', close)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [nickMenu])
 
@@ -81,6 +86,14 @@ const MainChat: React.FC<MainChatProps> = ({
     if (!text || !canSend) return
     setDraft('')
     await onSend(text)
+  }
+
+  const openNickMenu = (messageId: number, userId: number, anchor: HTMLElement) => {
+    const r = anchor.getBoundingClientRect()
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - 196))
+    const below = r.bottom + 4
+    const top = below + NICK_MENU_H > window.innerHeight - 8 ? Math.max(8, r.top - NICK_MENU_H - 4) : below
+    setNickMenu({ messageId, userId, top, left })
   }
 
   return (
@@ -105,31 +118,18 @@ const MainChat: React.FC<MainChatProps> = ({
                       <button
                         type="button"
                         className={`${styles.chatNameBtn} ${styles[lobbyNickClass(m.roleKey, m.highlight)] || ''}`}
+                        aria-expanded={open}
                         onClick={(e) => {
                           e.stopPropagation()
-                          setNickMenu({
-                            messageId: m.id,
-                            userId: Number(m.userId),
-                            username: m.username,
-                          })
+                          if (open) {
+                            setNickMenu(null)
+                            return
+                          }
+                          openNickMenu(m.id, Number(m.userId), e.currentTarget)
                         }}
                       >
                         {decorateLobbyNick(m.username, m.roleKey, m.highlight)}
                       </button>
-                      {open ? (
-                        <div className={styles.chatNickMenu} role="menu">
-                          <button
-                            type="button"
-                            className={styles.chatNickMenuItem}
-                            onClick={() => {
-                              setNickMenu(null)
-                              onViewProfile(Number(m.userId))
-                            }}
-                          >
-                            Посмотреть профиль
-                          </button>
-                        </div>
-                      ) : null}
                     </span>
                   ) : (
                     <span className={`${styles.chatName} ${m.system ? styles.chatNameSystem : ''}`}>
@@ -144,6 +144,29 @@ const MainChat: React.FC<MainChatProps> = ({
           })
         )}
       </div>
+      {nickMenu
+        ? createPortal(
+            <div
+              className={styles.chatNickMenu}
+              role="menu"
+              style={{ top: nickMenu.top, left: nickMenu.left }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className={styles.chatNickMenuItem}
+                onClick={() => {
+                  const id = nickMenu.userId
+                  setNickMenu(null)
+                  onViewProfile(id)
+                }}
+              >
+                Посмотреть профиль
+              </button>
+            </div>,
+            document.body,
+          )
+        : null}
       {muted ? <div className={styles.chatMuted}>Вы получили системный мут</div> : null}
       {error && !muted ? <div className={styles.chatError}>{error}</div> : null}
       <form

@@ -8,6 +8,7 @@ const {
   publicHqRewritePayload,
   ensureMemberSlots,
   memberKeyForRoom,
+  sendRoomDetailOr500,
 } = require('./shared')
 const { rooms } = require('./state')
 const { creditKillsFromLog, applyRoomOutcomeIfNeeded } = require('../../playerStats')
@@ -120,6 +121,9 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
     if (room.battleStartedAt == null) {
       return res.status(400).json({ error: 'Бой ещё не начат' })
     }
+    if (room.battleDeployPhase && room.battleDeployPhase.active) {
+      return res.status(400).json({ error: 'Сначала завершите расстановку' })
+    }
     const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
     if ((room.battleScenarioEndSeq ?? 0) > 0) {
       return res.status(400).json({ error: 'Сценарий завершён — бой остановлен' })
@@ -162,6 +166,9 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
     if (!mem) return res.status(403).json({ error: 'Вы не в этой комнате' })
     if (room.battleStartedAt == null) {
       return res.status(400).json({ error: 'Бой ещё не начат' })
+    }
+    if (room.battleDeployPhase && room.battleDeployPhase.active) {
+      return res.status(400).json({ error: 'Сначала завершите расстановку' })
     }
     if ((room.battleScenarioEndSeq ?? 0) > 0) {
       return res.status(400).json({ error: 'Сценарий завершён — бой остановлен' })
@@ -290,6 +297,97 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       resolutionLog: advanced ? resolutionLog : undefined,
       battleHqRewrite: publicHqRewritePayload(room, key),
     })
+  })
+
+  router.post('/:id/battle/deploy-place', express.json(), async (req, res) => {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Неверный id' })
+    const room = rooms.get(id)
+    if (!room) return res.status(404).json({ error: 'Комната не найдена' })
+    ensureMemberSlots(room)
+    const key = await memberKeyForRoom(req, room)
+    if (!key) return res.status(401).json({ error: 'Нет идентификатора' })
+    const mem = room.members.find((m) => m.key === key)
+    if (!mem) return res.status(403).json({ error: 'Вы не в этой комнате' })
+    if (room.battleStartedAt == null) return res.status(400).json({ error: 'Бой ещё не начат' })
+    const deploy = require('../../game/lib/map/battleDeployPhase')
+    const kind = String(req.body?.kind || '')
+    const cellId = Number(req.body?.cellId)
+    if (!Number.isFinite(cellId)) return res.status(400).json({ error: 'Нужна клетка cellId' })
+    if (kind === 'unit') {
+      const result = deploy.placeDeployUnit(room, mem, req.body?.catalogUnitId, cellId)
+      if (result.error) return res.status(400).json({ error: result.error })
+      try {
+        const { pool } = require('../../db')
+        const { enrichBattleCells } = require('../../game/lib/support/battleEnrich')
+        await enrichBattleCells(pool, room.battleCells)
+      } catch (e) {
+        console.error('deploy-place enrich:', e.message)
+      }
+      return await sendRoomDetailOr500(res, room, key)
+    }
+    if (kind === 'structure') {
+      const structureId = String(req.body?.structureId || '').trim()
+      let buildingInfo = null
+      if (structureId.startsWith('b:')) {
+        const dbId = Number(structureId.slice(2))
+        if (!Number.isFinite(dbId)) return res.status(400).json({ error: 'Неверный id сооружения' })
+        try {
+          const { pool } = require('../../db')
+          const r = await pool.query(
+            'SELECT name, image_path FROM build WHERE id_build = $1',
+            [dbId],
+          )
+          const row = r.rows[0]
+          if (row) buildingInfo = { name: row.name, imagePath: row.image_path || '' }
+        } catch (e) {
+          console.error('deploy-place building:', e.message)
+        }
+      }
+      const result = deploy.placeDeployStructure(room, mem, structureId, cellId, buildingInfo)
+      if (result.error) return res.status(400).json({ error: result.error })
+      return await sendRoomDetailOr500(res, room, key)
+    }
+    return res.status(400).json({ error: 'kind: unit или structure' })
+  })
+
+  router.post('/:id/battle/deploy-remove', express.json(), async (req, res) => {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Неверный id' })
+    const room = rooms.get(id)
+    if (!room) return res.status(404).json({ error: 'Комната не найдена' })
+    ensureMemberSlots(room)
+    const key = await memberKeyForRoom(req, room)
+    if (!key) return res.status(401).json({ error: 'Нет идентификатора' })
+    const mem = room.members.find((m) => m.key === key)
+    if (!mem) return res.status(403).json({ error: 'Вы не в этой комнате' })
+    if (room.battleStartedAt == null) return res.status(400).json({ error: 'Бой ещё не начат' })
+    const deploy = require('../../game/lib/map/battleDeployPhase')
+    const kind = String(req.body?.kind || '')
+    let result
+    if (kind === 'unit') result = deploy.removeDeployUnit(room, mem, req.body?.instanceId)
+    else if (kind === 'structure') {
+      result = deploy.removeDeployStructure(room, mem, req.body?.cellId, req.body?.structureId)
+    } else return res.status(400).json({ error: 'kind: unit или structure' })
+    if (result.error) return res.status(400).json({ error: result.error })
+    return await sendRoomDetailOr500(res, room, key)
+  })
+
+  router.post('/:id/battle/deploy-ready', express.json(), async (req, res) => {
+    const id = Number(req.params.id)
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'Неверный id' })
+    const room = rooms.get(id)
+    if (!room) return res.status(404).json({ error: 'Комната не найдена' })
+    ensureMemberSlots(room)
+    const key = await memberKeyForRoom(req, room)
+    if (!key) return res.status(401).json({ error: 'Нет идентификатора' })
+    const mem = room.members.find((m) => m.key === key)
+    if (!mem) return res.status(403).json({ error: 'Вы не в этой комнате' })
+    if (room.battleStartedAt == null) return res.status(400).json({ error: 'Бой ещё не начат' })
+    const deploy = require('../../game/lib/map/battleDeployPhase')
+    const result = deploy.setDeployReady(room, mem, req.body?.ready !== false)
+    if (result.error) return res.status(400).json({ error: result.error })
+    return await sendRoomDetailOr500(res, room, key)
   })
 
   router.post('/:id/battle/surrender', async (req, res) => {

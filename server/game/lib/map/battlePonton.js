@@ -27,16 +27,55 @@ function hasPontonOnCell(builds) {
   return pontonSections(builds) > 0
 }
 
+function hexExtraOf(cell) {
+  return cell && cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
+}
+
+function hexDistRobust(a, b) {
+  if (!a || !b || !a.coor || !b.coor) return Number.POSITIVE_INFINITY
+  const ax = Number(a.coor.x)
+  const az = Number(a.coor.z)
+  const bx = Number(b.coor.x)
+  const bz = Number(b.coor.z)
+  const dq = ax - bx
+  const dr = az - bz
+  const axial = (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2
+  const ay = Number(a.coor.y)
+  const by = Number(b.coor.y)
+  if (Number.isFinite(ay) && Number.isFinite(by)) {
+    const cube = Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz))
+    return Math.min(cube, axial)
+  }
+  return axial
+}
+
 function isRiverCell(cell) {
   if (!cell) return false
+  const ex = hexExtraOf(cell)
+  if (ex) {
+    if (ex.moveWithRiverProp === true) return true
+    if (ex.isRiver === true || ex.river === true) return true
+    const cat = String(ex.category || '').trim().toLowerCase()
+    if (cat === 'rivers' || cat === 'river' || cat === 'water' || cat === 'waters') return true
+    const plc = ex.placementAllowed
+    if (plc && typeof plc === 'object' && plc.pontonBridge === true) return true
+  }
   const rawType = String(cell.type || '').trim()
   const t = rawType.toLowerCase().replace(/[\s_-]/g, '')
-  if (t === 'river' || t === 'rivers') return true
-  const name = String(cell.name || '')
-  const blob = `${rawType} ${name}`
-  if (!/река/i.test(blob)) return false
-  if (/озер|озёр|болот/i.test(blob)) return false
-  return true
+  if (t === 'river' || t === 'rivers' || t === 'water') return true
+  if (/^hex\d+$/.test(t) === false && /river|water/.test(t)) return true
+  const name = String(cell.name || (ex && (ex.name || ex.label)) || '')
+  const img = String(cell.img || cell.imagePath || (ex && (ex.image_path || ex.img || ex.imagePath)) || '')
+  const blob = `${rawType} ${name} ${img}`
+  if (/река|руч(?:ей|ья|ью)?|канал|речн|водн|брод|river|water|ford/i.test(blob) && !/озер|озёр|болот|swamp|marsh|lake/i.test(blob)) {
+    return true
+  }
+  return false
+}
+
+function isAdjacentRiverTarget(fromCell, riverCell) {
+  if (!fromCell || !riverCell || !isRiverCell(riverCell)) return false
+  return hexDistRobust(fromCell, riverCell) <= 1
 }
 
 function addPontonSection(cell) {
@@ -57,6 +96,14 @@ function addPontonSection(cell) {
   }
   cell.builds.pontonBuilding = true
   return { sections: next, complete: false, already: false }
+}
+
+function completePonton(cell) {
+  if (!cell) return false
+  if (!cell.builds || typeof cell.builds !== 'object') cell.builds = {}
+  cell.builds.pontonBridge = PONTON_COMPLETE_SECTIONS
+  delete cell.builds.pontonBuilding
+  return true
 }
 
 function destroyPonton(cell, le, ph, reason) {
@@ -109,7 +156,10 @@ module.exports = {
   isPontonComplete,
   hasPontonOnCell,
   isRiverCell,
+  isAdjacentRiverTarget,
+  hexDistRobust,
   addPontonSection,
+  completePonton,
   destroyPonton,
   tryDestroyPontonFromFire,
 }

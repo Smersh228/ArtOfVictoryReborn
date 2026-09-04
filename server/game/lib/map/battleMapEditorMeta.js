@@ -1,6 +1,6 @@
 'use strict'
 
-const { isArtilleryUnit, isInfantryUnit, unitHasPropKey } = require('../../core/battleUnitType')
+const { isArtilleryUnit, isInfantryUnit, unitHasPropKey, unitUsesGunDeploy } = require('../../core/battleUnitType')
 const { ensureCarriedUnits } = require('../../core/battleTransport')
 const {
   computeDefendSectorIds,
@@ -58,7 +58,7 @@ function maxBattleInstanceId(cells) {
 
 function ensureDeployedArtillerySector(cells, unitCell, unit) {
   if (!unit || !unitCell || !Array.isArray(cells)) return false
-  if (!isArtilleryUnit(unit)) return false
+  if (!unitUsesGunDeploy(unit)) return false
   if (!unit.tactical || unit.tactical.artilleryDeployed !== true) return false
 
   const facingId = Number(unit.defendFacingCellId)
@@ -88,7 +88,7 @@ function finalizeDeployedArtillerySectors(cells) {
   if (!Array.isArray(cells)) return
   for (const c of cells) {
     for (const u of c.units || []) {
-      if (!isArtilleryUnit(u)) continue
+      if (!unitUsesGunDeploy(u)) continue
       if (!u.tactical || u.tactical.artilleryDeployed !== true) continue
       const sec = u.defendSectorCellIds
       if (Array.isArray(sec) && sec.length > 0) continue
@@ -106,7 +106,7 @@ function applyMapEditorMetaToBattleUnits(cells) {
       if (!u.tactical || typeof u.tactical !== 'object') u.tactical = {}
 
       const artDep = readArtilleryDeployMeta(meta)
-      if (artDep.deployed === true && isArtilleryUnit(u)) {
+      if (artDep.deployed === true && unitUsesGunDeploy(u)) {
         u.tactical.artilleryDeployed = true
         if (artDep.facingCellId != null && Number.isFinite(Number(artDep.facingCellId))) {
           u.defendFacingCellId = Number(artDep.facingCellId)

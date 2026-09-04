@@ -35,7 +35,7 @@ const { computeDefendSectorIds, isValidDefendFacing, maxShootRangeStepsForUnit }
 const fireAdj = require('../fire/battleFireAdjustment')
 const desantCombat = require('../air/battleDesantCombat')
 const { isHexVisible } = require('../map/battleFogVisibility')
-const { artilleryAreaClosedIgnoresTerrainLos } = require('../../core/battleUnitType')
+const { artilleryAreaClosedIgnoresTerrainLos, unitUsesGunDeploy, unitOrderUsesAreaHexFire } = require('../../core/battleUnitType')
 
 function parseIntCsvNums(s) {
   if (s == null || s === '') return []
@@ -152,40 +152,35 @@ function validateBattleOrders(cells, orders, context) {
       const fireCellId = o.targetCellId
       if (
         (ok === 'fire' || ok === 'fireHard') &&
-        isArtilleryUnit(found.unit) &&
-        unitHasPropKey(found.unit, 'areaFire') &&
+        unitOrderUsesAreaHexFire(found.unit, o) &&
         fireCellId != null &&
         Number.isFinite(Number(fireCellId)) &&
         (tid == null || !Number.isFinite(Number(tid)))
       ) {
-        const errAf = validateArtilleryAreaFireOnCellOnly(cells, found, Number(fireCellId), ok, {
-          useFireAdjustment: !!o.useFireAdjustment,
-        })
-        if (errAf) return `Приказ ${i + 1}: ${errAf}`
-        if (o.useFireAdjustment) {
-          const errAdj = validateFireAdjustmentOrder(cells, found, ok, Number(fireCellId), null)
-          if (errAdj) return `Приказ ${i + 1}: ${errAdj}`
-        }
-        continue
+      const errAf = validateArtilleryAreaFireOnCellOnly(cells, found, Number(fireCellId), ok, {
+        useFireAdjustment: !!o.useFireAdjustment,
+        useReactiveFire: !!o.useReactiveFire,
+      })
+      if (errAf) return `Приказ ${i + 1}: ${errAf}`
+      if (o.useFireAdjustment) {
+        const errAdj = validateFireAdjustmentOrder(cells, found, ok, Number(fireCellId), null)
+        if (errAdj) return `Приказ ${i + 1}: ${errAdj}`
       }
-      if (tid == null) return `Приказ ${i + 1}: нужна цель (targetUnitInstanceId)`
-      const tgt = findUnitOnField(cells, tid)
-      if (!tgt) return `Приказ ${i + 1}: цель не на поле`
-      if (!factionsOpposed(unitFaction(found.unit), unitFaction(tgt.unit))) return `Приказ ${i + 1}: цель должна быть противником`
-      if ((ok === 'fire' || ok === 'fireHard') && isInfantryUnit(found.unit) && isArmoredVehicleTarget(tgt.unit)) {
-        return `Приказ ${i + 1}: пехота не стреляет по бронетехнике и танкам`
-      }
-      if (ok === 'fire' || ok === 'fireHard') {
-        const meleeId = Number(found.unit.tactical?.meleeOpponentInstanceId)
-        const tidNum = Number(tid)
-        if (Number.isFinite(meleeId) && Number.isFinite(tidNum) && meleeId === tidNum) {
-          const dMelee = hexDistCells(found.cell, tgt.cell)
-          if (!desantCombat.canDesantHalfCombatShootTarget(found.unit, tgt.unit, dMelee)) {
-            return `Приказ ${i + 1}: по связанному ближнему оппоненту — только «Атака»`
-          }
-        }
-      }
-      if (ok === 'fire' || ok === 'fireHard') {
+      continue
+    }
+    if (
+      (ok === 'fire' || ok === 'fireHard') &&
+      fireCellId != null &&
+      Number.isFinite(Number(fireCellId)) &&
+      (tid == null || !Number.isFinite(Number(tid)))
+    ) {
+      const structureHp = require('../map/battleStructureHp')
+      const tcStruct = cells.find((c) => Number(c.id) === Number(fireCellId))
+      if (
+        tcStruct &&
+        structureHp.unitHasBuildFire(found.unit) &&
+        structureHp.isShootableStructureCell(tcStruct)
+      ) {
         const needAmmo = ok === 'fireHard' ? 3 : 1
         const dotMod = require('../map/battleDot')
         let haveAmmo = getAmmoForValidate(found.unit)
@@ -196,12 +191,75 @@ function validateBattleOrders(cells, orders, context) {
           const src = dotMod.dotShooterUsesDotAmmo(found.unit) ? 'боезапас ДОТ' : 'БК'
           return `Приказ ${i + 1}: недостаточно ${src} (${ok === 'fireHard' ? 'огонь на подавление — 3' : 'огонь — 1'})`
         }
-        const dFire = hexDistCells(found.cell, tgt.cell)
-        const effDFire = desantCombat.effectiveFireDistanceForAccuracy(found.unit, tgt.unit, dFire)
+        const dFire = hexDistCells(found.cell, tcStruct)
+        const { normalizeFireObject } = require('../fire/battleFireNormalize')
+        const reactiveTables = o.useReactiveFire
+          ? normalizeFireObject(found.unit.fireReactive)
+          : undefined
         const acc =
           shootingAccuracyAtHexDistance.length >= 3
-            ? shootingAccuracyAtHexDistance(found.unit, effDFire, found.cell)
-            : shootingAccuracyAtHexDistance(found.unit, effDFire)
+            ? shootingAccuracyAtHexDistance(found.unit, dFire, found.cell, reactiveTables)
+            : shootingAccuracyAtHexDistance(found.unit, dFire)
+        if (acc <= 0) {
+          return `Приказ ${i + 1}: на этой дистанции меткость 0 — стрельба невозможна`
+        }
+        if (dotMod.unitInDot(found.unit)) {
+          if (!dotMod.isDotFireTargetCellAllowed(found.unit, found.cell, tcStruct.id, cells)) {
+            return `Приказ ${i + 1}: клетка вне сектора стрельбы ДОТ`
+          }
+        } else if (unitUsesGunDeploy(found.unit)) {
+          if (!dotMod.unitInDot(found.unit) && !isArtilleryDeployedForBattle(found.unit)) {
+            return `Приказ ${i + 1}: орудие свёрнуто — приказ «Развёртывание»`
+          }
+          if (!isArtilleryFireTargetCellAllowed(found.unit, tcStruct.id)) {
+            return `Приказ ${i + 1}: клетка вне сектора обстрела`
+          }
+        }
+        const smokeMod = require('../map/battleSmoke')
+        if (smokeMod.hasSmokeOnCell(tcStruct.builds)) {
+          return `Приказ ${i + 1}: цель в дымовой завесе`
+        }
+        continue
+      }
+    }
+    if (tid == null) return `Приказ ${i + 1}: нужна цель (targetUnitInstanceId)`
+    const tgt = findUnitOnField(cells, tid)
+    if (!tgt) return `Приказ ${i + 1}: цель не на поле`
+    if (!factionsOpposed(unitFaction(found.unit), unitFaction(tgt.unit))) return `Приказ ${i + 1}: цель должна быть противником`
+    if ((ok === 'fire' || ok === 'fireHard') && isInfantryUnit(found.unit) && isArmoredVehicleTarget(tgt.unit)) {
+      return `Приказ ${i + 1}: пехота не стреляет по бронетехнике и танкам`
+    }
+    if (ok === 'fire' || ok === 'fireHard') {
+      const meleeId = Number(found.unit.tactical?.meleeOpponentInstanceId)
+      const tidNum = Number(tid)
+      if (Number.isFinite(meleeId) && Number.isFinite(tidNum) && meleeId === tidNum) {
+        const dMelee = hexDistCells(found.cell, tgt.cell)
+        if (!desantCombat.canDesantHalfCombatShootTarget(found.unit, tgt.unit, dMelee)) {
+          return `Приказ ${i + 1}: по связанному ближнему оппоненту — только «Атака»`
+        }
+      }
+    }
+    if (ok === 'fire' || ok === 'fireHard') {
+      const needAmmo = ok === 'fireHard' ? 3 : 1
+      const dotMod = require('../map/battleDot')
+      let haveAmmo = getAmmoForValidate(found.unit)
+      if (dotMod.dotShooterUsesDotAmmo(found.unit)) {
+        haveAmmo = dotMod.getDotAmmo(found.cell.builds)
+      }
+      if (haveAmmo < needAmmo) {
+        const src = dotMod.dotShooterUsesDotAmmo(found.unit) ? 'боезапас ДОТ' : 'БК'
+        return `Приказ ${i + 1}: недостаточно ${src} (${ok === 'fireHard' ? 'огонь на подавление — 3' : 'огонь — 1'})`
+      }
+      const dFire = hexDistCells(found.cell, tgt.cell)
+      const effDFire = desantCombat.effectiveFireDistanceForAccuracy(found.unit, tgt.unit, dFire)
+      const { normalizeFireObject } = require('../fire/battleFireNormalize')
+      const reactiveTables = o.useReactiveFire
+        ? normalizeFireObject(found.unit.fireReactive)
+        : undefined
+      const acc =
+        shootingAccuracyAtHexDistance.length >= 3
+          ? shootingAccuracyAtHexDistance(found.unit, effDFire, found.cell, reactiveTables)
+          : shootingAccuracyAtHexDistance(found.unit, effDFire)
         if (acc <= 0) {
           return `Приказ ${i + 1}: на этой дистанции меткость 0 — стрельба невозможна`
         }
@@ -210,14 +268,14 @@ function validateBattleOrders(cells, orders, context) {
           if (errAdj) return `Приказ ${i + 1}: ${errAdj}`
         }
       }
-      if ((ok === 'fire' || ok === 'fireHard') && isArtilleryUnit(found.unit)) {
+      if ((ok === 'fire' || ok === 'fireHard') && unitUsesGunDeploy(found.unit)) {
         const dotMod = require('../map/battleDot')
         if (!dotMod.unitInDot(found.unit)) {
-          if (!isArtilleryDeployedForBattle(found.unit)) {
-            return `Приказ ${i + 1}: артиллерия свёрнута — приказ «Развёртывание»`
+          if (unitUsesGunDeploy(found.unit) && !isArtilleryDeployedForBattle(found.unit)) {
+            return `Приказ ${i + 1}: орудие свёрнуто — приказ «Развёртывание»`
           }
           if (!isArtilleryFireTargetCellAllowed(found.unit, tgt.cell.id)) {
-            return `Приказ ${i + 1}: цель вне сектора обстрела артиллерии`
+            return `Приказ ${i + 1}: цель вне сектора обстрела`
           }
         }
       }
@@ -296,6 +354,20 @@ function validateBattleOrders(cells, orders, context) {
       continue
     }
     if (ok === 'medical') {
+      const medical = require('../unit/battleMedical')
+      const tid = Number(o.targetUnitInstanceId)
+      if (!Number.isFinite(tid)) return `Приказ ${i + 1}: лечение — укажите отряд`
+      const tgt = findUnitOnField(cells, tid)
+      if (!tgt) return `Приказ ${i + 1}: лечение — цель не на поле`
+      if (unitFaction(tgt.unit) !== unitFaction(found.unit)) {
+        return `Приказ ${i + 1}: лечение — только союзник`
+      }
+      if (hexDistCells(found.cell, tgt.cell) > 1) {
+        return `Приказ ${i + 1}: лечение — свой или соседний гекс`
+      }
+      if (!medical.isMedicalAidReceiver(tgt.unit)) {
+        return `Приказ ${i + 1}: лечение — только пехота или артиллерия`
+      }
       continue
     }
     if (ok === 'razvedka' || ok === 'svzy') {
@@ -309,8 +381,8 @@ function validateBattleOrders(cells, orders, context) {
       continue
     }
     if (ok === 'move' || ok === 'moveWar') {
-      if (isArtilleryUnit(found.unit) && isArtilleryDeployedForBattle(found.unit)) {
-        return `Приказ ${i + 1}: развёрнутая артиллерия не передвигается — «Свёртывание»`
+      if (unitUsesGunDeploy(found.unit) && isArtilleryDeployedForBattle(found.unit)) {
+        return `Приказ ${i + 1}: развёрнутое орудие не передвигается — «Свёртывание»`
       }
       const cid = o.targetCellId
       if (cid == null) return `Приказ ${i + 1}: нужна клетка (targetCellId)`
@@ -452,7 +524,7 @@ function validateBattleOrders(cells, orders, context) {
       continue
     }
     if (ok === 'clotting') {
-      if (!isArtilleryUnit(found.unit)) return `Приказ ${i + 1}: только артиллерия`
+      if (!unitUsesGunDeploy(found.unit)) return `Приказ ${i + 1}: свёртывание доступно орудию с сектором стрельбы`
       continue
     }
     if (ok === 'enterDot') {
@@ -494,9 +566,9 @@ function validateBattleOrders(cells, orders, context) {
       continue
     }
     if (ok === 'deploy') {
-      if (!isArtilleryUnit(found.unit)) return `Приказ ${i + 1}: только артиллерия`
+      if (!unitUsesGunDeploy(found.unit)) return `Приказ ${i + 1}: развёртывание доступно орудию с сектором стрельбы`
       if (isArtilleryDeployedForBattle(found.unit)) {
-        return `Приказ ${i + 1}: артиллерия уже развёрнута`
+        return `Приказ ${i + 1}: орудие уже развёрнуто`
       }
       const tag = 'развёртывание'
       const fid = o.defendFacingCellId
@@ -517,7 +589,7 @@ function validateBattleOrders(cells, orders, context) {
       continue
     }
     if (ok === 'changeSector') {
-      if (!isArtilleryUnit(found.unit)) return `Приказ ${i + 1}: только артиллерия`
+      if (!unitUsesGunDeploy(found.unit)) return `Приказ ${i + 1}: смена сектора доступна орудию с сектором стрельбы`
       if (!isArtilleryDeployedForBattle(found.unit)) {
         return `Приказ ${i + 1}: смена сектора — сначала «Развёртывание»`
       }
@@ -540,8 +612,8 @@ function validateBattleOrders(cells, orders, context) {
       continue
     }
     if (ok === 'defend' || ok === 'ambush') {
-      if (isArtilleryUnit(found.unit) && !isArtilleryDeployedForBattle(found.unit)) {
-        return `Приказ ${i + 1}: артиллерия свёрнута — сначала «Развёртывание»`
+      if (unitUsesGunDeploy(found.unit) && !isArtilleryDeployedForBattle(found.unit)) {
+        return `Приказ ${i + 1}: орудие свёрнуто — сначала «Развёртывание»`
       }
       const tag = ok === 'ambush' ? 'засада' : 'оборона'
       const fid = o.defendFacingCellId
@@ -642,7 +714,7 @@ function validateBattleOrders(cells, orders, context) {
       if (!river || !ponton.isRiverCell(river)) {
         return `Приказ ${i + 1}: наведение переправы — цель должна быть рекой`
       }
-      if (hexDistCells(found.cell, river) !== 1) {
+      if (!ponton.isAdjacentRiverTarget(found.cell, river)) {
         return `Приказ ${i + 1}: наведение переправы — отряд должен стоять на соседнем с рекой гексе`
       }
       if (ponton.isPontonComplete(river.builds)) {
@@ -709,6 +781,13 @@ function validateBattleOrders(cells, orders, context) {
       if (mineMod.hasMineOnCell(found.cell.builds)) {
         return `Приказ ${i + 1}: минирование — на этом гексе уже есть минное поле`
       }
+      const trench = require('../map/battleTrench')
+      if (trench.cellBlocksSapperPlacement(found.cell)) {
+        return `Приказ ${i + 1}: минирование — нельзя на гексе с ДОТ, складом или понтоном`
+      }
+      if (o.mineKind !== 'infantry' && o.mineKind !== 'tank') {
+        return `Приказ ${i + 1}: минирование — выберите тип мины (пехотная или танковая)`
+      }
     }
     if (ok === 'smoke') {
       const smokeMod = require('../map/battleSmoke')
@@ -719,6 +798,9 @@ function validateBattleOrders(cells, orders, context) {
       if (!Number.isFinite(cid)) return `Приказ ${i + 1}: дымовая завеса — укажите гекс`
       const tc = cells.find((c) => Number(c.id) === cid)
       if (!tc) return `Приказ ${i + 1}: дымовая завеса — клетка не найдена`
+      if (!smokeMod.fireSectorAllowsSmokeHex(found.unit, found.cell, tc, cells)) {
+        return `Приказ ${i + 1}: дымовая завеса — гекс вне сектора стрельбы (артиллерия: развернитесь)`
+      }
       if (
         !smokeMod.friendlyCanSpotSmokeHex(cells, found.unit, tc, {
           unitFaction,
@@ -731,25 +813,63 @@ function validateBattleOrders(cells, orders, context) {
         return `Приказ ${i + 1}: дымовая завеса — гекс вне линии видимости или дальности стрельбы (своей или союзника)`
       }
     }
-    if (ok === 'explomost') {
-      const ponton = require('../map/battlePonton')
-      const { getExplosives } = require('../unit/battleUnitResources')
-      if (getExplosives(found.unit) < 1) {
-        return `Приказ ${i + 1}: подрыв — нет взрывчатки`
+    if (ok === 'explomost' || ok === 'demolition') {
+      const sapper = require('../map/battleSapperJobs')
+      const demo = require('../map/battleDemolition')
+      if (sapper.isSapperBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${sapper.sapperBusyReason(found.unit)}`
       }
-      const cid = Number(o.targetCellId != null ? o.targetCellId : found.cell.id)
+      if (!demo.canPayDemolitionCharge(found.unit)) {
+        return demo.unitPaysWithMines(found.unit)
+          ? `Приказ ${i + 1}: подрыв — нет мин`
+          : `Приказ ${i + 1}: подрыв — нет взрывчатки`
+      }
+      const cid = Number(o.targetCellId)
       if (!Number.isFinite(cid)) return `Приказ ${i + 1}: подрыв — укажите клетку`
       const tc = cells.find((c) => Number(c.id) === cid)
       if (!tc) return `Приказ ${i + 1}: подрыв — клетка не найдена`
-      if (hexDistCells(found.cell, tc) > 1) return `Приказ ${i + 1}: подрыв — только свой или соседний гекс`
-      if (!ponton.hasPontonOnCell(tc.builds)) {
-        return `Приказ ${i + 1}: подрыв — на гексе нет понтонного моста`
+      if (hexDistCells(found.cell, tc) !== 1) return `Приказ ${i + 1}: подрыв — только соседний гекс`
+      if (!demo.structureKind(tc)) {
+        return `Приказ ${i + 1}: подрыв — на гексе нет склада, ДОТа, моста или железной дороги`
+      }
+    }
+    if (ok === 'repairRailway') {
+      const sapper = require('../map/battleSapperJobs')
+      const railway = require('../map/battleRailway')
+      if (sapper.isSapperBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${sapper.sapperBusyReason(found.unit)}`
+      }
+      const eligible = railway.cellsEligibleForRepairRailway(found.cell, cells)
+      if (!eligible.length) {
+        return `Приказ ${i + 1}: ремонт ЖД — нет разрушенного пути на своём или соседнем гексе`
+      }
+      const cid = Number(o.targetCellId)
+      if (Number.isFinite(cid)) {
+        if (!eligible.some((c) => Number(c.id) === cid)) {
+          return `Приказ ${i + 1}: ремонт ЖД — укажите свой или соседний гекс с разрушенной железной дорогой`
+        }
+      }
+    }
+    if (ok === 'arson') {
+      const sapper = require('../map/battleSapperJobs')
+      const fire = require('../map/battleSettlementFire')
+      if (sapper.isSapperBusy(found.unit)) {
+        return `Приказ ${i + 1}: ${sapper.sapperBusyReason(found.unit)}`
+      }
+      if (!fire.settlementKind(found.cell)) {
+        return `Приказ ${i + 1}: поджог — только город, деревня или железнодорожная станция`
+      }
+      if (fire.hasSettlementFire(found.cell)) {
+        return `Приказ ${i + 1}: поджог — на гексе уже идёт пожар`
+      }
+      if (fire.isSettlementDestroyed(found.cell)) {
+        return `Приказ ${i + 1}: поджог — населённый пункт уже разрушен`
       }
     }
     if (ok === 'railLoading' || ok === 'railUnloading') {
       const railway = require('../map/battleRailway')
       if (!railway.isRailwayUnit(found.unit)) {
-        return `Приказ ${i + 1}: нужен железнодорожный отряд (техника)`
+        return `Приказ ${i + 1}: нужен железнодорожный отряд`
       }
       if (!railway.isRailwayCell(found.cell)) {
         return `Приказ ${i + 1}: железнодорожный отряд должен стоять на железной дороге`

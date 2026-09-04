@@ -9,17 +9,33 @@ const CUBE_DIRS = [
   { x: 0, y: -1, z: 1 },
 ]
 
+function rangeArrayFromFire(fire) {
+  if (!fire || typeof fire !== 'object') return []
+  const raw = fire.range
+  if (Array.isArray(raw) && raw.length) return raw.map((x) => Number(x) || 0)
+  if (raw == null || raw === '') return []
+  return String(raw)
+    .split(',')
+    .map((x) => Number(String(x).trim()) || 0)
+}
+
 function rangeArrayForUnitQuick(attacker) {
-  const fp = attacker && attacker.fireParsed
-  if (fp && typeof fp === 'object' && Array.isArray(fp.range) && fp.range.length) {
-    return fp.range.map((x) => Number(x) || 0)
-  }
+  const fromParsed = rangeArrayFromFire(attacker && attacker.fireParsed)
+  if (fromParsed.length) return fromParsed
+  const fromFire = rangeArrayFromFire(attacker && attacker.fire)
+  if (fromFire.length) return fromFire
   return [3, 2, 1]
 }
 
-function maxShootRangeStepsForUnit(attacker) {
-  const ra = rangeArrayForUnitQuick(attacker)
+function stepsFromRangeArray(ra) {
+  if (!Array.isArray(ra) || !ra.length) return 0
   return ra.length >= 2 ? Math.max(0, ra.length - 1) : ra.length
+}
+
+function maxShootRangeStepsForUnit(attacker) {
+  const regular = stepsFromRangeArray(rangeArrayForUnitQuick(attacker))
+  const reactive = stepsFromRangeArray(rangeArrayFromFire(attacker && attacker.fireReactive))
+  return Math.max(regular, reactive)
 }
 
 function hexDistCells(a, b) {

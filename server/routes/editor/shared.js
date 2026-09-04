@@ -41,6 +41,10 @@ const DEFAULT_BATTLE_ORDERS = [
   ['Дымовая завеса', 'smoke'],
   ['Погрузка на ЖД', 'railLoading'],
   ['Выгрузка на ЖД', 'railUnloading'],
+  ['Поджёг', 'arson'],
+  ['Подрыв', 'demolition'],
+  ['Вырубка просеки', 'cutGlade'],
+  ['Ремонт ЖД путей', 'repairRailway'],
 ]
 
 const DEFAULT_UNIT_PROPERTIES = [
@@ -66,6 +70,8 @@ const DEFAULT_UNIT_PROPERTIES = [
   ['Зона действия штаба — 2', 'hqZoneOfAction2'],
   ['Зона действия штаба — 3', 'hqZoneOfAction3'],
   ['Железнодорожный отряд', 'railwayDetachment'],
+  ['Водный юнит', 'waterUnit'],
+  ['Незаметный полёт', 'stealthFlight'],
 ]
 
 async function ensureDefaultUnitProperties() {

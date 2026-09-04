@@ -70,6 +70,13 @@ interface BattleUnitOrdersPanelProps {
       candidates: AccompanimentEscortCandidate[];
     } | null>
   >;
+  setMiningPickModal: React.Dispatch<
+    React.SetStateAction<{
+      unitInstanceId: number;
+      targetCellId: number;
+      orderLabel: string;
+    } | null>
+  >;
 }
 
 const BattleUnitOrdersPanel: React.FC<BattleUnitOrdersPanelProps> = ({
@@ -98,6 +105,7 @@ const BattleUnitOrdersPanel: React.FC<BattleUnitOrdersPanelProps> = ({
   setPendingOrders,
   pendingOrders,
   setAccompanimentPickModal,
+  setMiningPickModal,
 }) => {
   return (
     <div
@@ -137,6 +145,7 @@ const BattleUnitOrdersPanel: React.FC<BattleUnitOrdersPanelProps> = ({
         setPendingOrders={setPendingOrders}
         pendingOrders={pendingOrders}
         setAccompanimentPickModal={setAccompanimentPickModal}
+        setMiningPickModal={setMiningPickModal}
       />
     </div>
   );

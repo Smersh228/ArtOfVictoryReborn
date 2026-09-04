@@ -9,9 +9,12 @@ import EditorMapGuideModal from '../components/editorMap/EditorMapGuideModal'
 import EditorMapSaveConfirmModal from '../components/editorMap/EditorMapSaveConfirmModal'
 import EditorMapExportModal from '../components/editorMap/EditorMapExportModal'
 import EditorMapObjectPalette from '../components/editorMap/EditorMapObjectPalette'
+import EditorMapDeploymentBar from '../components/editorMap/EditorMapDeploymentBar'
+import EditorMapDeploymentModal from '../components/editorMap/EditorMapDeploymentModal'
 import { ConditionsPanel, ScenarioPanel, UnitsFilters, type ScenarioPhotoSlot, DEFAULT_MAP_ENVIRONMENT, type MapEnvironmentFlags, parseEnvironmentFromPayload, environmentToPayload } from '../components/editorMap/EditorMapSidePanels'
 import { Cell } from './../../../server/src/game/gameLogic/cells/cell'
 import { generateEmptyGrid, computeEdgeCellIds } from '../game/hexGrid'
+import { computeBattleCellSize, computeHexMapCanvasSize } from '../game/battleMapFit'
 import { getCellCenter } from '../components/map/cellsInteraction'
 import {
   edgeIndexFromPoint,
@@ -30,6 +33,22 @@ import {
   type CatalogFortification,
 } from '../game/editorMapFortifications'
 import { factionForTeam, normalizeUnitTeam, teamFromUnit } from '../game/editorMapTeam'
+import { clearInheritedDestroyedHexFlags } from '../game/battleSpecialTerrain'
+import {
+  EMPTY_EDITOR_DEPLOYMENT,
+  addPoolStructure,
+  addPoolUnit,
+  clearDeployZoneForTeam,
+  collectDeployZoneMarks,
+  ensureDeployZoneCell,
+  parseEditorDeployment,
+  poolCopyCount,
+  MAX_POOL_COPIES,
+  removePoolStructure,
+  removePoolUnit,
+  teamDeployPool,
+  toggleDeployZoneCell,
+} from '../game/editorMapDeployment'
 import {
   computeEditorDotFireSectorCellIds,
   findDotFacingDirFromNeighbor,
@@ -46,7 +65,7 @@ import {
   type SavedMapListItem,
 } from '../api/maps'
 
-type EditorTabId = 'units' | 'hexes' | 'buildings' | 'conditions' | 'scenario'
+type EditorTabId = 'units' | 'hexes' | 'buildings' | 'conditions' | 'scenario' | 'deployment'
 
 type FactionId = 'all' | 'germany' | 'ussr'
 
@@ -68,6 +87,7 @@ type CatalogUnit = {
   type: UnitTypeId
   faction: Exclude<FactionId, 'all'>
   imagePath: string
+  properties?: Array<{ prop_key?: string; name?: string }>
 }
 
 type CatalogHex = {
@@ -126,6 +146,7 @@ type UnitCombatStatsFromDb = {
   smokeShells: number
   ammoSupply: string
   orders: BattleUnitOrderRef[]
+  properties: Array<{ prop_key?: string; name?: string }>
 }
 
 function parseOrdersFromUnitsEditorRow(r: Record<string, unknown>): BattleUnitOrderRef[] {
@@ -165,6 +186,7 @@ const EDITOR_TABS: { id: EditorTabId; label: string }[] = [
   { id: 'units', label: 'Юниты' },
   { id: 'hexes', label: 'Гексы' },
   { id: 'buildings', label: 'Сооружения' },
+  { id: 'deployment', label: 'Расстановка' },
   { id: 'conditions', label: 'Условия игры' },
   { id: 'scenario', label: 'Сценарий' },
 ]
@@ -175,6 +197,12 @@ const MAX_UNITS_PER_CELL = 3
 const MAP_BASE_WIDTH = 1400
 const MAP_BASE_HEIGHT = 835
 const MAP_BASE_CELL = 42
+const EDITOR_MIN_CELL = 22
+const EDITOR_CELL_EXTRA = 2
+const EDITOR_MAP_PAD = 16
+const EDITOR_GRID_MIN = 5
+const EDITOR_GRID_MAX_WIDTH = 25
+const EDITOR_GRID_MAX_HEIGHT = 15
 
 type PaletteItem = CatalogUnit | CatalogHex | CatalogBuilding | CatalogFortification
 
@@ -290,6 +318,18 @@ const EditorMap: React.FC = () => {
           const ammoRaw = r.ammo
           const ammoSupply =
             ammoRaw != null && String(ammoRaw).trim() !== '' ? String(ammoRaw).trim() : ''
+          const rawProps = r.properties
+          const properties: Array<{ prop_key?: string; name?: string }> = []
+          if (Array.isArray(rawProps)) {
+            for (const item of rawProps) {
+              if (item == null || typeof item !== 'object') continue
+              const p = item as { prop_key?: unknown; name?: unknown }
+              properties.push({
+                ...(typeof p.prop_key === 'string' ? { prop_key: p.prop_key } : {}),
+                ...(typeof p.name === 'string' ? { name: p.name } : {}),
+              })
+            }
+          }
           combatMap.set(id, {
             str: toNum(r.str),
             def: toNum(r.def),
@@ -299,6 +339,7 @@ const EditorMap: React.FC = () => {
             smokeShells: toNum(r.smokeShells),
             ammoSupply,
             orders: parseOrdersFromUnitsEditorRow(r),
+            properties,
           })
         }
         setUnitCombatStatsByCatalogId(combatMap)
@@ -306,7 +347,14 @@ const EditorMap: React.FC = () => {
       .catch(() => {})
   }, [])
 
-  const catalogUnits = useMemo(() => apiUnits, [apiUnits])
+  const catalogUnits = useMemo(() => {
+    return apiUnits.map((u) => {
+      const st = unitCombatStatsByCatalogId.get(u.id)
+      if (!st?.properties.length) return u
+      if (Array.isArray(u.properties) && u.properties.length) return u
+      return { ...u, properties: st.properties }
+    })
+  }, [apiUnits, unitCombatStatsByCatalogId])
 
   const catalogHexes = useMemo(() => apiHexes, [apiHexes])
 
@@ -331,6 +379,10 @@ const EditorMap: React.FC = () => {
   const [missionBrief, setMissionBrief] = useState('')
   const [historyText, setHistoryText] = useState('')
   const [teamLimit, setTeamLimit] = useState<2 | 4 | 6>(2)
+  const [deployBrushTeam, setDeployBrushTeam] = useState(1)
+  const [deployment, setDeployment] = useState(EMPTY_EDITOR_DEPLOYMENT)
+  const [showDeployPoolModal, setShowDeployPoolModal] = useState(false)
+  const [scenarioPhotos, setScenarioPhotos] = useState<readonly [string, string]>(['', ''])
 
   useEffect(() => {
     const next = normalizeUnitTeam(selectedTeam, teamLimit)
@@ -338,16 +390,35 @@ const EditorMap: React.FC = () => {
     setSelectedTeam(next)
     setSelectedFaction(factionForTeam(next))
   }, [teamLimit, selectedTeam])
-  const [scenarioPhotos, setScenarioPhotos] = useState<readonly [string, string]>(['', ''])
+  useEffect(() => {
+    const next = normalizeUnitTeam(deployBrushTeam, teamLimit)
+    if (next !== deployBrushTeam) setDeployBrushTeam(next)
+  }, [teamLimit, deployBrushTeam])
+  const placementMode = activeTab === 'deployment'
 
   const mapHostRef = useRef<HTMLDivElement>(null)
-  const [mapLayout, setMapLayout] = useState({
-    width: MAP_BASE_WIDTH,
-    height: MAP_BASE_HEIGHT,
-    cellSize: MAP_BASE_CELL,
-  })
+  const [mapHostSize, setMapHostSize] = useState({ w: MAP_BASE_WIDTH, h: MAP_BASE_HEIGHT })
+  const mapLayout = useMemo(() => {
+    const hostW = Math.max(160, mapHostSize.w)
+    const hostH = Math.max(160, mapHostSize.h)
+    if (!cells.length) {
+      return { width: hostW, height: hostH, cellSize: MAP_BASE_CELL + EDITOR_CELL_EXTRA }
+    }
+    const fit = computeBattleCellSize(cells, hostW, hostH, EDITOR_MAP_PAD)
+    const cellSize = Math.max(EDITOR_MIN_CELL, Math.min(MAP_BASE_CELL, fit)) + EDITOR_CELL_EXTRA
+    const needed = computeHexMapCanvasSize(cells, cellSize, EDITOR_MAP_PAD)
+    return {
+      width: Math.max(hostW, needed.width),
+      height: needed.height,
+      cellSize,
+    }
+  }, [cells, mapHostSize])
 
   const editorMapEdgeCellIds = useMemo(() => computeEdgeCellIds(cells), [cells])
+  const editorDeployZones = useMemo(
+    () => (placementMode ? collectDeployZoneMarks(deployment, teamLimit) : null),
+    [placementMode, deployment, teamLimit],
+  )
 
   const editorFacingPickCellIds = useMemo(() => {
     const centerId = artilleryFacingPick?.unitCellId ?? dotFacingPick?.cellId
@@ -420,7 +491,7 @@ const EditorMap: React.FC = () => {
   }, [artilleryFacingPick, dotFacingPick, cells])
 
   const editorAviationPlacementActive =
-    activeTab === 'units' &&
+    (activeTab === 'units' || placementMode) &&
     selectedItem != null &&
     isCatalogUnit(selectedItem) &&
     (selectedItem.type === 'lightAir' || selectedItem.type === 'heavyAir')
@@ -442,22 +513,21 @@ const EditorMap: React.FC = () => {
     if (!el || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver((entries) => {
       const cr = entries[0]?.contentRect
-      if (!cr || cr.width < 280) return
+      if (!cr || cr.width < 80 || cr.height < 80) return
       const w = Math.floor(cr.width)
-      const scale = w / MAP_BASE_WIDTH
-      const h = Math.max(320, Math.floor(MAP_BASE_HEIGHT * scale))
-      const cellSize = Math.max(20, Math.round(MAP_BASE_CELL * scale))
-      setMapLayout((prev) => {
-        if (prev.width === w && prev.height === h && prev.cellSize === cellSize) return prev
-        return { width: w, height: h, cellSize }
-      })
+      const h = Math.floor(cr.height)
+      setMapHostSize((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
     })
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
 
   function applyGrid() {
-    const base = generateEmptyGrid(widthSize, heightSize)
+    const w = Math.min(EDITOR_GRID_MAX_WIDTH, Math.max(EDITOR_GRID_MIN, Math.round(widthSize)))
+    const h = Math.min(EDITOR_GRID_MAX_HEIGHT, Math.max(EDITOR_GRID_MIN, Math.round(heightSize)))
+    setWidthSize(w)
+    setHeightSize(h)
+    const base = generateEmptyGrid(w, h)
     const plain = pickDefaultPlainHex(catalogHexes)
     if (plain) {
       const inf = plain.moveCostInf ?? plain.moveCost ?? 1
@@ -481,6 +551,7 @@ const EditorMap: React.FC = () => {
     } else {
       setCells(base)
     }
+    setDeployment((prev) => ({ ...prev, zones: {} }))
     setShowGridModal(false)
   }
 
@@ -489,18 +560,32 @@ const EditorMap: React.FC = () => {
     _unitId?: number,
     click?: { canvasX: number; canvasY: number },
   ) {
+    if (placementMode && !selectedItem) {
+      setDeployment((prev) => toggleDeployZoneCell(prev, deployBrushTeam, cell.id))
+      return
+    }
+    if (
+      placementMode &&
+      selectedItem &&
+      (isCatalogUnit(selectedItem) ||
+        isCatalogFortification(selectedItem) ||
+        isCatalogBuilding(selectedItem))
+    ) {
+      const team = normalizeUnitTeam(deployBrushTeam, teamLimit)
+      setDeployment((prev) => ensureDeployZoneCell(prev, team, cell.id))
+    }
     if (artilleryFacingPick || dotFacingPick) return
     if (!selectedItem) return
 
-    if (activeTab === 'buildings' && isCatalogFortification(selectedItem)) {
+    if ((placementMode || activeTab === 'buildings') && isCatalogFortification(selectedItem)) {
+      if (selectedItem.buildKey === 'trench' && isTrenchForbiddenOnCell(cell)) {
+        return
+      }
       if (
         selectedItem.buildKey === 'wire' ||
         selectedItem.buildKey === 'trench' ||
         selectedItem.buildKey === 'antiTankBuild'
       ) {
-        if (selectedItem.buildKey === 'trench' && isTrenchForbiddenOnCell(cell)) {
-          return
-        }
         const center = getCellCenter(
           cell.coor.x,
           cell.coor.z,
@@ -590,7 +675,7 @@ const EditorMap: React.FC = () => {
       return
     }
 
-    if (activeTab === 'buildings' && isCatalogBuilding(selectedItem)) {
+    if ((placementMode || activeTab === 'buildings') && isCatalogBuilding(selectedItem)) {
       setCells((prev) =>
         prev.map((c) => {
           if (c.id !== cell.id) return c
@@ -605,7 +690,7 @@ const EditorMap: React.FC = () => {
       return
     }
 
-    if (activeTab === 'hexes' && isCatalogHex(selectedItem)) {
+    if ((placementMode || activeTab === 'hexes') && isCatalogHex(selectedItem)) {
       const hexType = selectedItem.type
       const inf = selectedItem.moveCostInf ?? selectedItem.moveCost ?? 1
       const tech = selectedItem.moveCostTech ?? selectedItem.moveCost ?? 1
@@ -627,12 +712,21 @@ const EditorMap: React.FC = () => {
             selectedItem.hexExtra && typeof selectedItem.hexExtra === 'object'
               ? { ...(selectedItem.hexExtra as Record<string, unknown>) }
               : {}
+          const catalogHexId = Number(String(selectedItem.id || '').replace(/^hex_/i, ''))
+          if (Number.isFinite(catalogHexId) && catalogHexId > 0) catEx.catalogHexId = catalogHexId
           const mergedHex = { ...prevEx, ...catEx }
+          delete mergedHex.isDestroyedBridge
+          delete mergedHex.destroyedBridge
+          delete mergedHex.isDestroyedRailway
+          delete mergedHex.railwayDestroyed
+          delete mergedHex.editorDestroyedBridge
+          delete mergedHex.editorDestroyedRailway
           const hexExtraPayload =
             Object.keys(mergedHex).length > 0 ? { hexExtra: mergedHex } : ({} as Record<string, never>)
           const next = {
             ...c,
             type: hexType,
+            name: selectedItem.name || (c as { name?: string }).name,
             img: selectedItem.imagePath,
             moveCost: legacy,
             moveCostInf: inf,
@@ -656,8 +750,8 @@ const EditorMap: React.FC = () => {
       return
     }
 
-    if (activeTab === 'units' && isCatalogUnit(selectedItem)) {
-      const placeTeam = normalizeUnitTeam(selectedTeam, teamLimit)
+    if ((placementMode || activeTab === 'units') && isCatalogUnit(selectedItem)) {
+      const placeTeam = normalizeUnitTeam(placementMode ? deployBrushTeam : selectedTeam, teamLimit)
       if (selectedItem.faction !== factionForTeam(placeTeam)) {
         window.alert(
           placeTeam % 2 === 1
@@ -673,6 +767,18 @@ const EditorMap: React.FC = () => {
         window.alert('Авиацию можно ставить только на край карты (подсвеченные красным гексы).')
         return
       }
+      if ((cell.units || []).length >= MAX_UNITS_PER_CELL) {
+        window.alert(`Нельзя поставить больше ${MAX_UNITS_PER_CELL} юнитов на один гекс!`)
+        return
+      }
+      if (placementMode) {
+        const pool = teamDeployPool(deployment, placeTeam)
+        if (poolCopyCount(pool.unitIds, selectedItem.id) >= MAX_POOL_COPIES) {
+          window.alert(`Не больше ${MAX_POOL_COPIES} копий одного юнита в пуле`)
+          return
+        }
+        setDeployment((prev) => addPoolUnit(prev, placeTeam, selectedItem.id))
+      }
       setCells((prev) =>
         prev.map((c) => {
           if (c.id !== cell.id) return c
@@ -683,7 +789,7 @@ const EditorMap: React.FC = () => {
           }
           const instanceId = nextInstanceIdRef.current++
           const st = unitCombatStatsByCatalogId.get(selectedItem.id)
-          const team = normalizeUnitTeam(selectedTeam, teamLimit)
+          const team = normalizeUnitTeam(placementMode ? deployBrushTeam : selectedTeam, teamLimit)
           const newUnit: PlacedUnit = {
             ...selectedItem,
             instanceId,
@@ -699,6 +805,7 @@ const EditorMap: React.FC = () => {
                   smokeShells: st.smokeShells,
                   ...(st.ammoSupply ? { ammoSupply: st.ammoSupply } : {}),
                   ...(st.orders.length ? { orders: st.orders } : {}),
+                  ...(st.properties.length ? { properties: st.properties } : {}),
                 }
               : {}),
           }
@@ -802,6 +909,7 @@ const EditorMap: React.FC = () => {
       cells: JSON.parse(JSON.stringify(cells)) as unknown[],
       conditions: { axisCapture, axisElimination, struggleFaction, allyTasks, axisTasks, maxTurns, environment: environmentToPayload(environment) },
       scenario: { missionBrief, historyText, photos: attached, teamLimit },
+      deployment,
     }
   }
 
@@ -834,7 +942,10 @@ const EditorMap: React.FC = () => {
             return { ...rec, team: teamFromUnit(rec, loadedTeamLimit) } as unknown as (typeof c.units)[number]
           })
         : c.units
-      loadedCells[i] = { ...c, units, builds: ensureCellBuilds(c.builds) }
+      const nextCell = { ...c, units, builds: ensureCellBuilds(c.builds) }
+      const hx = (nextCell as Cell & { hexExtra?: Record<string, unknown> }).hexExtra
+      if (hx && typeof hx === 'object') clearInheritedDestroyedHexFlags(hx)
+      loadedCells[i] = nextCell
     }
 
     const cond =
@@ -895,6 +1006,7 @@ const EditorMap: React.FC = () => {
       if (typeof photosRaw[1] === 'string') p1 = photosRaw[1]
     }
     setScenarioPhotos([p0, p1])
+    setDeployment(parseEditorDeployment(p.deployment))
 
     setCells(loadedCells)
     const { width, height } = inferGridSizeFromCells(loadedCells)
@@ -995,9 +1107,16 @@ const EditorMap: React.FC = () => {
   function switchTab(tab: EditorTabId) {
     setActiveTab(tab)
     setSelectedItem(null)
+    if (tab === 'deployment') {
+      setArtilleryFacingPick(null)
+      setDotFacingPick(null)
+      setSelectedTeam(normalizeUnitTeam(deployBrushTeam, teamLimit))
+      setSelectedFaction(factionForTeam(deployBrushTeam))
+    }
   }
 
-  const showObjectPalette = activeTab === 'units' || activeTab === 'hexes' || activeTab === 'buildings'
+  const showObjectPalette =
+    activeTab === 'units' || activeTab === 'hexes' || activeTab === 'buildings'
 
   return (
     <div className={styles.editorMap}>
@@ -1017,21 +1136,28 @@ const EditorMap: React.FC = () => {
         <div className={styles.selectionToast} role="status">
           <span>Выберите соседний гекс — направление орудия (Esc — отмена)</span>
         </div>
-      ) : null}
-      {selectedItem && !artilleryFacingPick && !dotFacingPick ? (
+      ) : placementMode && !selectedItem ? (
+        <div className={styles.selectionToast} role="status">
+          <span>Клик по гексу — зона команды. Юниты и сооружения добавляйте через «Список пула».</span>
+        </div>
+      ) : selectedItem && !artilleryFacingPick && !dotFacingPick ? (
         <div className={styles.selectionToast} role="status">
           <span>
             Выбран: {selectedItem.name}
-            {isCatalogFortification(selectedItem) &&
-            (selectedItem.buildKey === 'wire' ||
-              selectedItem.buildKey === 'trench' ||
-              selectedItem.buildKey === 'antiTankBuild')
-              ? ' — клик по стороне гекса'
-              : isCatalogFortification(selectedItem) && selectedItem.buildKey === 'dot'
-                ? ' — клик по гексу, затем направление сектора'
-                : isCatalogFortification(selectedItem) && selectedItem.buildKey === 'storage'
-                ? ' — клик по гексу'
-                : ''}
+            {placementMode
+              ? isCatalogUnit(selectedItem)
+                ? ' — клик ставит на гекс и добавляет в пул расстановки'
+                : ' — клик ставит на гекс (гекс входит в зону команды)'
+              : isCatalogFortification(selectedItem) &&
+                  (selectedItem.buildKey === 'wire' ||
+                    selectedItem.buildKey === 'trench' ||
+                    selectedItem.buildKey === 'antiTankBuild')
+                ? ' — клик по стороне гекса'
+                : isCatalogFortification(selectedItem) && selectedItem.buildKey === 'dot'
+                  ? ' — клик по гексу, затем направление сектора'
+                  : isCatalogFortification(selectedItem) && selectedItem.buildKey === 'storage'
+                    ? ' — клик по гексу'
+                    : ''}
           </span>
         </div>
       ) : null}
@@ -1047,11 +1173,15 @@ const EditorMap: React.FC = () => {
             onCellClick={handleCellClick}
             onUnitDelete={handleUnitDelete}
             hideEditorCellHexMenu={
-              selectedItem != null &&
-              !(isCatalogFortification(selectedItem) && selectedItem.buildKey === 'mine')
+              placementMode ||
+              (selectedItem != null &&
+                !(isCatalogFortification(selectedItem) && selectedItem.buildKey === 'mine'))
             }
+            ignoreUnitClicks={placementMode}
             editorAviationEdgeHighlight={editorAviationPlacementActive}
             editorAviationEdgeCellIds={editorMapEdgeCellIds}
+            editorDeployZones={editorDeployZones}
+            editorDeployBrushTeam={placementMode ? deployBrushTeam : null}
             editorCatalogUnits={catalogUnits}
             onEditorUnitPatch={handleEditorUnitPatch}
             editorFacingPickCellIds={editorFacingPickCellIds}
@@ -1090,6 +1220,23 @@ const EditorMap: React.FC = () => {
           onSwitchTab={(id) => switchTab(id as EditorTabId)}
           controls={
             <>
+              {activeTab === 'deployment' && (
+                <EditorMapDeploymentBar
+                  teamLimit={teamLimit}
+                  brushTeam={deployBrushTeam}
+                  onBrushTeam={(team) => {
+                    setDeployBrushTeam(team)
+                    setSelectedTeam(team)
+                    setSelectedFaction(factionForTeam(team))
+                    setSelectedItem(null)
+                  }}
+                  deployment={deployment}
+                  onOpenPoolModal={() => setShowDeployPoolModal(true)}
+                  onClearZone={() =>
+                    setDeployment((prev) => clearDeployZoneForTeam(prev, deployBrushTeam))
+                  }
+                />
+              )}
               {activeTab === 'units' && (
                 <UnitsFilters
                   selectedFaction={selectedFaction}
@@ -1147,8 +1294,8 @@ const EditorMap: React.FC = () => {
           palette={
             <EditorMapObjectPalette
               activeTab={activeTab}
-              selectedFaction={selectedFaction}
-              selectedUnitType={selectedUnitType}
+              selectedFaction={placementMode ? factionForTeam(deployBrushTeam) : selectedFaction}
+              selectedUnitType={placementMode ? 'all' : selectedUnitType}
               selectedItem={selectedItem}
               catalogUnits={catalogUnits}
               catalogHexes={catalogHexes}
@@ -1165,10 +1312,32 @@ const EditorMap: React.FC = () => {
         isOpen={showGridModal}
         widthSize={widthSize}
         heightSize={heightSize}
+        minSize={EDITOR_GRID_MIN}
+        maxWidth={EDITOR_GRID_MAX_WIDTH}
+        maxHeight={EDITOR_GRID_MAX_HEIGHT}
         setWidthSize={setWidthSize}
         setHeightSize={setHeightSize}
         onClose={() => setShowGridModal(false)}
         onApply={applyGrid}
+      />
+
+      <EditorMapDeploymentModal
+        isOpen={showDeployPoolModal}
+        onClose={() => setShowDeployPoolModal(false)}
+        teamLimit={teamLimit}
+        team={deployBrushTeam}
+        onTeam={setDeployBrushTeam}
+        deployment={deployment}
+        catalogUnits={catalogUnits}
+        catalogBuildings={catalogBuildings}
+        onAddUnit={(unitId) => setDeployment((prev) => addPoolUnit(prev, deployBrushTeam, unitId))}
+        onRemoveUnit={(unitId) => setDeployment((prev) => removePoolUnit(prev, deployBrushTeam, unitId))}
+        onAddStructure={(structureId) =>
+          setDeployment((prev) => addPoolStructure(prev, deployBrushTeam, structureId))
+        }
+        onRemoveStructure={(structureId) =>
+          setDeployment((prev) => removePoolStructure(prev, deployBrushTeam, structureId))
+        }
       />
 
       <EditorMapGuideModal isOpen={showGuideModal} onClose={() => setShowGuideModal(false)} />

@@ -47,7 +47,7 @@ const FORBIDDEN_NAME_RE =
   /река|болот|озер|озёр|брод|камн|мост|железнодорожн/i
 
 const TRENCH_DIG_MIN_STR = 3
-const DEFAULT_TRENCH_DIG_TURNS = 2
+const DEFAULT_TRENCH_DIG_TURNS = 1
 
 function ensureBuilds(builds) {
   if (!builds || typeof builds !== 'object') return { ...EMPTY_BUILDS }
@@ -101,8 +101,20 @@ function hexExtraObj(cell) {
   return cell && cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
 }
 
+function cellBlocksSapperPlacement(cell) {
+  if (!cell) return true
+  const dot = require('./battleDot')
+  if (dot.hasDotOnCell(cell.builds)) return true
+  const storage = require('./battleStorage')
+  if (storage.hasStorage(cell)) return true
+  const ponton = require('./battlePonton')
+  if (ponton.hasPontonOnCell(cell.builds)) return true
+  return false
+}
+
 function isTrenchForbiddenOnCell(cell) {
   if (!cell) return true
+  if (cellBlocksSapperPlacement(cell)) return true
   const ex = hexExtraObj(cell)
   if (ex && ex.placementAllowed && ex.placementAllowed.trench === false) return true
   if (ex && ex.isBridge === true) return true
@@ -129,24 +141,6 @@ function isTrenchDigging(unit) {
 }
 
 function readTrenchDigDuration(unit) {
-  const orders = unit && unit.orders
-  if (Array.isArray(orders)) {
-    for (let i = 0; i < orders.length; i++) {
-      const o = orders[i]
-      if (!o || typeof o !== 'object') continue
-      const k = String(o.order_key || o.key || '').trim()
-      if (k !== 'trenches') continue
-      for (const field of ['turns', 'duration', 'time', 'orderTurns', 'turns_count']) {
-        const n = Number(o[field])
-        if (Number.isFinite(n) && n >= 1) return Math.floor(n)
-      }
-      const m = String(o.name || '').match(/(\d+)/)
-      if (m) {
-        const n = Number(m[1])
-        if (Number.isFinite(n) && n >= 1) return Math.floor(n)
-      }
-    }
-  }
   return DEFAULT_TRENCH_DIG_TURNS
 }
 
@@ -164,6 +158,7 @@ function startTrenchDig(unit, cell, edgeDir, duration) {
   unit.tactical.trenchDigTurnsLeft = turns
   unit.tactical.trenchDigEdgeDir = edgeDir
   unit.tactical.trenchDigCellId = cell ? Number(cell.id) : null
+  unit.tactical.trenchDigSkipTick = true
 }
 
 function completeTrenchDigOnUnit(unit, cell) {
@@ -186,6 +181,10 @@ function tickTrenchDigging(cells, le, ph) {
   for (const c of cells) {
     for (const u of c.units || []) {
       if (!isTrenchDigging(u)) continue
+      if (u.tactical && u.tactical.trenchDigSkipTick) {
+        delete u.tactical.trenchDigSkipTick
+        continue
+      }
       let left = Number(u.tactical.trenchDigTurnsLeft)
       left -= 1
       if (left <= 0) {
@@ -296,6 +295,7 @@ module.exports = {
   findMoveDir,
   moveDirToVisualEdge,
   isTrenchForbiddenOnCell,
+  cellBlocksSapperPlacement,
   canUnitTypeOccupyTrench,
   isTrenchDigging,
   readTrenchDigDuration,

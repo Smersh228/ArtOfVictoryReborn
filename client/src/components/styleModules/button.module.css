@@ -37,6 +37,24 @@
   color: inherit;
 }
 
+@media (max-height: 800px) {
+  .button {
+    padding-top: 7px;
+    padding-bottom: 7px;
+    font-size: 15px;
+    margin: 6px;
+  }
+}
+
+@media (max-height: 768px) {
+  .button {
+    padding-top: 5px;
+    padding-bottom: 5px;
+    font-size: 14px;
+    margin: 4px;
+  }
+}
+
 .buttonBadge {
   position: absolute;
   top: -4px;

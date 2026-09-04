@@ -57,6 +57,8 @@ export type BattleOrderPayload = {
   targetCellId?: number
   /** Корректировка огня (только артиллерия, приказ «Огонь», 1 раз за ход на сторону) */
   useFireAdjustment?: boolean
+  /** Реактивный огонь (таблица fireReactive вместо обычной интенсивности) */
+  useReactiveFire?: boolean
   /** Прямая траектория полёта (точка вылета → назначение), id клеток по линии на гексе */
   flightPathCellIds?: number[]
   /** Бомбардировка: сосед цели — сторона захода ковровой бомбардировки */
@@ -73,15 +75,15 @@ export type BattleOrderPayload = {
   trenchEdgeDir?: number
   /** Приказ «Снятие проволоки»: грань на своём гексе 0–5 */
   wireEdgeDir?: number
-  /** Гекс выстрела на пути приказа «Стрельба в движении» */
+  /** Приказ «Минирование»: пехотная или танковая мина */
+  mineKind?: 'infantry' | 'tank'
+  /** Стрельба в движении: гекс, с которого производится выстрел */
   fireFromCellId?: number
 }
 
-export type BattleHqRevealedOrder = {
-  unitInstanceId: number
+export type BattleHqRevealedOrder = BattleOrderPayload & {
   unitName?: string
   cellId?: number
-  orderKey: string
   orderLabel?: string
 }
 
@@ -94,6 +96,25 @@ export type BattleHqRewriteState = {
   yourDraftOrders?: BattleOrderPayload[]
   hqUnitInstanceId?: number
   hqRoll?: number
+}
+
+export type BattleDeployPlaced = {
+  kind: 'unit' | 'structure'
+  cellId: number
+  instanceId?: number
+  structureId?: string
+}
+
+export type BattleDeployState = {
+  active: boolean
+  youReady?: boolean
+  zoneCellIds?: number[]
+  remaining?: {
+    unitIds: number[]
+    structureIds: string[]
+  }
+  membersReady?: { key: string; ready: boolean; isYou: boolean }[]
+  yourPlaced?: BattleDeployPlaced[]
 }
 
 export type LobbyRoomChatChannel = 'all' | 'team'
@@ -137,6 +158,7 @@ export type RoomDetailResponse = {
   battleTurnAckCount?: number
   battleTurnAckNeed?: number
   battleHqRewrite?: BattleHqRewriteState | null
+  battleDeploy?: BattleDeployState | null
   battleCells?: unknown[]
   battleReconByFaction?: { rkka?: number[]; wehrmacht?: number[] }
   battleLog?: {
@@ -241,6 +263,46 @@ function parseRoomsJson<T>(text: string): T {
   return JSON.parse(t) as T
 }
 
+function asIntIdList(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return []
+  const out: number[] = []
+  for (const item of raw) {
+    const n = Math.floor(Number(item))
+    if (Number.isFinite(n)) out.push(n)
+  }
+  return out
+}
+
+function normalizeBattleDeploy(raw: RoomDetailResponse['battleDeploy']): BattleDeployState {
+  if (!raw || !raw.active) return { active: false }
+  return {
+    active: true,
+    youReady: Boolean(raw.youReady),
+    zoneCellIds: asIntIdList(raw.zoneCellIds),
+    remaining: {
+      unitIds: asIntIdList(raw.remaining?.unitIds),
+      structureIds: Array.isArray(raw.remaining?.structureIds)
+        ? raw.remaining.structureIds.map((s) => String(s || '').trim()).filter(Boolean)
+        : [],
+    },
+    membersReady: Array.isArray(raw.membersReady)
+      ? raw.membersReady.map((m) => ({
+          key: String(m?.key || ''),
+          ready: Boolean(m?.ready),
+          isYou: Boolean(m?.isYou),
+        }))
+      : [],
+    yourPlaced: Array.isArray(raw.yourPlaced)
+      ? raw.yourPlaced.map((p) => ({
+          kind: p?.kind === 'structure' ? 'structure' : 'unit',
+          cellId: Number(p?.cellId),
+          instanceId: p?.instanceId != null ? Number(p.instanceId) : undefined,
+          structureId: p?.structureId != null ? String(p.structureId) : undefined,
+        }))
+      : [],
+  }
+}
+
 function normalizeRoomDetail(raw: RoomDetailResponse): RoomDetailResponse {
   return {
     ...raw,
@@ -256,6 +318,7 @@ function normalizeRoomDetail(raw: RoomDetailResponse): RoomDetailResponse {
     battleTurnAckCount: raw.battleTurnAckCount ?? 0,
     battleTurnAckNeed: raw.battleTurnAckNeed ?? 0,
     battleHqRewrite: raw.battleHqRewrite ?? null,
+    battleDeploy: normalizeBattleDeploy(raw.battleDeploy),
     members: raw.members ?? [],
     lobbyChat: Array.isArray(raw.lobbyChat) ? raw.lobbyChat : [],
   }
@@ -454,4 +517,53 @@ export async function postBattleHqRewrite(
   } catch {
     return { ok: true }
   }
+}
+
+export async function postBattleDeployPlace(
+  roomId: number,
+  body:
+    | { kind: 'unit'; catalogUnitId: number; cellId: number }
+    | { kind: 'structure'; structureId: string; cellId: number },
+): Promise<RoomDetailResponse> {
+  const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/deploy-place`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: roomHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(body),
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(parseRoomsError(res, text))
+  return normalizeRoomDetail(parseRoomsJson(text))
+}
+
+export async function postBattleDeployRemove(
+  roomId: number,
+  body:
+    | { kind: 'unit'; instanceId: number }
+    | { kind: 'structure'; cellId: number; structureId: string },
+): Promise<RoomDetailResponse> {
+  const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/deploy-remove`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: roomHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(body),
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(parseRoomsError(res, text))
+  return normalizeRoomDetail(parseRoomsJson(text))
+}
+
+export async function postBattleDeployReady(
+  roomId: number,
+  ready: boolean,
+): Promise<RoomDetailResponse> {
+  const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/deploy-ready`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: roomHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ ready }),
+  })
+  const text = await res.text()
+  if (!res.ok) throw new Error(parseRoomsError(res, text))
+  return normalizeRoomDetail(parseRoomsJson(text))
 }

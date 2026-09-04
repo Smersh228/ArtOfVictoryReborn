@@ -2,6 +2,7 @@ import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import type { BattlePlayerId } from '../game/battleSync';
 import { ensureCellBuilds } from '../game/editorMapFortifications';
 import { appendDefaultDotOrders } from '../game/cellDot';
+import { appendDefaultGunDeployOrders } from '../game/battleDefendSector';
 import { generateEmptyGrid } from '../game/hexGrid';
 import { placeUnitsOnGrid } from '../game/battleUnits';
 import { getCarriedUnitsFromTruck } from '../game/battleLogisticsUi';
@@ -22,17 +23,40 @@ export function resolveBattleCellOnField(
   return found ?? cell;
 }
 
+export function battleUnitTypeLabelRu(type: unknown): string {
+  const t = String(type || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]/g, '');
+  const labels: Record<string, string> = {
+    infantry: 'пехота',
+    artillery: 'артиллерия',
+    tech: 'техника',
+    armor: 'бронетехника',
+    lighttank: 'лёгкий танк',
+    mediumtank: 'средний танк',
+    heavytank: 'тяжёлый танк',
+    lightair: 'малая авиация',
+    heavyair: 'большая авиация',
+  };
+  return labels[t] || 'отряд';
+}
+
+const CARGO_HOLD_ORDER_KEYS = new Set(['loading', 'unloading', 'tow', 'railLoading', 'railUnloading']);
+
+export function unitHasCargoHoldOrders(unit: Record<string, unknown>): boolean {
+  for (const o of readBattleUnitOrdersFromPayload(unit)) {
+    const k = inferOrderKey(o);
+    if (k && CARGO_HOLD_ORDER_KEYS.has(k)) return true;
+  }
+  return false;
+}
+
 export function formatBattleTechCargoLine(unit: Record<string, unknown>): string | null {
-  if (String(unit.type || '').toLowerCase() !== 'tech') return null;
+  if (!unitHasCargoHoldOrders(unit)) return null;
   const carried = getCarriedUnitsFromTruck(unit);
   if (!carried.length) return 'Нет';
-  return carried
-    .map((c) => {
-      const ty = String(c.type || '').toLowerCase();
-      const kind = ty === 'infantry' ? 'пехота' : ty === 'artillery' ? 'артиллерия' : ty || 'отряд';
-      return `${String(c.name ?? '—')} (${kind})`;
-    })
-    .join('; ');
+  return carried.map((c) => String(c.name ?? '—')).join('; ');
 }
 
 export function formatBattleUnitTeamLabel(unit: Record<string, unknown>): string {
@@ -93,7 +117,7 @@ export function readBattleUnitOrdersFromPayload(unit: Record<string, unknown>): 
   order_key?: string;
 }[] {
   const raw = unit.orders ?? unit.allowedOrders;
-  if (!Array.isArray(raw)) return appendDefaultDotOrders([], unit);
+  if (!Array.isArray(raw)) return appendDefaultGunDeployOrders(appendDefaultDotOrders([], unit), unit);
   const out: { id: number; name: string; order_key?: string }[] = [];
   for (const item of raw) {
     if (item != null && typeof item === 'object' && 'id' in item) {
@@ -116,7 +140,7 @@ export function readBattleUnitOrdersFromPayload(unit: Record<string, unknown>): 
       out.push({ id: item, name: `Приказ ${item}` });
     }
   }
-  return appendDefaultDotOrders(out, unit);
+  return appendDefaultGunDeployOrders(appendDefaultDotOrders(out, unit), unit);
 }
 
 export function inferOrderKey(o: { name: string; order_key?: string }): string | null {
@@ -152,6 +176,10 @@ export function inferOrderKey(o: { name: string; order_key?: string }): string |
   if (n.includes('покинуть') && n.includes('дот')) return 'exitDot';
   if (n.includes('войти') && n.includes('дот')) return 'enterDot';
   if (n.includes('выйти') && n.includes('дот')) return 'exitDot';
+  if (n.includes('вырубк') || n.includes('просек')) return 'cutGlade';
+  if (n.includes('ремонт') && (n.includes('жд') || n.includes('путе') || n.includes('железн'))) return 'repairRailway';
+  if (n.includes('поджёг') || n.includes('поджег')) return 'arson';
+  if (n.includes('подрыв') && !n.includes('сооруж') && !n.includes('загражд')) return 'demolition';
   return null;
 }
 

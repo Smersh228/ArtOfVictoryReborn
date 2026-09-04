@@ -88,6 +88,27 @@ export function isArtilleryTypeUnit(unit: { type?: unknown }): boolean {
   return String(unit.type ?? '').trim().toLowerCase() === 'artillery'
 }
 
+function unitHasFireSectorProp(unit: { properties?: unknown }): boolean {
+  const props = unit.properties
+  if (!Array.isArray(props)) return false
+  return props.some(
+    (p) => p && typeof p === 'object' && String((p as { prop_key?: string }).prop_key ?? '').trim() === 'fireSector',
+  )
+}
+
+/** Артиллерия или техника со свойством «Сектор стрельбы» — развёртывание в редакторе карты. */
+export function unitUsesGunDeployInEditor(
+  unit: Record<string, unknown>,
+  catalogUnits?: Array<{ id?: number; type?: string; properties?: unknown }>,
+): boolean {
+  if (isArtilleryTypeUnit(unit) || unitHasFireSectorProp(unit)) return true
+  const id = Number(unit.id)
+  if (!Number.isFinite(id) || !catalogUnits) return false
+  const cat = catalogUnits.find((c) => Number(c.id) === id)
+  if (!cat) return false
+  return isArtilleryTypeUnit(cat) || unitHasFireSectorProp(cat)
+}
+
 export function readArtilleryDeployMeta(meta: EditorMapUnitOrderEditorMeta): EditorMapArtilleryDeployMeta {
   if (meta.artilleryDeploy && typeof meta.artilleryDeploy === 'object') {
     return { ...meta.artilleryDeploy }

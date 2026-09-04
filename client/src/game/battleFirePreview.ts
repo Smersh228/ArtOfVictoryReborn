@@ -10,11 +10,12 @@ import {
   isFireDistanceOutOfRange,
 } from './battleDesantCombat';
 import { isInfantryUnitType } from './battleTerrain';
-import { isCellInArtillerySector, getArtillerySectorCellIdSet } from './battleDefendSector';
+import { isCellInArtillerySector, getArtillerySectorCellIdSet, artilleryFireRestrictedToSector, unitUsesGunDeploy } from './battleDefendSector';
 import { hasSmokeOnCell } from './cellSmoke';
 import { factionsAlliedOnMap } from './battleLogisticsUi';
 import {
   computeDotFireHighlights,
+  computeOccupiedDotFireSectorCellIds,
   dotIntensityForTarget,
   dotRangeArrayForUnit,
   isDotFireShooter,
@@ -22,6 +23,7 @@ import {
 } from './cellDot';
 import { applyAccuracyRangeShift, applyIntensityPenalty } from './battleEnvironment';
 import { canSpotHiddenTargetClient, isHiddenConcealedClient } from './battleHiddenState';
+import { isShootableStructureCell, unitHasBuildFire } from './cellStructureHp';
 
 export { isArmoredVehicleTarget } from './battleDesantCombat';
 
@@ -37,6 +39,7 @@ export function targetTypeToFireKey(t: unknown): string {
     heavytank: 'ht',
     lightair: 'sa',
     heavyair: 'ba',
+    build: 'build',
   };
   return m[x] || 'inf';
 }
@@ -44,10 +47,11 @@ export function targetTypeToFireKey(t: unknown): string {
 function getIntensityDiceForTarget(
   attacker: Record<string, unknown>,
   target: Record<string, unknown>,
+  useReactiveFire?: boolean,
 ): number {
   const dotInt = dotIntensityForTarget(attacker, target.type);
   if (dotInt != null) return applyIntensityPenalty(dotInt);
-  const ft = normalizeFireObject(rawFireFromUnit(attacker));
+  const ft = normalizeFireObject(rawFireFromUnit(attacker, useReactiveFire));
   const key = targetTypeToFireKey(target.type);
   const arr = ft[key as keyof typeof ft]?.length ? ft[key as keyof typeof ft] : ft.inf;
   const ia = arr && arr.length ? arr : [1, 2, 2, 3];
@@ -89,18 +93,19 @@ export function canRangedFireAtTarget(
   target: Record<string, unknown>,
   distanceHex: number,
   orderKey: 'fire' | 'fireHard' | 'attack',
+  useReactiveFire?: boolean,
 ): boolean {
   if (orderKey !== 'fire' && orderKey !== 'fireHard') return true;
   if (isInfantryUnitType(attacker) && isArmoredVehicleTarget(target)) return false;
   if (isFireRowMeleeOnlyForTarget(attacker, target)) return false;
-  if (getIntensityDiceForTarget(attacker, target) <= 0) return false;
+  if (getIntensityDiceForTarget(attacker, target, useReactiveFire) <= 0) return false;
   if (isMeleeLinkedOpponent(attacker, target)) {
     if (!canDesantHalfCombatShootTarget(attacker, target, distanceHex)) return false;
   }
-  const ra = rangeArrayForUnitAtCell(attacker, attackerCell);
+  const ra = rangeArrayForUnitAtCell(attacker, attackerCell, useReactiveFire);
   const rMode = fireRangeTableMode(ra);
   if (isFireDistanceOutOfRange(ra, rMode, distanceHex, attacker, target)) return false;
-  return effectiveShootingAccuracy(attacker, attackerCell, target, distanceHex, false) > 0;
+  return effectiveShootingAccuracy(attacker, attackerCell, target, distanceHex, false, useReactiveFire) > 0;
 }
 
 function collectOpposingUnitsForFire(
@@ -161,6 +166,33 @@ function splitNums(v: unknown): number[] {
     });
 }
 
+function fireTableHasPositiveValue(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const src = raw as Record<string, unknown>;
+  for (const k of ['range', 'inf', 'art', 'tech', 'armor', 'lt', 'mt', 'ht', 'sa', 'ba', 'build']) {
+    if (splitNums(src[k]).some((n) => n > 0)) return true;
+  }
+  return false;
+}
+
+function fireTableHasPositiveIntensity(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  const src = raw as Record<string, unknown>;
+  for (const k of ['inf', 'art', 'tech', 'armor', 'lt', 'mt', 'ht', 'sa', 'ba']) {
+    if (splitNums(src[k]).some((n) => n > 0)) return true;
+  }
+  return false;
+}
+
+export function unitHasReactiveFireTable(unit: Record<string, unknown> | null | undefined): boolean {
+  if (!unit) return false;
+  const tab = String(unit.editorFireIntensityTab ?? unit.editor_fire_intensity_tab ?? '')
+    .trim()
+    .toLowerCase();
+  if (tab === 'reactive') return true;
+  return fireTableHasPositiveIntensity(unit.fireReactive);
+}
+
 function normalizeFireObject(f: unknown) {
   const src = f && typeof f === 'object' ? (f as unknown as Record<string, unknown>) : {};
   const g = (k: string, fb: string) => {
@@ -185,7 +217,10 @@ function normalizeFireObject(f: unknown) {
   };
 }
 
-function rawFireFromUnit(u: Record<string, unknown>): Record<string, unknown> | null {
+function rawFireFromUnit(u: Record<string, unknown>, useReactiveFire?: boolean): Record<string, unknown> | null {
+  if (useReactiveFire && fireTableHasPositiveValue(u.fireReactive)) {
+    return u.fireReactive as Record<string, unknown>;
+  }
   const fp = u.fireParsed;
   if (fp && typeof fp === 'object') return fp as unknown as Record<string, unknown>;
   const fire = u.fire;
@@ -193,10 +228,10 @@ function rawFireFromUnit(u: Record<string, unknown>): Record<string, unknown> | 
   return null;
 }
 
-export function rangeArrayForUnit(attacker: Record<string, unknown>): number[] {
+export function rangeArrayForUnit(attacker: Record<string, unknown>, useReactiveFire?: boolean): number[] {
   const dotRa = dotRangeArrayForUnit(attacker);
   if (dotRa) return applyAccuracyRangeShift(dotRa);
-  const ft = normalizeFireObject(rawFireFromUnit(attacker));
+  const ft = normalizeFireObject(rawFireFromUnit(attacker, useReactiveFire));
   const raw = ft.range && ft.range.length ? ft.range : [3, 2, 1];
   return applyAccuracyRangeShift(raw);
 }
@@ -204,8 +239,9 @@ export function rangeArrayForUnit(attacker: Record<string, unknown>): number[] {
 export function rangeArrayForUnitAtCell(
   attacker: Record<string, unknown>,
   shooterCell: Cell | null | undefined,
+  useReactiveFire?: boolean,
 ): number[] {
-  return rangeArrayForShooterOnCell(rangeArrayForUnit(attacker), shooterCell ?? undefined);
+  return rangeArrayForShooterOnCell(rangeArrayForUnit(attacker, useReactiveFire), shooterCell ?? undefined);
 }
 
 
@@ -231,6 +267,25 @@ export function getAccuracyAtShootingDistance(rangeArray: number[], distanceHex:
   return 0;
 }
 
+function tableAccuracyAtDistance(
+  attacker: Record<string, unknown>,
+  attackerCell: Cell,
+  distanceHex: number,
+  useReactiveFire?: boolean,
+): number {
+  const ra = rangeArrayForUnitAtCell(attacker, attackerCell, useReactiveFire);
+  return getAccuracyAtShootingDistance(ra, distanceHex);
+}
+
+/** Ромашка: центр и соседи. Мёртвая зона режет только точку прицеливания, не лепестки. */
+export function computeReactiveDaisyCellIds(center: Cell, cells: Cell[]): number[] {
+  const out: number[] = [];
+  for (const c of cells) {
+    if (hexDistCells(center, c) <= 1) out.push(c.id);
+  }
+  return out;
+}
+
 /** Меткость с учётом бонуса местности на гексе стрелка и типа цели (как на сервере). */
 export function effectiveShootingAccuracy(
   attacker: Record<string, unknown>,
@@ -238,8 +293,9 @@ export function effectiveShootingAccuracy(
   target: Record<string, unknown> | null | undefined,
   distanceHex: number,
   forMelee = false,
+  useReactiveFire?: boolean,
 ): number {
-  const ra = rangeArrayForUnitAtCell(attacker, attackerCell);
+  const ra = rangeArrayForUnitAtCell(attacker, attackerCell, useReactiveFire);
   const effD = effectiveFireDistanceForAccuracy(attacker, target, distanceHex);
   const base = getAccuracyAtShootingDistance(ra, effD);
   const bonus = terrainAccuracyBonusFromCell(attackerCell, attacker, target ?? undefined, forMelee);
@@ -252,15 +308,16 @@ function cellHasShootableHostileAtDistance(
   cell: Cell,
   distanceHex: number,
   forMelee: boolean,
+  useReactiveFire?: boolean,
 ): boolean {
   const af = String(attacker.faction ?? '');
   for (const u of cell.units || []) {
     const raw = u as unknown as Record<string, unknown>;
     if (getStr(raw) <= 0) continue;
     if (!factionsOpposedOnMap(af, String(raw.faction ?? ''))) continue;
-    if (effectiveShootingAccuracy(attacker, attackerCell, raw, distanceHex, forMelee) > 0) return true;
+    if (effectiveShootingAccuracy(attacker, attackerCell, raw, distanceHex, forMelee, useReactiveFire) > 0) return true;
   }
-  if (!forMelee && effectiveShootingAccuracy(attacker, attackerCell, null, distanceHex, false) > 0) {
+  if (!forMelee && effectiveShootingAccuracy(attacker, attackerCell, null, distanceHex, false, useReactiveFire) > 0) {
     return true;
   }
   return false;
@@ -270,11 +327,22 @@ function cellHasShootableHostileAtDistance(
 export function maxShootRangeStepsForUnit(
   attacker: Record<string, unknown>,
   shooterCell?: Cell | null,
+  useReactiveFire?: boolean,
 ): number {
   const ra = shooterCell
-    ? rangeArrayForUnitAtCell(attacker, shooterCell)
-    : rangeArrayForUnit(attacker);
+    ? rangeArrayForUnitAtCell(attacker, shooterCell, useReactiveFire)
+    : rangeArrayForUnit(attacker, useReactiveFire);
   return fireRangeTableMode(ra) === 'ranged' ? Math.max(0, ra.length - 1) : ra.length;
+}
+
+/** Сектор орудия: берём большую из обычной и реактивной дальности. */
+export function maxGunSectorRangeStepsForUnit(
+  attacker: Record<string, unknown>,
+  shooterCell?: Cell | null,
+): number {
+  const regular = maxShootRangeStepsForUnit(attacker, shooterCell, false);
+  if (!unitHasReactiveFireTable(attacker)) return regular;
+  return Math.max(regular, maxShootRangeStepsForUnit(attacker, shooterCell, true));
 }
 
 /** Совпадает с сервером: авиация на карте не ограничена дальностью линии полёта таблицами огня/разведки. */
@@ -338,11 +406,18 @@ export function findAreaFireReachableCellIds(
 }
 
 export function hexDistCells(a: Cell, b: Cell): number {
-  return Math.max(
-    Math.abs(a.coor.x - b.coor.x),
-    Math.abs(a.coor.y - b.coor.y),
-    Math.abs(a.coor.z - b.coor.z),
-  );
+  const ax = Number(a.coor?.x);
+  const az = Number(a.coor?.z);
+  const bx = Number(b.coor?.x);
+  const bz = Number(b.coor?.z);
+  const ay = Number(a.coor?.y);
+  const by = Number(b.coor?.y);
+  if (Number.isFinite(ay) && Number.isFinite(by)) {
+    return Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz));
+  }
+  const dq = ax - bx;
+  const dr = az - bz;
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
 }
 
 function getStr(u: Record<string, unknown>): number {
@@ -367,11 +442,12 @@ export function findHostileUnitsInShootingRange(
   cells: Cell[],
   orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove' | 'fireMove',
   fogRevealedCellIds?: FogVisibleCellIds,
+  useReactiveFire?: boolean,
 ): Set<number> {
   const attackerId = Number(attackerUnit.instanceId);
   const af = String(attackerUnit.faction ?? '');
   const out = new Set<number>();
-  const ra = rangeArrayForUnitAtCell(attackerUnit, attackerCell);
+  const ra = rangeArrayForUnitAtCell(attackerUnit, attackerCell, useReactiveFire);
   const isAttack = orderKey === 'attack' || orderKey === 'hardMove';
   const maxD =
     isAttack ? 999 : ra.length >= 2 ? ra.length - 1 : ra.length;
@@ -404,7 +480,7 @@ export function findHostileUnitsInShootingRange(
       if (d > maxD) continue;
     }
     if (orderKey === 'fire' || orderKey === 'fireHard' || orderKey === 'fireMove') {
-      if (!canRangedFireAtTarget(attackerUnit, attackerCell, raw, d, orderKey === 'fireHard' ? 'fireHard' : 'fire')) continue;
+      if (!canRangedFireAtTarget(attackerUnit, attackerCell, raw, d, orderKey === 'fireHard' ? 'fireHard' : 'fire', useReactiveFire)) continue;
     } else if (isFireDistanceOutOfRange(ra, fireRangeTableMode(ra), d, attackerUnit, raw)) {
       continue;
     }
@@ -452,6 +528,7 @@ type FogVisibleCellIds = Set<number> | number[] | null;
 export type BattleFireHighlightOptions = {
   useFireAdjustment?: boolean;
   viewerFaction?: string;
+  useReactiveFire?: boolean;
 };
 
 function losAllowsShot(
@@ -460,7 +537,7 @@ function losAllowsShot(
   cells: Cell[],
   concealedTargetOk: boolean,
   options: BattleFireHighlightOptions | undefined,
-  orderKey: 'fire' | 'fireHard' | 'attack',
+  orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove' | 'fireMove',
   isArt: boolean,
 ): boolean {
   if (isHexVisible(attackerCell, targetCell, cells)) return true;
@@ -483,16 +560,94 @@ function fogHas(fogRevealedCellIds: FogVisibleCellIds, cellId: number): boolean 
   return fogRevealedCellIds.has(cellId);
 }
 
+function collectStructureFireCellIds(
+  attackerUnit: Record<string, unknown>,
+  attackerCell: Cell,
+  cells: Cell[],
+  orderKey: 'fire' | 'fireHard',
+  fogRevealedCellIds: FogVisibleCellIds,
+  options?: BattleFireHighlightOptions,
+): Set<number> {
+  const out = new Set<number>();
+  if (!unitHasBuildFire(attackerUnit, options?.useReactiveFire)) return out;
+  const maxD = maxShootRangeStepsForUnit(attackerUnit, attackerCell, options?.useReactiveFire);
+  if (maxD < 1) return out;
+  const isArt =
+    String(attackerUnit.type || '').toLowerCase() === 'artillery' ||
+    battleUnitHasPropKey(attackerUnit, 'areaFire') ||
+    battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
+  const concealedTargetOk = battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
+  const fromDot = isDotFireShooter(attackerUnit, attackerCell, cells) || unitFiresFromDot(attackerUnit);
+  const artSec = getArtillerySectorCellIdSet(attackerUnit, attackerCell, cells);
+  const dotSec = fromDot ? new Set(computeOccupiedDotFireSectorCellIds(attackerCell, cells)) : null;
+  for (const cell of cells) {
+    if (Number(cell.id) === Number(attackerCell.id)) continue;
+    if (!isShootableStructureCell(cell)) continue;
+    if (!fogHas(fogRevealedCellIds, cell.id)) continue;
+    const d = hexDistCells(attackerCell, cell);
+    if (d < 1 || d > maxD) continue;
+    if (tableAccuracyAtDistance(attackerUnit, attackerCell, d, options?.useReactiveFire) <= 0) continue;
+    if (hasSmokeOnCell(cell.builds)) continue;
+    if (dotSec && !dotSec.has(Number(cell.id))) continue;
+    if (artilleryFireRestrictedToSector(attackerUnit) && !fromDot) {
+      if (artSec && !artSec.has(Number(cell.id))) continue;
+    }
+    if (
+      !fromDot &&
+      !losAllowsShot(
+        attackerCell,
+        cell,
+        cells,
+        concealedTargetOk,
+        options,
+        orderKey,
+        isArt,
+      )
+    ) {
+      continue;
+    }
+    out.add(Number(cell.id));
+  }
+  return out;
+}
+
+function withStructureFireCells(
+  h: BattleFireHighlights,
+  attackerUnit: Record<string, unknown>,
+  attackerCell: Cell,
+  cells: Cell[],
+  orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove' | 'fireMove',
+  fogRevealedCellIds: FogVisibleCellIds,
+  options?: BattleFireHighlightOptions,
+): BattleFireHighlights {
+  if (orderKey !== 'fire' && orderKey !== 'fireHard') return h;
+  if (options?.useReactiveFire) return h;
+  const extra = collectStructureFireCellIds(
+    attackerUnit,
+    attackerCell,
+    cells,
+    orderKey,
+    fogRevealedCellIds,
+    options,
+  );
+  if (!extra.size) return h;
+  const area = new Set(h.areaCellIds || []);
+  for (const id of extra) area.add(id);
+  return { instanceIds: h.instanceIds, areaCellIds: area };
+}
+
 export function explainNoFireTargets(
   attackerUnit: Record<string, unknown>,
   attackerCell: Cell,
   cells: Cell[],
   orderKey: 'fire' | 'fireHard',
   fogRevealedCellIds: FogVisibleCellIds,
+  options?: BattleFireHighlightOptions,
 ): string {
   const concealedTargetOk = battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
   const isInfantry = isInfantryUnitType(attackerUnit);
-  const isArt = String(attackerUnit.type || '').toLowerCase() === 'artillery';
+  const sectorLocked = artilleryFireRestrictedToSector(attackerUnit);
+  const useReactiveFire = !!options?.useReactiveFire;
 
   let hostile = 0;
   let fireAllowed = 0;
@@ -503,7 +658,7 @@ export function explainNoFireTargets(
   for (const { unit: raw, cell } of collectOpposingUnitsForFire(cells, attackerUnit)) {
     hostile++;
     const d = hexDistCells(attackerCell, cell);
-    if (!canRangedFireAtTarget(attackerUnit, attackerCell, raw, d, orderKey)) continue;
+    if (!canRangedFireAtTarget(attackerUnit, attackerCell, raw, d, orderKey, useReactiveFire)) continue;
     fireAllowed++;
 
     if (!fogHas(fogRevealedCellIds, cell.id) && !concealedTargetOk) continue;
@@ -513,9 +668,7 @@ export function explainNoFireTargets(
     if (!losOk && !concealedTargetOk) continue;
     losAllowed++;
 
-    if (isArt && !unitFiresFromDot(attackerUnit)) {
-      const tac = attackerUnit.tactical as { artilleryDeployed?: boolean } | undefined;
-      if (tac?.artilleryDeployed !== true) continue;
+    if (sectorLocked && !unitFiresFromDot(attackerUnit)) {
       if (!isCellInArtillerySector(attackerUnit, attackerCell, cells, cell.id)) continue;
     }
     artAllowed++;
@@ -531,8 +684,8 @@ export function explainNoFireTargets(
     return concealedTargetOk
       ? 'Цели недоступны для выбора в текущем положении.'
       : 'Нет прямой видимости на цель.';
-  if (isArt && !unitFiresFromDot(attackerUnit) && artAllowed === 0) {
-    return 'Для артиллерии требуется развёртывание и цель в секторе обстрела.';
+  if (sectorLocked && !unitFiresFromDot(attackerUnit) && artAllowed === 0) {
+    return 'Нет целей в секторе обстрела.';
   }
   return orderKey === 'fireHard'
     ? 'Нет доступных целей для огня на подавление.'
@@ -557,9 +710,10 @@ export function computeBattleFireHighlights(
       fogRevealedCellIds,
     );
     const filtered = new Set<number>();
-    const isArt = String(attackerUnit.type || '').toLowerCase() === 'artillery';
-    const artTac0 = attackerUnit.tactical as { artilleryDeployed?: boolean } | undefined;
-    if (isArt && artTac0?.artilleryDeployed === true) {
+    const gunDeployed =
+      artilleryFireRestrictedToSector(attackerUnit) &&
+      (attackerUnit.tactical as { artilleryDeployed?: boolean } | undefined)?.artilleryDeployed === true;
+    if (gunDeployed) {
       return { instanceIds: filtered, areaCellIds: null };
     }
     for (const tid of raw) {
@@ -575,17 +729,31 @@ export function computeBattleFireHighlights(
     return { instanceIds: new Set(), areaCellIds: null };
   }
 
-  const isArt = String(attackerUnit.type || '').toLowerCase() === 'artillery';
+  const isArt =
+    String(attackerUnit.type || '').toLowerCase() === 'artillery' ||
+    battleUnitHasPropKey(attackerUnit, 'areaFire') ||
+    battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
+  const useReactiveFire = !!options?.useReactiveFire;
   if (isDotFireShooter(attackerUnit, attackerCell, cells)) {
     const dotH = computeDotFireHighlights(attackerUnit, attackerCell, cells, fogRevealedCellIds);
-    return {
-      instanceIds: dotH.instanceIds,
-      areaCellIds: dotH.areaCellIds.size > 0 ? dotH.areaCellIds : null,
-    };
+    return withStructureFireCells(
+      {
+        instanceIds: dotH.instanceIds,
+        areaCellIds: dotH.areaCellIds.size > 0 ? dotH.areaCellIds : null,
+      },
+      attackerUnit,
+      attackerCell,
+      cells,
+      orderKey,
+      fogRevealedCellIds,
+      options,
+    );
   }
   const fromDot = false;
-  if (battleUnitHasPropKey(attackerUnit, 'areaFire') && isArt && !fromDot) {
-    const maxD = maxShootRangeStepsForUnit(attackerUnit, attackerCell);
+  const useAreaCells =
+    useReactiveFire || (battleUnitHasPropKey(attackerUnit, 'areaFire') && !fromDot);
+  if (useAreaCells) {
+    const maxD = maxShootRangeStepsForUnit(attackerUnit, attackerCell, useReactiveFire);
     if (maxD < 1) return { instanceIds: new Set(), areaCellIds: null };
     const fogSet =
       fogRevealedCellIds == null
@@ -598,7 +766,7 @@ export function computeBattleFireHighlights(
       cells,
       maxD,
       fogSet,
-      false,
+      !useReactiveFire,
     );
     const artSec = getArtillerySectorCellIdSet(attackerUnit, attackerCell, cells);
     if (artSec) {
@@ -606,6 +774,8 @@ export function computeBattleFireHighlights(
         return { instanceIds: new Set(), areaCellIds: null };
       }
       set = new Set([...set].filter((id) => artSec.has(id)));
+    } else if (artilleryFireRestrictedToSector(attackerUnit) && !fromDot) {
+      return { instanceIds: new Set(), areaCellIds: null };
     }
     const concealedTargetOk = battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
     set = new Set(
@@ -613,11 +783,25 @@ export function computeBattleFireHighlights(
         const c = cells.find((x) => x.id === id);
         if (!c) return false;
         const d = hexDistCells(attackerCell, c);
-        if (!cellHasShootableHostileAtDistance(attackerUnit, attackerCell, c, d, false)) return false;
-        return losAllowsShot(attackerCell, c, cells, concealedTargetOk, options, orderKey, isArt);
+        if (tableAccuracyAtDistance(attackerUnit, attackerCell, d, useReactiveFire) <= 0) return false;
+        if (!useReactiveFire) {
+          if (!cellHasShootableHostileAtDistance(attackerUnit, attackerCell, c, d, false, useReactiveFire)) {
+            return false;
+          }
+          return losAllowsShot(attackerCell, c, cells, concealedTargetOk, options, orderKey, isArt);
+        }
+        return true;
       }),
     );
-    return { instanceIds: new Set(), areaCellIds: set.size > 0 ? set : null };
+    return withStructureFireCells(
+      { instanceIds: new Set(), areaCellIds: set.size > 0 ? set : null },
+      attackerUnit,
+      attackerCell,
+      cells,
+      orderKey,
+      fogRevealedCellIds,
+      options,
+    );
   }
 
   const raw = findHostileUnitsInShootingRange(
@@ -626,6 +810,7 @@ export function computeBattleFireHighlights(
     cells,
     orderKey,
     fogRevealedCellIds,
+    useReactiveFire,
   );
   const filtered = new Set<number>();
   const concealedTargetOk = battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
@@ -647,14 +832,20 @@ export function computeBattleFireHighlights(
       isArt,
     );
     if (!losOk && !concealedTargetOk) continue;
-    if (isArt && !fromDot) {
-      const tac2 = attackerUnit.tactical as { artilleryDeployed?: boolean } | undefined;
-      if (tac2?.artilleryDeployed !== true) continue;
+    if (artilleryFireRestrictedToSector(attackerUnit) && !fromDot) {
       if (!isCellInArtillerySector(attackerUnit, attackerCell, cells, live.cell.id)) continue;
     }
     filtered.add(tid);
   }
-  return { instanceIds: filtered, areaCellIds: null };
+  return withStructureFireCells(
+    { instanceIds: filtered, areaCellIds: null },
+    attackerUnit,
+    attackerCell,
+    cells,
+    orderKey,
+    fogRevealedCellIds,
+    options,
+  );
 }
 
 export function computeSmokeTargetCellIds(
@@ -662,9 +853,28 @@ export function computeSmokeTargetCellIds(
   shooter: Record<string, unknown>,
   shooterCell: Cell,
 ): Set<number> {
+  const isArt = unitUsesGunDeploy(shooter) || artilleryFireRestrictedToSector(shooter);
+  const fromDot = isDotFireShooter(shooter, shooterCell, cells) || unitFiresFromDot(shooter);
+  if (isArt && !fromDot) {
+    const tac = shooter.tactical as { artilleryDeployed?: boolean } | undefined;
+    if (unitUsesGunDeploy(shooter) && tac?.artilleryDeployed !== true) {
+      return new Set();
+    }
+  }
+
+  let sector: Set<number> | null = null;
+  if (fromDot) {
+    sector = new Set(computeOccupiedDotFireSectorCellIds(shooterCell, cells));
+  } else if (artilleryFireRestrictedToSector(shooter)) {
+    const sec = getArtillerySectorCellIdSet(shooter, shooterCell, cells);
+    if (!sec || sec.size === 0) return new Set();
+    sector = sec;
+  }
+
   const fac = String(shooter.faction || '');
   const out = new Set<number>();
   for (const targetCell of cells) {
+    if (sector && !sector.has(Number(targetCell.id))) continue;
     let ok = false;
     for (const c of cells) {
       for (const raw of c.units || []) {
@@ -683,7 +893,6 @@ export function computeSmokeTargetCellIds(
     }
     if (ok) out.add(targetCell.id);
   }
-  void shooterCell;
   return out;
 }
 

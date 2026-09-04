@@ -36,6 +36,9 @@ import trenchesOrderImg from '../img/orderUnits/specialOrders/saperOrders/trench
 import smokeOrderImg from '../img/orderUnits/specialOrders/dim.png';
 import railLoadingOrderImg from '../img/orderUnits/pogruzka.png';
 import railUnloadingOrderImg from '../img/orderUnits/vigruzkay.png';
+import cutGladeOrderImg from '../img/orderUnits/les.png';
+import repairRailwayOrderImg from '../img/orderUnits/repairRoad.png';
+import arsonOrderImg from '../img/orderUnits/firebuild.png';
 
 
 /** Группа приказов в редакторе юнита (фильтр и сворачиваемые списки). */
@@ -95,6 +98,10 @@ export const EDITOR_BATTLE_ORDER_DEFS: EditorBattleOrderDef[] = [
   { order_key: 'smoke', name: 'Дымовая завеса', icon: smokeOrderImg, editorCategory: 'special' },
   { order_key: 'railLoading', name: 'Погрузка на ЖД', icon: railLoadingOrderImg, editorCategory: 'special' },
   { order_key: 'railUnloading', name: 'Выгрузка на ЖД', icon: railUnloadingOrderImg, editorCategory: 'special' },
+  { order_key: 'arson', name: 'Поджёг', icon: arsonOrderImg, editorCategory: 'special' },
+  { order_key: 'demolition', name: 'Подрыв', icon: explomostOrderImg, editorCategory: 'special' },
+  { order_key: 'cutGlade', name: 'Вырубка просеки', icon: cutGladeOrderImg, editorCategory: 'sapper' },
+  { order_key: 'repairRailway', name: 'Ремонт ЖД путей', icon: repairRailwayOrderImg, editorCategory: 'sapper' },
   { order_key: 'accompaniment', name: 'Сопровождение дружественной авиации', icon: accompanimentOrderImg, editorCategory: 'aviation' },
   { order_key: 'airSupply', name: 'Сброс припасов', icon: airSupplyOrderImg, editorCategory: 'aviation' },
   { order_key: 'attackAir', name: 'Штурмовка', icon: attackAirOrderImg, editorCategory: 'aviation' },
@@ -108,6 +115,13 @@ export const EDITOR_BATTLE_ORDER_DEFS: EditorBattleOrderDef[] = [
 const ICON_BY_KEY: Record<string, string> = Object.fromEntries(
   EDITOR_BATTLE_ORDER_DEFS.filter((d) => d.icon != null).map((d) => [d.order_key, d.icon!]),
 );
+
+/** Приказы только в каталоге редактора: в бою кнопка есть, действия нет. */
+export const STUB_BATTLE_ORDER_KEYS = new Set(['cutGlade']);
+
+export function isStubBattleOrder(orderKey: string | null | undefined): boolean {
+  return STUB_BATTLE_ORDER_KEYS.has(String(orderKey ?? '').trim());
+}
 
 
 export function getBattleOrderIconUrl(orderKey: string | null | undefined): string | null {

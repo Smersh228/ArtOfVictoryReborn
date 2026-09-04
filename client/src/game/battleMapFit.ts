@@ -38,3 +38,26 @@ export function computeBattleCellSize(cells: Cell[], W: number, H: number, pad: 
   }
   return Math.max(6, Math.floor(lo * 0.995));
 }
+
+/** Pixel size of a canvas that contains every hex at `cellSize`, origin at the centre. */
+export function computeHexMapCanvasSize(
+  cells: Cell[],
+  cellSize: number,
+  pad: number,
+): { width: number; height: number } {
+  if (!cells.length || cellSize <= 0) return { width: 0, height: 0 };
+  let maxAbsX = 0;
+  let maxAbsY = 0;
+  for (const c of cells) {
+    const cx = cellSize * 1.5 * c.coor.x;
+    const cy = cellSize * (1.732 * c.coor.z + 0.866 * c.coor.x);
+    for (const p of hexCorners(cx, cy, cellSize)) {
+      maxAbsX = Math.max(maxAbsX, Math.abs(p.x));
+      maxAbsY = Math.max(maxAbsY, Math.abs(p.y));
+    }
+  }
+  return {
+    width: Math.ceil(maxAbsX * 2 + pad * 2),
+    height: Math.ceil(maxAbsY * 2 + pad * 2),
+  };
+}

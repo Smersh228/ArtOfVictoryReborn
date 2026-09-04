@@ -3,6 +3,7 @@ import { hasDotOnCell, unitInDot } from './cellDot';
 import { findUnitCellByInstanceId } from './battleMovePreview';
 import { hasStorageOnCell, STORAGE_DEFAULT_AMMO, STORAGE_DEFAULT_SMOKE, STORAGE_DEFAULT_EXPLOSIVES, STORAGE_DEFAULT_MINES } from './editorMapFortifications';
 import { unitHasPropKey } from './battleTerrain';
+import { unitInvolvesWaterUnit } from './battleSpecialTerrain';
 
 export function hexDistCells(a: Cell, b: Cell): number {
   const ax = Number(a.coor?.x);
@@ -257,6 +258,7 @@ export function computeGetSupTargetInstanceIds(
       const u = raw as unknown as Record<string, unknown>;
       const iid = Number(u.instanceId);
       if (!Number.isFinite(iid) || iid === selfId) continue;
+      if (d === 0 && unitInvolvesWaterUnit(truckUnit, u)) continue;
       if (unitStr(u) < 1) continue;
       if (!factionsAlliedOnMap(String(u.faction || ''), tf)) continue;
       if (maxAmmoTransferFromTruckTo(truckUnit, u) < 1) continue;
@@ -349,7 +351,8 @@ export function computeUnloadCellIds(
 
 export function cellHasWarehouse(cell: Cell): boolean {
   if (hasStorageOnCell(cell.builds)) return true;
-  const mb = (cell as Cell & { mapBuilding?: { name?: string } }).mapBuilding;
+  const mb = (cell as Cell & { mapBuilding?: { name?: string; destroyed?: boolean } }).mapBuilding;
+  if (mb?.destroyed) return false;
   return /склад/i.test(String(mb?.name || ''));
 }
 
@@ -418,7 +421,9 @@ export function computeLoadingSupTargetCellIds(
 ): Set<number> {
   const out = new Set<number>();
   for (const cell of cells) {
-    if (hexDistCells(cell, truckCell) > 1) continue;
+    const d = hexDistCells(cell, truckCell);
+    if (d > 1) continue;
+    if (d === 0 && unitInvolvesWaterUnit(truckUnit)) continue;
     if (maxAmmoLoadFromWarehouse(truckUnit, cell) < 1) continue;
     out.add(cell.id);
   }

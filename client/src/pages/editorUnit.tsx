@@ -132,9 +132,26 @@ function collectHexEditorPayload(
     accuracyBonusByType,
     accuracyBonusMeleeByType,
     isSettlement: readCheckbox(root, 'hex_flag_settlement'),
+    isCity: readCheckbox(root, 'hex_flag_city'),
+    isVillage: readCheckbox(root, 'hex_flag_village'),
     isRailStation: readCheckbox(root, 'hex_flag_rail'),
+    isRailway: readCheckbox(root, 'hex_flag_railway'),
     isBridge: readCheckbox(root, 'hex_flag_bridge'),
+    isRailwayBridge: readCheckbox(root, 'hex_flag_railway_bridge'),
+    isFord: readCheckbox(root, 'hex_flag_ford'),
+    destroyedBridgeImage:
+      typeof opts?.existingHexExtra?.destroyedBridgeImage === 'string'
+        ? opts.existingHexExtra.destroyedBridgeImage
+        : '',
+    destroyedRailwayImage:
+      typeof opts?.existingHexExtra?.destroyedRailwayImage === 'string'
+        ? opts.existingHexExtra.destroyedRailwayImage
+        : '',
   }
+  delete hexExtra.isDestroyedBridge
+  delete hexExtra.destroyedBridge
+  delete hexExtra.isDestroyedRailway
+  delete hexExtra.railwayDestroyed
   const defendHuman = defBonusByType.infantry ?? 0
   const defendTech =
     defBonusByType.tech ??
@@ -339,6 +356,12 @@ const EditorUnit = () => {
       p.unit_image = selectedUnit?.imagePath || ''
     } else if (activeTab === 'hexes') {
       p.hex_image = selectedUnit?.imagePath || ''
+      const hx =
+        selectedUnit && typeof selectedUnit.hexExtra === 'object' && selectedUnit.hexExtra !== null
+          ? (selectedUnit.hexExtra as Record<string, unknown>)
+          : {}
+      p.hex_image_destroyed_bridge = typeof hx.destroyedBridgeImage === 'string' ? hx.destroyedBridgeImage : ''
+      p.hex_image_destroyed_railway = typeof hx.destroyedRailwayImage === 'string' ? hx.destroyedRailwayImage : ''
     } else if (activeTab === 'rules') {
       p.rule_image = selectedUnit?.imagePath || ''
       p.rule_image_2 = selectedUnit?.imagePath2 || ''
@@ -616,6 +639,8 @@ const EditorUnit = () => {
               ? (selectedUnit.hexExtra as Record<string, unknown>)
               : null,
         })
+        payload.hexExtra.destroyedBridgeImage = imagePaths.hex_image_destroyed_bridge ?? payload.hexExtra.destroyedBridgeImage ?? ''
+        payload.hexExtra.destroyedRailwayImage = imagePaths.hex_image_destroyed_railway ?? payload.hexExtra.destroyedRailwayImage ?? ''
         const body = {
           id: selectedUnit?.id,
           name: getNamed('hex_name'),

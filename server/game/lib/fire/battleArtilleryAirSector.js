@@ -2,9 +2,9 @@
 
 const { normalizeFireObject } = require('./battleFireNormalize')
 const {
-  isArtilleryUnit,
   isArtilleryDeployedForBattle,
   unitHasPropKey,
+  unitUsesGunDeploy,
 } = require('../../core/battleUnitType')
 const airSortie = require('../air/battleAirSortie')
 const { buildFlightPathCellIds } = require('../map/battleHexGeometry')
@@ -26,7 +26,7 @@ function hasRangedFireIntensityAgainstAir(artillery, rowKey) {
 
 /** Может ли орудие вести огонь ПВО по данному типу авиации. */
 function artilleryCanSectorFireAtAirUnit(artillery, airUnit) {
-  if (!isArtilleryUnit(artillery) || !isArtilleryDeployedForBattle(artillery)) return false
+  if (!unitUsesGunDeploy(artillery) || !isArtilleryDeployedForBattle(artillery)) return false
   if (!artillery.tactical?.artilleryFireSector) return false
   const sec = artillery.defendSectorCellIds
   if (!Array.isArray(sec) || !sec.length) return false
@@ -42,7 +42,7 @@ function artilleryCanSectorFireAtAirUnit(artillery, airUnit) {
 
 function hasActiveArtillerySector(artillery) {
   return (
-    isArtilleryUnit(artillery) &&
+    unitUsesGunDeploy(artillery) &&
     isArtilleryDeployedForBattle(artillery) &&
     artillery.tactical?.artilleryFireSector === true &&
     Array.isArray(artillery.defendSectorCellIds) &&

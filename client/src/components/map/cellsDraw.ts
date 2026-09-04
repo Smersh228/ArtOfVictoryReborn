@@ -15,7 +15,9 @@ import {
   hexSharesDotWithUnits,
   traceHexPath,
 } from './cellsDrawBase'
+import { hexTerrainImagePath } from '../../game/cellHexTexture'
 import { readTileMirror, readTileRotationSteps, tileRotationRadians } from '../../game/cellTileTransform'
+import { deployZoneStyle } from '../../game/editorMapDeployment'
 import {
   getWireEdgesMask,
   WIRE_DRAW_BAND_RATIO,
@@ -37,8 +39,16 @@ import type { LobbyFaction } from '../../api/rooms'
 import { getTrenchEdgesMask } from '../../game/cellTrenchEdges'
 import { getAntiTankEdgesMask } from '../../game/cellAntiTankEdges'
 import { cellHasWarehouse, isLoadingSupHoverLink } from '../../game/battleLogisticsUi'
-import { hasPontonOnCell, pontonDrawOpacity } from '../../game/cellPonton'
+import { hasPontonOnCell, pontonStageIndex } from '../../game/cellPonton'
 import { hasSmokeOnCell, SMOKE_SPRITE_URL } from '../../game/cellSmoke'
+import {
+  hasSettlementFire,
+  isSettlementDestroyedHex,
+  settlementFireMarkers,
+  SETTLEMENT_FIRE_SPRITE_URL,
+} from '../../game/cellSettlementFire'
+import { isRailwayDestroyedHex } from '../../game/cellRailway'
+import type { BattlePendingOrderHover } from '../../game/battlePendingOrderHover'
 
 interface CachedImageState {
   ready: HTMLImageElement | null
@@ -58,6 +68,7 @@ interface ShootOrderDecals {
   fire?: HTMLImageElement
   fireHard?: HTMLImageElement
   attack?: HTMLImageElement
+  hardMove?: HTMLImageElement
 }
 
 interface MapBuildingLite {
@@ -398,6 +409,24 @@ function fillMinefieldHex(
   ctx.stroke()
 }
 
+function paintDeployZoneOverlay(
+  ctx: CanvasRenderingContext2D,
+  corners: { x: number; y: number }[],
+  team: number,
+  active: boolean,
+) {
+  const style = deployZoneStyle(team, active)
+  ctx.beginPath()
+  traceHexPath(ctx, corners)
+  ctx.fillStyle = style.fill
+  ctx.fill()
+  ctx.beginPath()
+  traceHexPath(ctx, corners)
+  ctx.strokeStyle = style.stroke
+  ctx.lineWidth = active ? 3.5 : 2.25
+  ctx.stroke()
+}
+
 function battleBuildingHiddenByFog(
   mode: 'editor' | 'battle',
   lobbyPreview: boolean,
@@ -416,9 +445,11 @@ function drawCenterBuildFortifications(
     cell: Cell
     center: { x: number; y: number }
     cellSize: number
+    mode?: 'editor' | 'battle'
     dotImg?: HTMLImageElement | null
     storageImg?: HTMLImageElement | null
     pontonImg?: HTMLImageElement | null
+    pontonStageImgs?: (HTMLImageElement | null)[]
     smokeImg?: HTMLImageElement | null
     resolveEditorCachedImage: (path: string | null | undefined) => CachedImageState
     dotHoverGlow?: boolean
@@ -431,9 +462,11 @@ function drawCenterBuildFortifications(
     cell,
     center,
     cellSize,
+    mode,
     dotImg,
     storageImg,
     pontonImg,
+    pontonStageImgs = [],
     smokeImg,
     resolveEditorCachedImage,
     dotHoverGlow,
@@ -482,13 +515,15 @@ function drawCenterBuildFortifications(
   }
 
   if (hasPontonOnCell(builds)) {
+    const stage = pontonStageImgs[pontonStageIndex(builds)]
     const img =
-      pontonImg?.complete && pontonImg.naturalWidth > 0
-        ? pontonImg
-        : resolveEditorCachedImage(PONTON_SPRITE_URL).ready
+      stage?.complete && stage.naturalWidth > 0
+        ? stage
+        : pontonImg?.complete && pontonImg.naturalWidth > 0
+          ? pontonImg
+          : resolveEditorCachedImage(PONTON_SPRITE_URL).ready
     if (img?.naturalWidth) {
       ctx.save()
-      ctx.globalAlpha = pontonDrawOpacity(builds)
       drawCenterFortification(ctx, { center, cellSize, img, scale: 0.92 })
       ctx.restore()
     }
@@ -505,6 +540,30 @@ function drawCenterBuildFortifications(
       ctx.restore()
     }
   }
+
+  if (hasSettlementFire(builds)) {
+    const img = resolveEditorCachedImage(SETTLEMENT_FIRE_SPRITE_URL).ready
+    if (img?.naturalWidth) {
+      ctx.save()
+      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.55 })
+      ctx.restore()
+      const markers = settlementFireMarkers(builds)
+      if (markers > 0) {
+        ctx.save()
+        ctx.fillStyle = 'rgba(255, 240, 210, 0.95)'
+        ctx.strokeStyle = 'rgba(120, 30, 0, 0.95)'
+        ctx.lineWidth = 3
+        ctx.font = `bold ${Math.max(11, Math.round(cellSize * 0.22))}px sans-serif`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        const label = String(markers)
+        ctx.strokeText(label, center.x, center.y + cellSize * 0.22)
+        ctx.fillText(label, center.x, center.y + cellSize * 0.22)
+        ctx.restore()
+      }
+    }
+  }
+
 }
 
 function drawMapBuilding(
@@ -579,6 +638,9 @@ export function drawCellsCanvas(params: {
   battlePatrolCenterCellId?: number | null
   battleAirInterceptionTargetCellIds?: number[] | null
   patrolRangePickCellIds?: number[] | null
+  reconRangePickCellIds?: number[] | null
+  battleReconHoverAreaCellIds?: number[] | null
+  battleReconHoverCenterCellId?: number | null
   battleBombardmentAreaCellIds?: number[] | null
   bombardmentDirectionPickCellIds?: number[] | null
   bombardmentApproachCellId?: number | null
@@ -593,6 +655,8 @@ export function drawCellsCanvas(params: {
   airMissionOrderDecals?: Record<string, HTMLImageElement>
   battlePendingLogisticsPreview: any
   battlePendingShootPreview: any
+  battlePendingOrderHover?: BattlePendingOrderHover | null
+  orderDecals?: Record<string, HTMLImageElement>
   getCellCenter: (q: number, r: number) => { x: number; y: number }
   getCellCorners: (x: number, y: number) => { x: number; y: number }[]
   getTexture: (path: string | null | undefined) => HTMLImageElement | null
@@ -611,12 +675,15 @@ export function drawCellsCanvas(params: {
   fireAirGunDecalImg?: HTMLImageElement | null
   editorAviationEdgeHighlight?: boolean
   editorAviationEdgeCellIds?: ReadonlySet<number>
+  editorDeployZones?: { cellId: number; team: number }[] | null
+  editorDeployBrushTeam?: number | null
   wireEdgeImg?: HTMLImageElement | null
   trenchImg?: HTMLImageElement | null
   antiTankImg?: HTMLImageElement | null
   dotImg?: HTMLImageElement | null
   storageImg?: HTMLImageElement | null
   pontonImg?: HTMLImageElement | null
+  pontonStageImgs?: (HTMLImageElement | null)[]
   smokeImg?: HTMLImageElement | null
   viewerBattleFaction?: LobbyFaction
   battleFogRevealedCellIds?: number[] | null
@@ -643,6 +710,9 @@ export function drawCellsCanvas(params: {
     battlePatrolCenterCellId = null,
     battleAirInterceptionTargetCellIds = null,
     patrolRangePickCellIds = null,
+    reconRangePickCellIds = null,
+    battleReconHoverAreaCellIds = null,
+    battleReconHoverCenterCellId = null,
     battleBombardmentAreaCellIds = null,
     bombardmentDirectionPickCellIds = null,
     bombardmentApproachCellId = null,
@@ -654,6 +724,8 @@ export function drawCellsCanvas(params: {
     airMissionOrderDecals = {},
     battlePendingLogisticsPreview,
     battlePendingShootPreview,
+    battlePendingOrderHover = null,
+    orderDecals = {},
     getCellCenter,
     getCellCorners,
     getTexture,
@@ -669,12 +741,15 @@ export function drawCellsCanvas(params: {
     shootOrderDecals,
     editorAviationEdgeHighlight = false,
     editorAviationEdgeCellIds,
+    editorDeployZones = null,
+    editorDeployBrushTeam = null,
     wireEdgeImg = null,
     trenchImg = null,
     antiTankImg = null,
     dotImg = null,
     storageImg = null,
     pontonImg = null,
+    pontonStageImgs = [],
     smokeImg = null,
     battleFogRevealedCellIds = null,
     airDepartureDecalImg = null,
@@ -704,6 +779,10 @@ export function drawCellsCanvas(params: {
       : null
 
   const cellsByCube = buildCellByCubeKey(cells)
+  const deployTeamByCell = new Map<number, number>()
+  if (editorDeployZones?.length) {
+    for (const z of editorDeployZones) deployTeamByCell.set(z.cellId, z.team)
+  }
 
   for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
     const cell = cells[cellIndex]
@@ -711,7 +790,7 @@ export function drawCellsCanvas(params: {
     const corners = getCellCorners(center.x, center.y)
 
     if (mode === 'editor') {
-      const imgPath = (cell as CellExtras).img
+      const imgPath = hexTerrainImagePath(cell) || (cell as CellExtras).img
       const hexTex = imgPath ? getTexture(imgPath) : null
       ctx.save()
       ctx.beginPath()
@@ -752,6 +831,20 @@ export function drawCellsCanvas(params: {
         fillMinefieldHex(ctx, corners)
       }
 
+      if (isRailwayDestroyedHex(cell)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(40, 32, 28, 0.38)'
+        ctx.fill()
+      }
+
+      if (isSettlementDestroyedHex(cell) || hasSettlementFire(cell.builds)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = hasSettlementFire(cell.builds) ? 'rgba(220, 70, 20, 0.28)' : 'rgba(55, 45, 40, 0.42)'
+        ctx.fill()
+      }
+
       if (
         editorAviationEdgeHighlight &&
         editorAviationEdgeCellIds &&
@@ -764,6 +857,11 @@ export function drawCellsCanvas(params: {
         ctx.strokeStyle = 'rgba(198, 40, 40, 0.98)'
         ctx.lineWidth = 3
         ctx.stroke()
+      }
+
+      const deployTeam = deployTeamByCell.get(cell.id)
+      if (deployTeam != null) {
+        paintDeployZoneOverlay(ctx, corners, deployTeam, deployTeam === editorDeployBrushTeam)
       }
 
       ctx.textAlign = 'center'
@@ -818,7 +916,7 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
     } else {
-      const imgPathBattle = (cell as CellExtras).img
+      const imgPathBattle = hexTerrainImagePath(cell) || (cell as CellExtras).img
       const hexTexBattle = imgPathBattle ? getTexture(imgPathBattle) : null
       ctx.beginPath()
       traceHexPath(ctx, corners)
@@ -862,6 +960,47 @@ export function drawCellsCanvas(params: {
         fillMinefieldHex(ctx, corners)
       }
 
+      if (isRailwayDestroyedHex(cell)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(40, 32, 28, 0.38)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(90, 70, 50, 0.85)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      }
+
+      if (isSettlementDestroyedHex(cell)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(55, 45, 40, 0.42)'
+        ctx.fill()
+      }
+
+      if (hasSettlementFire(cell.builds)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(220, 70, 20, 0.28)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(200, 50, 10, 0.9)'
+        ctx.lineWidth = 2.5
+        ctx.stroke()
+      }
+
+      const battleDeployTeam = deployTeamByCell.get(cell.id)
+      if (battleDeployTeam != null) {
+        paintDeployZoneOverlay(
+          ctx,
+          corners,
+          battleDeployTeam,
+          battleDeployTeam === editorDeployBrushTeam,
+        )
+      }
+
       const showBattleHexHoverRing =
         hoverCell?.id === cell.id &&
         !hoveredUnit &&
@@ -874,6 +1013,9 @@ export function drawCellsCanvas(params: {
         !(mode === 'battle' && battleAreaFireCellIds && battleAreaFireCellIds.length > 0) &&
         !(mode === 'battle' && patrolRangePickCellIds && patrolRangePickCellIds.length > 0) &&
         !(mode === 'battle' && battlePatrolVisibilityCellIds && battlePatrolVisibilityCellIds.length > 0) &&
+        !(mode === 'battle' && reconRangePickCellIds && reconRangePickCellIds.length > 0) &&
+        !(mode === 'battle' && battleReconHoverAreaCellIds && battleReconHoverAreaCellIds.length > 0) &&
+        !(mode === 'battle' && battlePendingOrderHover?.areaCellIds && battlePendingOrderHover.areaCellIds.length > 0) &&
         !(
           mode === 'battle' &&
           battleReportReplayHighlight?.reconZoneCellIds &&
@@ -896,7 +1038,8 @@ export function drawCellsCanvas(params: {
           mode === 'battle' &&
           battleAirDepartureHoverCellId != null &&
           cell.id === battleAirDepartureHoverCellId
-        )
+        ) &&
+        !(mode === 'battle' && cellHasWarehouse(cell))
 
       if (showBattleHexHoverRing) {
         ctx.beginPath()
@@ -952,20 +1095,37 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (battleUnloadCellIds?.includes(cell.id)) {
+      const pendingAreaIdsEarly = battlePendingOrderHover?.areaCellIds
+      const inPendingDaisy =
+        pendingAreaIdsEarly?.some((id) => Number(id) === Number(cell.id)) ?? false
+
+      if (battleUnloadCellIds?.includes(cell.id) && !inPendingDaisy) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.5)'
         ctx.fill()
       }
 
-      if (battleAreaFireCellIds?.includes(cell.id)) {
+      if (battleAreaFireCellIds?.includes(cell.id) && !inPendingDaisy) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(200, 72, 72, 0.26)'
         ctx.fill()
       }
       if (patrolRangePickCellIds?.includes(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(128, 128, 128, 0.45)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(90, 90, 90, 0.85)'
+        ctx.lineWidth = 2
+        ctx.stroke()
+      }
+
+      const inReconHoverArea = battleReconHoverAreaCellIds?.some((id) => Number(id) === Number(cell.id))
+      if (reconRangePickCellIds?.some((id) => Number(id) === Number(cell.id)) && !inReconHoverArea) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.45)'
@@ -988,6 +1148,41 @@ export function drawCellsCanvas(params: {
         ctx.setLineDash(isPatrolCenter ? [] : [6, 5])
         ctx.strokeStyle = isPatrolCenter ? 'rgba(24, 96, 180, 0.95)' : 'rgba(56, 132, 220, 0.62)'
         ctx.lineWidth = isPatrolCenter ? 3 : 1.5
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+
+      if (inReconHoverArea) {
+        const isReconCenter =
+          battleReconHoverCenterCellId != null && Number(cell.id) === Number(battleReconHoverCenterCellId)
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = isReconCenter ? 'rgba(52, 168, 108, 0.34)' : 'rgba(52, 168, 108, 0.18)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.setLineDash(isReconCenter ? [] : [6, 5])
+        ctx.strokeStyle = isReconCenter ? 'rgba(24, 118, 68, 0.95)' : 'rgba(52, 140, 88, 0.78)'
+        ctx.lineWidth = isReconCenter ? 3 : 1.5
+        ctx.stroke()
+        ctx.setLineDash([])
+      }
+
+      const pendingAreaIds = battlePendingOrderHover?.areaCellIds
+      const inPendingOrderArea = pendingAreaIds?.some((id) => Number(id) === Number(cell.id))
+      if (inPendingOrderArea) {
+        const isAreaCenter =
+          battlePendingOrderHover?.areaCenterCellId != null &&
+          Number(cell.id) === Number(battlePendingOrderHover.areaCenterCellId)
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = isAreaCenter ? 'rgba(229, 28, 28, 0.58)' : 'rgba(229, 28, 28, 0.40)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.setLineDash([])
+        ctx.strokeStyle = isAreaCenter ? 'rgba(196, 0, 0, 1)' : 'rgba(210, 8, 8, 0.96)'
+        ctx.lineWidth = isAreaCenter ? 3.5 : 2.25
         ctx.stroke()
         ctx.setLineDash([])
       }
@@ -1163,9 +1358,11 @@ export function drawCellsCanvas(params: {
         cell,
         center,
         cellSize,
+        mode,
         dotImg,
         storageImg,
         pontonImg,
+        pontonStageImgs,
         smokeImg,
         resolveEditorCachedImage,
         dotHoverGlow: glowDot,
@@ -1262,6 +1459,19 @@ export function drawCellsCanvas(params: {
         const r = Math.max(8, cellSize * 0.14)
         ctx.save()
         drawImageCoverInCircle(ctx, afDecal, center.x, center.y, r)
+        ctx.restore()
+      }
+    }
+    if (
+      mode === 'battle' &&
+      battlePendingOrderHover?.iconCellIds?.some((id) => Number(id) === Number(cell.id))
+    ) {
+      const orderKey = battlePendingOrderHover.orderKey
+      const decal = orderDecals[orderKey] ?? shootOrderDecals[orderKey as 'fire' | 'fireHard']
+      if (decal?.naturalWidth) {
+        const r = Math.max(8, cellSize * 0.14)
+        ctx.save()
+        drawImageCoverInCircle(ctx, decal, center.x, center.y, r)
         ctx.restore()
       }
     }

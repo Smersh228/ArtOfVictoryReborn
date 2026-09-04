@@ -37,7 +37,13 @@ function validateLogisticsOrder(cells, o, deps) {
     const tgt = findUnitOnField(cells, tid)
     if (!tgt) return 'цель не на поле'
     if (!alliesSameFaction(cur.unit, tgt.unit)) return 'можно снабжать только союзника'
-    if (hexDistCells(cur.cell, tgt.cell) > 1) return 'цель в соседнем гексе или на том же'
+    const special = require('../lib/map/battleSpecialTerrain')
+    const dist = hexDistCells(cur.cell, tgt.cell)
+    if (special.unitInvolvesWaterUnit(cur.unit, tgt.unit)) {
+      if (dist !== 1) return 'у водного отряда боезапас должен быть в соседнем гексе'
+    } else if (dist > 1) {
+      return 'цель в соседнем гексе или на том же'
+    }
     if (getAmmo(cur.unit) < 1) return 'нет БК для передачи'
     const cap = getAmmoCapacityMax(tgt.unit)
     const headroom = Math.max(0, cap - getAmmo(tgt.unit))
@@ -55,7 +61,13 @@ function validateLogisticsOrder(cells, o, deps) {
     const wh = cells.find((c) => Number(c.id) === cid)
     if (!wh) return 'клетка не существует'
     if (!hasStorage(wh)) return 'на клетке нет склада'
-    if (hexDistCells(cur.cell, wh) > 1) return 'склад должен быть в своём или соседнем гексе'
+    const special = require('../lib/map/battleSpecialTerrain')
+    const distWh = hexDistCells(cur.cell, wh)
+    if (special.unitInvolvesWaterUnit(cur.unit)) {
+      if (distWh !== 1) return 'у водного отряда склад должен быть в соседнем гексе'
+    } else if (distWh > 1) {
+      return 'склад должен быть в своём или соседнем гексе'
+    }
     const stock = getStorageAmmo(wh)
     if (stock < 1) return 'на складе нет БК'
     const cap = getAmmoCapacityMax(cur.unit)

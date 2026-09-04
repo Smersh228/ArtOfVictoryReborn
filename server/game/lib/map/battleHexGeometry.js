@@ -1,7 +1,18 @@
 'use strict'
 
 function hexDist(ax, ay, az, bx, by, bz) {
-  return Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz))
+  const nx = Number(ax)
+  const nz = Number(az)
+  const nax = Number(bx)
+  const naz = Number(bz)
+  const ny = Number(ay)
+  const nby = Number(by)
+  if (Number.isFinite(ny) && Number.isFinite(nby)) {
+    return Math.max(Math.abs(nx - nax), Math.abs(ny - nby), Math.abs(nz - naz))
+  }
+  const dq = nx - nax
+  const dr = nz - naz
+  return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2
 }
 
 function getNeighbor(hex, dir) {
@@ -25,6 +36,7 @@ function findCellByCoor(cells, coor) {
 }
 
 function hexDistCells(ca, cb) {
+  if (!ca || !cb || !ca.coor || !cb.coor) return Number.POSITIVE_INFINITY
   return hexDist(ca.coor.x, ca.coor.y, ca.coor.z, cb.coor.x, cb.coor.y, cb.coor.z)
 }
 

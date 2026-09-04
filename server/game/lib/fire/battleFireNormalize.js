@@ -35,6 +35,35 @@ function normalizeFireObject(f) {
   }
 }
 
+function fireTableHasPositiveValue(raw) {
+  if (!raw || typeof raw !== 'object') return false
+  const keys = ['range', 'inf', 'art', 'tech', 'armor', 'lt', 'mt', 'ht', 'sa', 'ba', 'build']
+  for (let i = 0; i < keys.length; i++) {
+    const nums = splitNums(raw[keys[i]])
+    if (nums.some((n) => n > 0)) return true
+  }
+  return false
+}
+
+function fireTableHasPositiveIntensity(raw) {
+  if (!raw || typeof raw !== 'object') return false
+  const keys = ['inf', 'art', 'tech', 'armor', 'lt', 'mt', 'ht', 'sa', 'ba']
+  for (let i = 0; i < keys.length; i++) {
+    const nums = splitNums(raw[keys[i]])
+    if (nums.some((n) => n > 0)) return true
+  }
+  return false
+}
+
+function unitHasReactiveFireTable(unit) {
+  if (!unit) return false
+  const tab = String(unit.editorFireIntensityTab || unit.editor_fire_intensity_tab || '')
+    .trim()
+    .toLowerCase()
+  if (tab === 'reactive') return true
+  return fireTableHasPositiveIntensity(unit.fireReactive)
+}
+
 function targetTypeToFireKey(t) {
   const x = String(t || '').toLowerCase()
   const m = {
@@ -47,6 +76,7 @@ function targetTypeToFireKey(t) {
     heavytank: 'ht',
     lightair: 'sa',
     heavyair: 'ba',
+    build: 'build',
   }
   return m[x] || 'inf'
 }
@@ -55,4 +85,6 @@ module.exports = {
   splitNums,
   normalizeFireObject,
   targetTypeToFireKey,
+  fireTableHasPositiveValue,
+  unitHasReactiveFireTable,
 }

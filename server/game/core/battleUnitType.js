@@ -30,23 +30,36 @@ function isArtilleryUnit(u) {
   return String(u.type || '').toLowerCase() === 'artillery'
 }
 
-function isArtilleryDeployedForBattle(u) {
-  return isArtilleryUnit(u) && u.tactical && u.tactical.artilleryDeployed === true
+function unitUsesFireSectorProperty(u) {
+  return unitHasPropKey(u, 'fireSector')
 }
 
-/** Свойство каталога «Сектор стрельбы» (fireSector): огонь только внутри сектора при развёртывании. */
+function unitUsesAreaFire(u) {
+  return unitHasPropKey(u, 'areaFire')
+}
+
+/** Развёртывание / сектор орудия: артиллерия или любой тип со свойством «Сектор стрельбы». */
+function unitUsesGunDeploy(u) {
+  return isArtilleryUnit(u) || unitUsesFireSectorProperty(u)
+}
+
+function isArtilleryDeployedForBattle(u) {
+  return unitUsesGunDeploy(u) && u.tactical && u.tactical.artilleryDeployed === true
+}
+
+/** Свойство каталога «Сектор стрельбы» (fireSector): огонь только внутри сектора. */
 function artilleryUsesFireSectorProperty(u) {
-  return isArtilleryUnit(u) && unitHasPropKey(u, 'fireSector')
+  return unitUsesFireSectorProperty(u)
 }
 
 function isArtilleryFireTargetCellAllowed(attacker, targetCellId) {
-  if (!isArtilleryUnit(attacker)) return true
-  if (!isArtilleryDeployedForBattle(attacker)) return true
-  if (!artilleryUsesFireSectorProperty(attacker)) return true
+  if (!unitUsesFireSectorProperty(attacker)) return true
   const arr = attacker.defendSectorCellIds
-  if (!Array.isArray(arr) || !arr.length) return false
-  const cid = Number(targetCellId)
-  return arr.some((id) => Number(id) === cid)
+  if (Array.isArray(arr) && arr.length) {
+    const cid = Number(targetCellId)
+    return arr.some((id) => Number(id) === cid)
+  }
+  return false
 }
 
 function clearArtillerySectorGeometry(unit) {
@@ -57,24 +70,39 @@ function clearArtillerySectorGeometry(unit) {
   if (unit.tactical && typeof unit.tactical === 'object') delete unit.tactical.artilleryFireSector
 }
 
+const PROP_KEY_NAME_ALIASES = {
+  waterUnit: ['водный юнит'],
+  crossingAWaterObstacle: ['преодоление водной преграды'],
+  movementThroughTheSwamp: ['преодоление болота'],
+}
+
 function unitHasPropKey(u, key) {
-  const props = u.properties
+  const props = u && u.properties
   if (!Array.isArray(props)) return false
   const want = String(key || '').trim()
   if (!want) return false
+  const nameAliases = PROP_KEY_NAME_ALIASES[want] || []
   for (let i = 0; i < props.length; i++) {
     const p = props[i]
-    if (p && typeof p === 'object' && String(p.prop_key || '').trim() === want) return true
+    if (typeof p === 'string' && p.trim() === want) return true
+    if (!p || typeof p !== 'object') continue
+    const pk = String(p.prop_key || p.key || p.propKey || '').trim()
+    if (pk === want) return true
+    const nm = String(p.name || '')
+      .trim()
+      .toLowerCase()
+    if (nameAliases.includes(nm)) return true
   }
   return false
 }
 
 function artilleryAreaClosedIgnoresTerrainLos(u) {
-  return (
-    isArtilleryUnit(u) &&
-    unitHasPropKey(u, 'areaFire') &&
-    unitHasPropKey(u, 'concealedTargetFire')
-  )
+  return unitUsesAreaFire(u) && unitHasPropKey(u, 'concealedTargetFire')
+}
+
+function unitOrderUsesAreaHexFire(u, order) {
+  if (unitUsesAreaFire(u)) return true
+  return !!(order && order.useReactiveFire)
 }
 
 function isArtilleryCollapsedForTow(u) {
@@ -89,11 +117,15 @@ module.exports = {
   isInfantryUnit,
   isArmoredVehicleTarget,
   isArtilleryUnit,
+  unitUsesFireSectorProperty,
+  unitUsesAreaFire,
+  unitUsesGunDeploy,
   isArtilleryDeployedForBattle,
   artilleryUsesFireSectorProperty,
   isArtilleryFireTargetCellAllowed,
   clearArtillerySectorGeometry,
   unitHasPropKey,
   artilleryAreaClosedIgnoresTerrainLos,
+  unitOrderUsesAreaHexFire,
   isArtilleryCollapsedForTow,
 }
