@@ -11,6 +11,16 @@ const COOLDOWN_TURNS_NO_FIRE = 2
 
 const PATROL_LIKE_ORDER_KEYS = new Set(['patrol', 'intelligenceAir'])
 const STRIKE_ORDER_KEYS = new Set(['attackAir', 'bombardment'])
+const AIR_LAUNCH_ORDER_KEYS = new Set([
+  'intelligenceAir',
+  'airSupply',
+  'attackAir',
+  'bombardment',
+  'desant',
+  'interception',
+  'patrol',
+  'accompaniment',
+])
 
 function isBattleAirUnit(u) {
   const t = String(u?.type ?? '')
@@ -114,6 +124,14 @@ function getAirOrderBlockReason(unit) {
   if (phase === 'desant') return 'на задании (десантирование)'
   if (phase === 'patrol') return 'на задании (патруль/разведка)'
   if (phase === 'inbound') return 'на задании (полёт к цели)'
+  return null
+}
+
+function airLaunchWeatherBlockReason(orderKey) {
+  const k = String(orderKey || '').trim()
+  if (!AIR_LAUNCH_ORDER_KEYS.has(k)) return null
+  const { rainBlocksAirLaunch } = require('../scenario/battleEnvironment')
+  if (rainBlocksAirLaunch()) return 'вылет невозможен: дождь'
   return null
 }
 
@@ -474,6 +492,7 @@ function airStrikeCombatDistance() {
 }
 
 function rangeArrayForAirStrike(unit, rangeArrayFor) {
+  const { applyAirAccuracyRangeShift } = require('../scenario/battleEnvironment')
   const reactive = unit.fireReactive
   if (reactive && typeof reactive === 'object') {
     const raw = reactive.range
@@ -482,21 +501,23 @@ function rangeArrayForAirStrike(unit, rangeArrayFor) {
         .split(',')
         .map((x) => Number(String(x).trim()))
         .filter((n) => Number.isFinite(n))
-      if (nums.length) return nums
+      if (nums.length) return applyAirAccuracyRangeShift(nums)
     }
   }
   const parsed = unit.fireParsed || normalizeFireObject(unit._fireRaw || unit.fire)
-  if (parsed?.range?.length) return parsed.range
-  return rangeArrayFor(unit)
+  if (parsed?.range?.length) return applyAirAccuracyRangeShift(parsed.range)
+  return applyAirAccuracyRangeShift([3, 2, 1])
 }
 
 module.exports = {
   PATROL_MAX_TURNS,
   PATROL_LIKE_ORDER_KEYS,
   STRIKE_ORDER_KEYS,
+  AIR_LAUNCH_ORDER_KEYS,
   isBattleAirUnit,
   ensureAirSortie,
   getAirOrderBlockReason,
+  airLaunchWeatherBlockReason,
   airSortiePhase,
   readFlightPathCellIds,
   reversePathCellIds,

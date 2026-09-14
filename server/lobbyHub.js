@@ -1,7 +1,7 @@
 'use strict'
 
 const { pool } = require('./db')
-const { readProfileStats, roleLabel, touchLastSeen } = require('./playerStats')
+const { readProfileStats, listLeaderboard, roleLabel, touchLastSeen } = require('./playerStats')
 const {
   ensureModerationSchema,
   resolveRoleKey,
@@ -139,7 +139,9 @@ function inBattleCount() {
     for (const room of rooms.values()) {
       if (room.battleStartedAt == null) continue
       for (const m of room.members || []) {
-        if (m && m.key) keys.add(m.key)
+        if (!m || !m.key) continue
+        if (m.isBot || String(m.key).startsWith('bot:')) continue
+        keys.add(m.key)
       }
     }
     return keys.size
@@ -252,6 +254,26 @@ async function snapshot(user) {
   return out
 }
 
+async function getLeaderboard(sortKey, vsKey) {
+  const vs = String(vsKey || 'player').trim() === 'bot' ? 'bot' : 'player'
+  const rows = await listLeaderboard(sortKey, 10, vs)
+  return rows.map((row) => {
+    const highlight = isHighlightUsername(row.username)
+    return {
+      id: row.id,
+      username: row.username,
+      highlight,
+      roleKey: highlight ? 'admin' : row.role,
+      role: highlight ? 'Администратор' : roleLabel(row.role),
+      wins: row.wins,
+      losses: row.losses,
+      killsTotal: row.killsTotal,
+      casualtiesTotal: row.casualtiesTotal,
+      vs,
+    }
+  })
+}
+
 async function getPublicProfile(userId) {
   const id = Number(userId)
   if (!Number.isFinite(id) || id <= 0) return null
@@ -279,6 +301,9 @@ async function getPublicProfile(userId) {
     wins: stats.wins,
     losses: stats.losses,
     kills: stats.kills,
+    casualties: stats.casualties,
+    vsPlayer: stats.vsPlayer,
+    vsBot: stats.vsBot,
     avatarPath: stats.avatarPath,
     muted: sanctions.muted,
     mutedUntil: sanctions.mutedUntil,
@@ -295,6 +320,7 @@ module.exports = {
   snapshot,
   ensureChatMuteSchema,
   getPublicProfile,
+  getLeaderboard,
   listOnlinePlayers,
   PRESENCE_TTL_MS,
   CHAT_COOLDOWN_MS,

@@ -55,8 +55,9 @@ const LobbyPlayersPanel: React.FC<LobbyPlayersPanelProps> = ({
                   <span className={styles.playerRowFaction}>
                     {factionLabel(m.faction)}
                     {m.team ? ` · ${m.team}` : ''}
+                    {m.isBot ? ' · ИИ' : ''}
                   </span>
-                  <span className={styles.playerRowReady}>{readyLabel(m.ready)}</span>
+                  <span className={styles.playerRowReady}>{m.isBot ? 'Готов' : readyLabel(m.ready)}</span>
                 </li>
               ))}
             </ul>

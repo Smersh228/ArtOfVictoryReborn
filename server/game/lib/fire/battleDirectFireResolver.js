@@ -1,6 +1,7 @@
 'use strict'
 
 const trench = require('../map/battleTrench')
+const dotMod = require('../map/battleDot')
 
 function resolveGroupedDirectFire({
   groupedDirectFire,
@@ -44,14 +45,30 @@ function resolveGroupedDirectFire({
     const totalHitsGrouped = Math.max(0, Number(grouped.totalHits) || 0)
     const totalDamageGrouped = Math.max(0, totalHitsGrouped - defenseGrouped)
     const tagGrouped = warDefGrouped ? ' [бой +1 З]' : ''
+    const adjTag = grouped.fireAdjustment ? ' [корректировка огня]' : ''
+    const fromDotShooterIds = grouped.shooterIds
+      .map((id) => Number(id))
+      .filter((id) => {
+        if (!Number.isFinite(id)) return false
+        const sh = findUnitOnField(cells, id)
+        return !!(sh && dotMod.dotShooterUsesDotAmmo(sh.unit))
+      })
+    const fromDotCellIds = fromDotShooterIds
+      .map((id) => {
+        const sh = findUnitOnField(cells, id)
+        const cid = Number(sh && sh.cell && sh.cell.id)
+        return Number.isFinite(cid) ? cid : null
+      })
+      .filter((id) => id != null)
+    const firstShooter = findUnitOnField(cells, Number(grouped.shooterIds[0]))
     le(
       ph,
-      `Суммарный огонь: ${grouped.shooterIds.join('+')} → ${grouped.targetId}, попаданий ${totalHitsGrouped}, защита ${defenseGrouped}, урон ${totalDamageGrouped}${tagGrouped}`,
+      `Суммарный огонь: ${grouped.shooterIds.join('+')} → ${grouped.targetId}, попаданий ${totalHitsGrouped}, защита ${defenseGrouped}, урон ${totalDamageGrouped}${tagGrouped}${adjTag}`,
       {
         fireLine: {
           attackerId: grouped.shooterIds[0],
           targetId: grouped.targetId,
-          fromCellId: undefined,
+          fromCellId: firstShooter ? firstShooter.cell.id : undefined,
           targetCellId: grouped.targetCellId,
           hits: totalHitsGrouped,
           damages: totalDamageGrouped,
@@ -64,6 +81,10 @@ function resolveGroupedDirectFire({
           groupedFire: true,
           shooterIds: grouped.shooterIds,
           accuracies: Array.isArray(grouped.accuracies) ? grouped.accuracies : [],
+          fromDot: fromDotShooterIds.length > 0,
+          fromDotShooterIds,
+          fromDotCellIds,
+          fireAdjustment: !!grouped.fireAdjustment,
         },
       },
     )

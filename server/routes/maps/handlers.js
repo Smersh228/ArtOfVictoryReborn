@@ -9,6 +9,7 @@ const {
   hasMapStatusColumn,
   accessDeniedFromMapRow,
 } = require('./shared')
+const { isSoloPlayerBotMap } = require('../../game/lib/ai/battleBots')
 
 async function listMapsHandler(req, res) {
   const hasStatus = await hasMapStatusColumn()
@@ -17,12 +18,14 @@ async function listMapsHandler(req, res) {
     return res.json({ maps: [] })
   }
   const editorOnly = req.query.editor === '1' || req.query.editor === 'true'
+  const wantSolo = req.query.solo === '1' || req.query.solo === 'true'
   try {
     let r
     if (isMapAdminUser(user)) {
       r = await pool.query(
         `SELECT sm.id_map, sm.name, sm.updated_at, ${hasStatus ? 'sm.map_status' : `'approved' AS map_status`}, u.username AS owner_username,
-                (sm.payload #>> '{scenario,teamLimit}') AS team_limit
+                (sm.payload #>> '{scenario,teamLimit}') AS team_limit,
+                sm.payload -> 'bots' AS bots
          FROM saved_map sm
          LEFT JOIN users u ON u.id = sm.owner_user_id
          ORDER BY updated_at DESC, id_map DESC`,
@@ -30,18 +33,31 @@ async function listMapsHandler(req, res) {
     } else if (editorOnly) {
       r = await pool.query(
         `SELECT sm.id_map, sm.name, sm.updated_at, ${hasStatus ? 'sm.map_status' : `'approved' AS map_status`}, u.username AS owner_username,
-                (sm.payload #>> '{scenario,teamLimit}') AS team_limit
+                (sm.payload #>> '{scenario,teamLimit}') AS team_limit,
+                sm.payload -> 'bots' AS bots
          FROM saved_map sm
          LEFT JOIN users u ON u.id = sm.owner_user_id
          WHERE owner_user_id = $1
          ORDER BY updated_at DESC, id_map DESC`,
         [user.id],
       )
+    } else if (wantSolo && hasStatus) {
+      r = await pool.query(
+        `SELECT sm.id_map, sm.name, sm.updated_at, sm.map_status, u.username AS owner_username,
+                (sm.payload #>> '{scenario,teamLimit}') AS team_limit,
+                sm.payload -> 'bots' AS bots
+         FROM saved_map sm
+         LEFT JOIN users u ON u.id = sm.owner_user_id
+         WHERE sm.map_status = $1 OR sm.owner_user_id = $2
+         ORDER BY sm.updated_at DESC, sm.id_map DESC`,
+        [MAP_STATUS_APPROVED, user.id],
+      )
     } else {
       if (hasStatus) {
         r = await pool.query(
           `SELECT sm.id_map, sm.name, sm.updated_at, sm.map_status, u.username AS owner_username,
-                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit
+                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit,
+                  sm.payload -> 'bots' AS bots
            FROM saved_map sm
            LEFT JOIN users u ON u.id = sm.owner_user_id
            WHERE sm.map_status = $1
@@ -51,7 +67,8 @@ async function listMapsHandler(req, res) {
       } else {
         r = await pool.query(
           `SELECT sm.id_map, sm.name, sm.updated_at, 'approved' AS map_status, u.username AS owner_username,
-                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit
+                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit,
+                  sm.payload -> 'bots' AS bots
            FROM saved_map sm
            LEFT JOIN users u ON u.id = sm.owner_user_id
            WHERE sm.owner_user_id = $1
@@ -61,9 +78,15 @@ async function listMapsHandler(req, res) {
         )
       }
     }
-    return res.json({
-      maps: r.rows.map((row) => {
+    const maps = r.rows
+      .map((row) => {
         const n = Number(row.team_limit)
+        const teamLimit = n === 4 || n === 6 ? n : 2
+        const solo = isSoloPlayerBotMap({ bots: row.bots }, teamLimit)
+        const difficultyRaw =
+          row.bots && typeof row.bots === 'object' ? String(row.bots.difficulty || '') : ''
+        const botDifficulty =
+          difficultyRaw === 'easy' || difficultyRaw === 'hard' ? difficultyRaw : 'normal'
         return {
           id: row.id_map,
           name: row.name,
@@ -71,10 +94,16 @@ async function listMapsHandler(req, res) {
           moderationStatus: String(row.map_status || MAP_STATUS_PENDING).trim().toLowerCase(),
           ownerUsername: row.owner_username || null,
           canModerate: isMapAdminUser(user),
-          teamLimit: n === 4 || n === 6 ? n : 2,
+          teamLimit,
+          solo,
+          botDifficulty: solo ? botDifficulty : undefined,
         }
-      }),
-    })
+      })
+      .filter((m) => {
+        if (editorOnly) return true
+        return wantSolo ? m.solo : !m.solo
+      })
+    return res.json({ maps })
   } catch (err) {
     console.error('GET /api/maps:', err)
     return res.status(500).json({ error: err.message })

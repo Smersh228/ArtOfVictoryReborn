@@ -8,13 +8,23 @@ import {
   unitHasOrderKey,
   unitUsesGunDeployInEditor,
 } from '../../game/editorMapUnitOrderMeta'
+import {
+  cargoIdsFromOrderEditorMeta,
+  catalogCanTechTowArtillery,
+  catalogTransportKind,
+  catalogUnitIsTrain,
+} from '../../game/editorMapTransportCargo'
+import TransportCargoEditor from '../editorMap/TransportCargoEditor'
 
 export type EditorMapCatalogUnitPick = {
   id: number
   name: string
   type: string
   faction: string
+  heavyTech?: boolean
+  heavyArtillery?: boolean
   properties?: Array<{ prop_key?: string; name?: string }>
+  orders?: Array<{ order_key?: string; key?: string }>
 }
 
 interface EditorMapUnitOrderMenuProps {
@@ -31,13 +41,14 @@ function cargoUnitsForOrder(
   catalogUnits: EditorMapCatalogUnitPick[],
   unitFaction: string,
   orderKey: EditorMapLogisticsOrderKey,
+  hostUnit?: Record<string, unknown> | EditorMapCatalogUnitPick | null,
 ): EditorMapCatalogUnitPick[] {
   const fac = String(unitFaction || '').trim().toLowerCase()
   return catalogUnits.filter((u) => {
     if (fac && String(u.faction || '').trim().toLowerCase() !== fac) return false
     const ty = String(u.type || '').trim().toLowerCase()
     if (orderKey === 'loading') return ty === 'infantry'
-    if (orderKey === 'tow') return ty === 'artillery'
+    if (orderKey === 'tow') return ty === 'artillery' && catalogCanTechTowArtillery(hostUnit, u)
     if (orderKey === 'unloading') return ty === 'infantry' || ty === 'artillery'
     return false
   })
@@ -53,16 +64,19 @@ function LogisticsOrderBlock({
   meta,
   unitFaction,
   catalogUnits,
+  hostUnit,
   onPatchMeta,
 }: {
   orderKey: EditorMapLogisticsOrderKey
   meta: EditorMapUnitOrderEditorMeta
   unitFaction: string
   catalogUnits: EditorMapCatalogUnitPick[]
+  hostUnit?: Record<string, unknown> | EditorMapCatalogUnitPick | null
   onPatchMeta: EditorMapUnitOrderMenuProps['onPatchMeta']
 }) {
   const block = meta[orderKey] ?? {}
-  const list = cargoUnitsForOrder(catalogUnits, unitFaction, orderKey)
+  const list = cargoUnitsForOrder(catalogUnits, unitFaction, orderKey, hostUnit)
+  const selectedId = list.some((u) => u.id === Number(block.catalogUnitId)) ? String(block.catalogUnitId) : ''
   const sectionTitle = LOGISTICS_SECTION_TITLE[orderKey]
 
   const setBlock = (next: EditorMapUnitOrderEditorMeta[EditorMapLogisticsOrderKey]) => {
@@ -84,7 +98,7 @@ function LogisticsOrderBlock({
       ) : null}
       <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <select
-          value={block.catalogUnitId != null ? String(block.catalogUnitId) : ''}
+          value={selectedId}
           onChange={(e) => {
             const v = e.target.value
             if (!v) {
@@ -202,13 +216,16 @@ const EditorMapUnitOrderMenu: React.FC<EditorMapUnitOrderMenuProps> = ({
   const meta = readUnitOrderEditorMeta(unit)
   const artDeploy = readArtilleryDeployMeta(meta)
   const unitFaction = String(unit.faction ?? '')
-  const logisticsKeys = logisticsOrderKeysOnUnit(unit as { orders?: { order_key?: string }[] }).filter(
-    (k) => k !== 'unloading',
-  )
+  const catalogRow = catalogUnits.find((c) => Number(c.id) === Number(unit.id))
+  const transportKind = catalogTransportKind(unit) || catalogTransportKind(catalogRow)
+  const showTrainCargo = transportKind === 'train' || catalogUnitIsTrain(unit) || catalogUnitIsTrain(catalogRow)
+  const logisticsKeys = showTrainCargo
+    ? []
+    : logisticsOrderKeysOnUnit(unit as { orders?: { order_key?: string }[] }).filter((k) => k !== 'unloading')
   const showDesant = unitHasOrderKey(unit as { orders?: { order_key?: string }[] }, 'desant')
   const showArtilleryDeploy = unitUsesGunDeployInEditor(unit, catalogUnits)
 
-  if (!showDesant && !logisticsKeys.length && !showArtilleryDeploy) return null
+  if (!showDesant && !logisticsKeys.length && !showArtilleryDeploy && !showTrainCargo) return null
 
   return (
     <div style={{ borderTop: '1px solid #eee' }}>
@@ -221,6 +238,28 @@ const EditorMapUnitOrderMenu: React.FC<EditorMapUnitOrderMenuProps> = ({
         />
       ) : null}
 
+      {showTrainCargo ? (
+        <TransportCargoEditor
+          variant="menu"
+          kind="train"
+          cargoIds={cargoIdsFromOrderEditorMeta(meta)}
+          catalogUnits={catalogUnits}
+          faction={unitFaction}
+          hostUnit={catalogRow ?? (unit as EditorMapCatalogUnitPick)}
+          onChange={(ids) => {
+            onPatchMeta((prev) => {
+              const copy = { ...prev }
+              delete copy.loading
+              delete copy.tow
+              delete copy.transportCargo
+              if (ids.length) copy.railCargo = { catalogUnitIds: ids }
+              else delete copy.railCargo
+              return copy
+            })
+          }}
+        />
+      ) : null}
+
       {logisticsKeys.map((k) => (
         <LogisticsOrderBlock
           key={k}
@@ -228,6 +267,7 @@ const EditorMapUnitOrderMenu: React.FC<EditorMapUnitOrderMenuProps> = ({
           meta={meta}
           unitFaction={unitFaction}
           catalogUnits={catalogUnits}
+          hostUnit={catalogRow ?? unit}
           onPatchMeta={onPatchMeta}
         />
       ))}

@@ -1,0 +1,7 @@
+/* Nested backdrop-filter over a full-screen photo stalls hover/input on weak GPUs. */
+*,
+*::before,
+*::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}

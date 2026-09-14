@@ -6,6 +6,7 @@ const {
   ensureDefaultBattleOrders,
   ensureUnitCatalogColumns,
   normalizeMapEditorPublic,
+  normalizeHeavyFlag,
   replaceUnitOrders,
   replaceUnitProperties,
   UNIT_SELECT,
@@ -85,6 +86,10 @@ router.post('/units', requireCatalogEditorAdmin, async (req, res) => {
   } = req.body
   const fr = fraction === 'germany' ? 'germany' : 'ussr'
   const mapEditorPublicFlag = normalizeMapEditorPublic(mapEditorPublic)
+  const typeKey = String(type || '').toLowerCase()
+  const heavyTechFlag =
+    (typeKey === 'tech' || typeKey === 'armor') && normalizeHeavyFlag(req.body.heavyTech)
+  const heavyArtilleryFlag = typeKey === 'artillery' && normalizeHeavyFlag(req.body.heavyArtillery)
   const f = normalizeFire(fire)
   const fireRowOpt = normalizeFireRowOptions(req.body.fireRowOptions)
   const fireReactiveJson = fireDamageToJsonbObject(req.body.fireReactive || {})
@@ -103,7 +108,7 @@ router.post('/units', requireCatalogEditorAdmin, async (req, res) => {
     let unitId = id
     if (id) {
       await pool.query(
-        `UPDATE unit SET name=$1, type=$2, fraction=$3, count=$4, defend=$5, op=$6, morale=$7, ammo=$8, mines=$9, explosives=$10, smoke_shells=$11, visible=$12, standard_image=$13, hover_image=$14, id_cobj=$15, editor_fire_intensity_tab=$16, map_editor_public=$17, updated_at=NOW() WHERE id_unit=$18`,
+        `UPDATE unit SET name=$1, type=$2, fraction=$3, count=$4, defend=$5, op=$6, morale=$7, ammo=$8, mines=$9, explosives=$10, smoke_shells=$11, visible=$12, standard_image=$13, hover_image=$14, id_cobj=$15, editor_fire_intensity_tab=$16, map_editor_public=$17, heavy_tech=$18, heavy_artillery=$19, updated_at=NOW() WHERE id_unit=$20`,
         [
           name,
           type,
@@ -122,6 +127,8 @@ router.post('/units', requireCatalogEditorAdmin, async (req, res) => {
           id_cobj || null,
           editorFireIntensityTab,
           mapEditorPublicFlag,
+          heavyTechFlag,
+          heavyArtilleryFlag,
           id,
         ],
       )
@@ -150,7 +157,7 @@ router.post('/units', requireCatalogEditorAdmin, async (req, res) => {
       )
     } else {
       const result = await pool.query(
-        `INSERT INTO unit (name, type, fraction, count, defend, op, morale, ammo, mines, explosives, smoke_shells, visible, standard_image, hover_image, id_cobj, editor_fire_intensity_tab, map_editor_public) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id_unit`,
+        `INSERT INTO unit (name, type, fraction, count, defend, op, morale, ammo, mines, explosives, smoke_shells, visible, standard_image, hover_image, id_cobj, editor_fire_intensity_tab, map_editor_public, heavy_tech, heavy_artillery) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING id_unit`,
         [
           name,
           type,
@@ -169,6 +176,8 @@ router.post('/units', requireCatalogEditorAdmin, async (req, res) => {
           id_cobj || null,
           editorFireIntensityTab,
           mapEditorPublicFlag,
+          heavyTechFlag,
+          heavyArtilleryFlag,
         ],
       )
       unitId = result.rows[0].id_unit
@@ -198,7 +207,14 @@ router.post('/units', requireCatalogEditorAdmin, async (req, res) => {
     }
     await replaceUnitOrders(unitId, orderIds)
     await replaceUnitProperties(unitId, propertyIds)
-    res.json({ id: unitId, ...req.body, fraction: fr, mapEditorPublic: mapEditorPublicFlag })
+    res.json({
+      id: unitId,
+      ...req.body,
+      fraction: fr,
+      mapEditorPublic: mapEditorPublicFlag,
+      heavyTech: heavyTechFlag,
+      heavyArtillery: heavyArtilleryFlag,
+    })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

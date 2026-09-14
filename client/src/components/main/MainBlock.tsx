@@ -4,6 +4,7 @@ import styles from '../styleModules/mainBlock.module.css'
 import Button from '../Button'
 import ListServer from './ListServer'
 import CreateServerPanel from './CreateServerPanel'
+import SoloPlayPanel from './SoloPlayPanel'
 import type { GameRoom } from './Room'
 import { useAuth } from '../../context/AuthContext'
 import { isCatalogEditorAdmin } from '../../utils/catalogEditorAdmin'
@@ -11,12 +12,16 @@ import MaintenanceAdminPanel from './MaintenanceAdminPanel'
 import MainChat from './MainChat'
 import MainPlayerCard from './MainPlayerCard'
 import Modal from '../Modal'
-import { fetchRoomsList, createRoom, joinRoom, spectateRoom } from '../../api/rooms'
+import { fetchRoomsList, createRoom, joinRoom, spectateRoom, startRoomBattle } from '../../api/rooms'
 import { setOnlineBoost } from '../../api/maintenance'
+import type { SavedMapListItem } from '../../api/maps'
 import {
   fetchLobbyState,
   sendLobbyChat,
   fetchLobbyProfile,
+  fetchLobbyLeaderboard,
+  LEADERBOARD_SORTS,
+  LEADERBOARD_VS,
   LobbyHubError,
   decorateLobbyNick,
   lobbyNickClass,
@@ -24,18 +29,11 @@ import {
   type LobbyOnlinePlayer,
   type LobbyPlayerProfile,
   type LobbyRoleKey,
+  type LobbyLeaderboardRow,
+  type LobbyLeaderboardSort,
+  type LobbyStatVs,
 } from '../../api/lobbyHub'
-import {
-  MENU_THEMES,
-  MENU_TRACKS,
-  readMenuThemeId,
-  readMenuTrackId,
-  setMenuThemeId,
-  setMenuTrackId,
-  SETTINGS_CHANGED_EVENT,
-  type MenuThemeId,
-  type MenuTrackId,
-} from '../../utils/userSettings'
+import UserSettingsModal from '../UserSettingsModal'
 
 function ruPeopleWord(n: number): string {
   const abs = Math.abs(n) % 100
@@ -58,6 +56,8 @@ const MainBlock: React.FC = () => {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [showNetwork, setShowNetwork] = useState(false)
+  const [showSolo, setShowSolo] = useState(false)
+  const [playingSoloMapId, setPlayingSoloMapId] = useState<number | null>(null)
   const [networkView, setNetworkView] = useState<NetworkView>('list')
   const [servers, setServers] = useState<GameRoom[]>([])
   const [listError, setListError] = useState<string | null>(null)
@@ -83,26 +83,15 @@ const MainBlock: React.FC = () => {
   const [onlinePlayers, setOnlinePlayers] = useState<LobbyOnlinePlayer[] | null>(null)
   const [showOnlinePlayersModal, setShowOnlinePlayersModal] = useState(false)
   const [showSettingsModal, setShowSettingsModal] = useState(false)
-  const [settingsView, setSettingsView] = useState<'home' | 'theme' | 'music'>('home')
-  const [themeId, setThemeId] = useState<MenuThemeId>(() => readMenuThemeId())
-  const [trackId, setTrackId] = useState<MenuTrackId>(() => readMenuTrackId())
-
-  const closeSettings = useCallback(() => {
-    setShowSettingsModal(false)
-    setSettingsView('home')
-  }, [])
+  const [showLeaderboardModal, setShowLeaderboardModal] = useState(false)
+  const [leaderboardSort, setLeaderboardSort] = useState<LobbyLeaderboardSort>('kills')
+  const [leaderboardVs, setLeaderboardVs] = useState<LobbyStatVs>('player')
+  const [leaderboardRows, setLeaderboardRows] = useState<LobbyLeaderboardRow[]>([])
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false)
+  const [leaderboardError, setLeaderboardError] = useState<string | null>(null)
 
   const openCreateServer = useCallback(() => {
     setNetworkView('create')
-  }, [])
-
-  useEffect(() => {
-    const sync = () => {
-      setThemeId(readMenuThemeId())
-      setTrackId(readMenuTrackId())
-    }
-    window.addEventListener(SETTINGS_CHANGED_EVENT, sync)
-    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, sync)
   }, [])
 
   const backToServerList = useCallback(() => {
@@ -229,8 +218,29 @@ const MainBlock: React.FC = () => {
     setPlayerProfileLoading(false)
   }, [])
 
+  const loadLeaderboard = useCallback(async (sort: LobbyLeaderboardSort, vs: LobbyStatVs) => {
+    setLeaderboardLoading(true)
+    setLeaderboardError(null)
+    try {
+      const data = await fetchLobbyLeaderboard(sort, vs)
+      setLeaderboardSort(data.sort)
+      setLeaderboardVs(data.vs)
+      setLeaderboardRows(data.rows)
+    } catch (e) {
+      setLeaderboardError(e instanceof Error ? e.message : 'Не удалось загрузить рейтинг')
+    } finally {
+      setLeaderboardLoading(false)
+    }
+  }, [])
+
+  const openLeaderboard = useCallback(() => {
+    setShowLeaderboardModal(true)
+    void loadLeaderboard(leaderboardSort, leaderboardVs)
+  }, [loadLeaderboard, leaderboardSort, leaderboardVs])
+
   const toggleNetwork = useCallback(() => {
     closePlayerProfile()
+    setShowSolo(false)
     setShowNetwork((v) => {
       if (v) {
         setNetworkView('list')
@@ -239,6 +249,44 @@ const MainBlock: React.FC = () => {
       return !v
     })
   }, [closePlayerProfile])
+
+  const toggleSolo = useCallback(() => {
+    closePlayerProfile()
+    setShowNetwork(false)
+    setNetworkView('list')
+    setRoomsFetchedOnce(false)
+    setShowSolo((v) => !v)
+  }, [closePlayerProfile])
+
+  const startSoloGame = useCallback(
+    async (map: SavedMapListItem) => {
+      if (playingSoloMapId != null) return
+      setPlayingSoloMapId(map.id)
+      const mapLabel = map.name.trim() || `Карта #${map.id}`
+      try {
+        const { room } = await createRoom({
+          name: mapLabel,
+          map: mapLabel,
+          mapId: map.id,
+          maxPlayers: 2,
+          solo: true,
+        })
+        try {
+          await startRoomBattle(room.id)
+          setShowSolo(false)
+          navigate(`/battle?room=${room.id}`, { state: { serverId: room.id } })
+        } catch {
+          setShowSolo(false)
+          navigate('/lobby', { state: { serverId: room.id } })
+        }
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : 'Не удалось начать одиночную игру')
+      } finally {
+        setPlayingSoloMapId(null)
+      }
+    },
+    [navigate, playingSoloMapId],
+  )
 
   const sendChat = useCallback(async (text: string) => {
     setChatSending(true)
@@ -299,15 +347,13 @@ const MainBlock: React.FC = () => {
           {showNetwork && networkView === 'list' && (
             <Button name="Создать сервер" size={380} onClick={openCreateServer} />
           )}
+          <Button name="Одиночная игра" size={380} onClick={toggleSolo} />
           <Button name="Руководство по игре" size={380} onClick={() => navigate('/manual')} />
-          <Button
-            name="Настройки"
-            size={380}
-            onClick={() => {
-              setSettingsView('home')
-              setShowSettingsModal(true)
-            }}
-          />
+          {user ? (
+            <Button name="Профиль" size={380} onClick={() => void openPlayerProfile(user.id)} />
+          ) : null}
+          {user ? <Button name="Рейтинг" size={380} onClick={openLeaderboard} /> : null}
+          <Button name="Настройки" size={380} onClick={() => setShowSettingsModal(true)} />
           <Button name="Редактор карт" size={380} onClick={() => navigate('/editor-map')} />
           {user && isCatalogEditorAdmin(user.username) && (
             <>
@@ -318,50 +364,92 @@ const MainBlock: React.FC = () => {
           )}
         </div>
       </div>
-      <Modal
-        isOpen={showSettingsModal}
-        onClose={closeSettings}
-        title="Настройки"
-        subtitle={
-          settingsView === 'theme' ? 'Смена темы' : settingsView === 'music' ? 'Смена музыки' : undefined
-        }
-        footer={
-          settingsView === 'home' ? (
-            <Button name="Закрыть" size={380} onClick={closeSettings} />
+      <UserSettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} />
+      {user ? (
+        <Modal
+          isOpen={showLeaderboardModal}
+          onClose={() => setShowLeaderboardModal(false)}
+          title="Рейтинг"
+          subtitle={leaderboardVs === 'bot' ? 'Топ 10 · против бота' : 'Топ 10 · против игрока'}
+          size="xl"
+          footer={<Button name="Закрыть" size={380} onClick={() => setShowLeaderboardModal(false)} />}
+        >
+          <div className={styles.leaderboardTabs} role="tablist" aria-label="Тип рейтинга">
+            {LEADERBOARD_VS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={leaderboardVs === tab.key}
+                className={`${styles.leaderboardTab} ${leaderboardVs === tab.key ? styles.leaderboardTabActive : ''}`}
+                disabled={leaderboardLoading}
+                onClick={() => void loadLeaderboard(leaderboardSort, tab.key)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className={styles.leaderboardTabs} role="tablist" aria-label="Сортировка рейтинга">
+            {LEADERBOARD_SORTS.map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={leaderboardSort === tab.key}
+                className={`${styles.leaderboardTab} ${leaderboardSort === tab.key ? styles.leaderboardTabActive : ''}`}
+                disabled={leaderboardLoading}
+                onClick={() => void loadLeaderboard(tab.key, leaderboardVs)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {leaderboardLoading ? (
+            <p className={styles.profileHint}>Загрузка…</p>
+          ) : leaderboardError ? (
+            <p className={styles.chatError}>{leaderboardError}</p>
+          ) : leaderboardRows.length === 0 ? (
+            <p className={styles.onlineModalEmpty}>Пока нет статистики</p>
           ) : (
-            <Button name="Назад" size={380} onClick={() => setSettingsView('home')} />
-          )
-        }
-      >
-        <div className={styles.actions}>
-          {settingsView === 'home' ? (
-            <>
-              <Button name="Смена темы" size={380} onClick={() => setSettingsView('theme')} />
-              <Button name="Смена музыки" size={380} onClick={() => setSettingsView('music')} />
-            </>
-          ) : null}
-          {settingsView === 'theme'
-            ? MENU_THEMES.map((row) => (
-                <Button
-                  key={row.id}
-                  name={row.id === themeId ? `${row.label} · выбрано` : row.label}
-                  size={380}
-                  onClick={() => setMenuThemeId(row.id)}
-                />
-              ))
-            : null}
-          {settingsView === 'music'
-            ? MENU_TRACKS.map((row) => (
-                <Button
-                  key={row.id}
-                  name={row.id === trackId ? `${row.label} · выбрано` : row.label}
-                  size={380}
-                  onClick={() => setMenuTrackId(row.id)}
-                />
-              ))
-            : null}
-        </div>
-      </Modal>
+            <div className={styles.leaderboardTableWrap}>
+              <table className={styles.leaderboardTable}>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Игрок</th>
+                    <th className={leaderboardSort === 'wins' ? styles.leaderboardSorted : undefined}>Победы</th>
+                    <th className={leaderboardSort === 'losses' ? styles.leaderboardSorted : undefined}>Поражения</th>
+                    <th className={leaderboardSort === 'kills' ? styles.leaderboardSorted : undefined}>Уничтожены</th>
+                    <th className={leaderboardSort === 'casualties' ? styles.leaderboardSorted : undefined}>Потери</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaderboardRows.map((row, idx) => (
+                    <tr key={row.id}>
+                      <td>{idx + 1}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className={`${styles.onlineModalName} ${styles[lobbyNickClass(row.roleKey, row.highlight)] || ''}`}
+                          onClick={() => void openPlayerProfile(row.id)}
+                        >
+                          {decorateLobbyNick(row.username, row.roleKey, row.highlight)}
+                        </button>
+                      </td>
+                      <td className={leaderboardSort === 'wins' ? styles.leaderboardSorted : undefined}>{row.wins}</td>
+                      <td className={leaderboardSort === 'losses' ? styles.leaderboardSorted : undefined}>{row.losses}</td>
+                      <td className={leaderboardSort === 'kills' ? styles.leaderboardSorted : undefined}>{row.killsTotal}</td>
+                      <td className={leaderboardSort === 'casualties' ? styles.leaderboardSorted : undefined}>
+                        {row.casualtiesTotal}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Modal>
+      ) : null}
       {user && isCatalogEditorAdmin(user.username) ? (
         <Modal
           isOpen={showOnlinePlayersModal}
@@ -434,6 +522,13 @@ const MainBlock: React.FC = () => {
             ) : (
               <CreateServerPanel onCancel={backToServerList} onCreate={confirmCreateServer} />
             )}
+          </div>
+        </div>
+      )}
+      {showSolo && (
+        <div className={styles.serverZone}>
+          <div className={styles.serverAside}>
+            <SoloPlayPanel onPlay={startSoloGame} playingMapId={playingSoloMapId} />
           </div>
         </div>
       )}

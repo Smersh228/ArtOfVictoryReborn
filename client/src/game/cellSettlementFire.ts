@@ -1,5 +1,5 @@
 import type { Cell, IBuildCell } from '../../../server/src/game/gameLogic/cells/cell';
-import fireSpriteUrl from '../img/orderUnits/firebuild.png';
+import fireSpriteUrl from '../img/units/Germany/humans/humans/fire.png';
 import { isRailwayStationHex } from './cellRailway';
 
 export const SETTLEMENT_FIRE_SPRITE_URL = fireSpriteUrl;

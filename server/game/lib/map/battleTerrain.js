@@ -31,6 +31,21 @@ function hexExtraObj(cell) {
   return cell && cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
 }
 
+function isAmbushAllowedOnCell(cell, unit) {
+  const ex = hexExtraObj(cell)
+  const aa = ex && ex.ambushAllowed
+  if (!aa || typeof aa !== 'object') return true
+  const key = normalizeUnitTypeForHexExtra(unit && unit.type)
+  const raw = String((unit && unit.type) || '').trim()
+  const candidates = [key, raw, raw.toLowerCase(), String(key).toLowerCase()]
+  for (let i = 0; i < candidates.length; i++) {
+    const k = candidates[i]
+    if (!k) continue
+    if (aa[k] === false) return false
+  }
+  return true
+}
+
 function readBaseTerrainEntryCost(cell, unit) {
   const ex = hexExtraObj(cell)
   const byType = (ex && ex.moveCostByType) || cell.moveCostByType
@@ -142,6 +157,7 @@ function pickAccuracyBonusFromRules(rules, shooterUnit, targetUnit, forMelee) {
 /** Бонус меткости с гекса стрелка; forMelee — только если включён «ближний бой» в правиле. */
 function terrainAccuracyBonusFromCell(shooterCell, shooterUnit, targetUnit, forMelee) {
   if (!shooterCell || !shooterUnit) return 0
+  if (require('./battleSettlementFire').isSettlementDestroyed(shooterCell)) return 0
   const ex = hexExtraObj(shooterCell)
   if (!ex) return 0
   const rules = ex.accuracyBonusRules
@@ -161,6 +177,7 @@ function terrainAccuracyBonusFromCell(shooterCell, shooterUnit, targetUnit, forM
 
 function terrainDefenseBonusFromCell(targetCell, targetUnit) {
   if (!targetCell || !targetUnit) return 0
+  if (require('./battleSettlementFire').isSettlementDestroyed(targetCell)) return 0
   if (targetUnit.tactical && targetUnit.tactical.fireSuppression) return 0
   const ex = hexExtraObj(targetCell)
   const byType = (ex && ex.defBonusByType) || targetCell.defBonusByType
@@ -185,4 +202,5 @@ module.exports = {
   terrainDefenseBonusFromCell,
   terrainAccuracyBonusFromCell,
   normalizeUnitTypeForHexExtra,
+  isAmbushAllowedOnCell,
 }

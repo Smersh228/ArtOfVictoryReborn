@@ -36,6 +36,7 @@ export type RoomPublic = {
   players: number
 
   battleStartedAt?: number | null
+  solo?: boolean
 }
 
 export type LobbyFaction = 'none' | 'rkka' | 'wehrmacht'
@@ -45,6 +46,7 @@ export type RoomMember = {
   label: string
   isYou: boolean
   isHost?: boolean
+  isBot?: boolean
   faction: LobbyFaction
   team?: number | null
   ready: boolean
@@ -69,6 +71,9 @@ export type BattleOrderPayload = {
   patrolRangeSteps?: number
   reconRangeSteps?: number
   transferAmmo?: number
+  transferMines?: number
+  transferExplosives?: number
+  transferSmoke?: number
   defendFacingCellId?: number
   defendMaxRangeSteps?: number
   /** Приказ «Окопаться»: сторона гекса 0–5 */
@@ -115,6 +120,7 @@ export type BattleDeployState = {
   }
   membersReady?: { key: string; ready: boolean; isYou: boolean }[]
   yourPlaced?: BattleDeployPlaced[]
+  isReinforcement?: boolean
 }
 
 export type LobbyRoomChatChannel = 'all' | 'team'
@@ -152,7 +158,7 @@ export type RoomDetailResponse = {
   battleSurrenderBy?: string | null
   battleScenarioEndSeq?: number
   battleScenarioWinnerFaction?: 'rkka' | 'wehrmacht' | null
-  battleScenarioReason?: 'objective' | 'timeout' | null
+  battleScenarioReason?: 'objective' | 'timeout' | 'wipe' | null
   battleTurnIndex?: number
   battleFieldRevision?: number
   battleTurnAckCount?: number
@@ -160,6 +166,8 @@ export type RoomDetailResponse = {
   battleHqRewrite?: BattleHqRewriteState | null
   battleDeploy?: BattleDeployState | null
   battleCells?: unknown[]
+  /** Поле не приложено: клиент должен оставить предыдущие battleCells. */
+  battleCellsUnchanged?: boolean
   battleReconByFaction?: { rkka?: number[]; wehrmacht?: number[] }
   battleLog?: {
     phase?: number
@@ -185,6 +193,10 @@ export type RoomDetailResponse = {
         ammoCost?: number
         groupedFire?: boolean
         groupedAreaFire?: boolean
+        areaFireOnly?: boolean
+        fireAdjustment?: boolean
+        fireAdjustmentMiss?: boolean
+        fromDot?: boolean
         shooterIds?: number[]
         areaTargets?: {
           targetId: number
@@ -226,6 +238,12 @@ export type RoomDetailResponse = {
       unitName?: string
       destroyedCellId?: number
       destroyed?: boolean
+      reinforcementLine?: {
+        team?: number
+        turn?: number
+        cellIds?: number[]
+        instanceIds?: number[]
+      }
     }
   }[]
 }
@@ -300,6 +318,7 @@ function normalizeBattleDeploy(raw: RoomDetailResponse['battleDeploy']): BattleD
           structureId: p?.structureId != null ? String(p.structureId) : undefined,
         }))
       : [],
+    isReinforcement: raw.isReinforcement === true,
   }
 }
 
@@ -326,13 +345,17 @@ function normalizeRoomDetail(raw: RoomDetailResponse): RoomDetailResponse {
 
 export async function fetchRoomDetail(
   roomId: number,
-  opts?: { battleTabVisible?: boolean },
+  opts?: { battleTabVisible?: boolean; knownFieldRevision?: number | null },
 ): Promise<RoomDetailResponse> {
   const h = roomHeaders() as Record<string, string>
   if (typeof opts?.battleTabVisible === 'boolean') {
     h['X-Battle-Tab-Visible'] = opts.battleTabVisible ? '1' : '0'
   }
-  const res = await fetch(roomsUrl(`/api/rooms/${roomId}`), {
+  const q =
+    opts?.knownFieldRevision != null && Number.isFinite(opts.knownFieldRevision)
+      ? `?fieldRev=${Math.floor(Number(opts.knownFieldRevision))}`
+      : ''
+  const res = await fetch(roomsUrl(`/api/rooms/${roomId}${q}`), {
     credentials: 'include',
     headers: h,
   })
@@ -368,6 +391,7 @@ export async function createRoom(body: {
   maxPlayers: number
   map: string
   mapId?: number
+  solo?: boolean
 }): Promise<{ room: RoomPublic }> {
   const res = await fetch(roomsUrl('/api/rooms'), {
     method: 'POST',
@@ -402,6 +426,15 @@ export async function spectateRoom(roomId: number): Promise<{ room: RoomPublic; 
   return parseRoomsJson(text)
 }
 
+export function leaveRoomKeepalive(roomId: number): void {
+  void fetch(roomsUrl(`/api/rooms/${roomId}/leave`), {
+    method: 'POST',
+    credentials: 'include',
+    headers: roomHeaders(),
+    keepalive: true,
+  }).catch(() => undefined)
+}
+
 export async function leaveRoom(roomId: number): Promise<void> {
   const res = await fetch(roomsUrl(`/api/rooms/${roomId}/leave`), {
     method: 'POST',
@@ -410,6 +443,44 @@ export async function leaveRoom(roomId: number): Promise<void> {
   })
   const text = await res.text()
   if (!res.ok) throw new Error(parseRoomsError(res, text))
+}
+
+const ACTIVE_LOBBY_ROOM_KEY = 'aov_active_lobby_room'
+
+function takeActiveLobbyRoomId(): number | null {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_LOBBY_ROOM_KEY)
+    sessionStorage.removeItem(ACTIVE_LOBBY_ROOM_KEY)
+    const id = Number(raw)
+    return Number.isFinite(id) ? id : null
+  } catch {
+    return null
+  }
+}
+
+export function setActiveLobbyRoomId(id: number | null): void {
+  try {
+    if (id == null || !Number.isFinite(id)) sessionStorage.removeItem(ACTIVE_LOBBY_ROOM_KEY)
+    else sessionStorage.setItem(ACTIVE_LOBBY_ROOM_KEY, String(id))
+  } catch {
+    /* private mode */
+  }
+}
+
+export function leaveActiveLobbyRoom(): void {
+  const id = takeActiveLobbyRoomId()
+  if (id == null) return
+  leaveRoomKeepalive(id)
+}
+
+export async function leaveActiveLobbyRoomAwait(): Promise<void> {
+  const id = takeActiveLobbyRoomId()
+  if (id == null) return
+  try {
+    await leaveRoom(id)
+  } catch {
+    /* already left or room gone */
+  }
 }
 
 export async function updateLobbyMe(
@@ -523,7 +594,7 @@ export async function postBattleDeployPlace(
   roomId: number,
   body:
     | { kind: 'unit'; catalogUnitId: number; cellId: number }
-    | { kind: 'structure'; structureId: string; cellId: number },
+    | { kind: 'structure'; structureId: string; cellId: number; mineKind?: 'infantry' | 'tank' },
 ): Promise<RoomDetailResponse> {
   const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/deploy-place`), {
     method: 'POST',

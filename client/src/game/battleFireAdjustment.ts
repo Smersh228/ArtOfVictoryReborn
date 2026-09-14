@@ -1,19 +1,12 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
-import { visibleCellIdsInRange } from './hexVisibility';
 import { battleUnitHasPropKey } from './battleFirePreview';
+import { unitUsesGunDeploy } from './battleDefendSector';
 import { unitFactionKey } from './battleHqMorale';
-import { applyVisionPenalty } from './battleEnvironment';
+import { factionsAlliedOnMap, isInstanceIdInAnyTruckCargo } from './battleLogisticsUi';
 
 function getStr(u: Record<string, unknown>): number {
   const n = Number(u.str ?? u.strength);
   return Number.isFinite(n) ? n : 0;
-}
-
-function readVisionRange(u: Record<string, unknown>): number {
-  const tac = u.tactical as { fireSuppression?: boolean } | undefined;
-  if (tac?.fireSuppression) return applyVisionPenalty(1);
-  const n = Number(u.vis ?? u.visible ?? u.visibleRange);
-  return applyVisionPenalty(Number.isFinite(n) && n > 0 ? n : 6);
 }
 
 function isBattleAirUnit(u: Record<string, unknown>): boolean {
@@ -21,95 +14,52 @@ function isBattleAirUnit(u: Record<string, unknown>): boolean {
   return t === 'lightAir' || t === 'heavyAir';
 }
 
+function unitHasOrderKeyBattle(u: Record<string, unknown>, key: string): boolean {
+  const orders = u.orders;
+  if (!Array.isArray(orders)) return false;
+  const want = String(key).trim().toLowerCase();
+  if (!want) return false;
+  return orders.some((o) => {
+    if (!o || typeof o !== 'object') return false;
+    const rec = o as { order_key?: unknown; key?: unknown };
+    return String(rec.order_key ?? rec.key ?? '').trim().toLowerCase() === want;
+  });
+}
+
 function isUnitInTransport(u: Record<string, unknown>): boolean {
   const id = Number((u.tactical as { embarkedTransportInstanceId?: unknown } | undefined)?.embarkedTransportInstanceId);
   return Number.isFinite(id) && id > 0;
 }
 
-function normalizeSideFaction(factionKey: string): 'rkka' | 'wehrmacht' | 'none' {
-  const f = String(factionKey || '').trim().toLowerCase();
-  if (f === 'ussr' || f === 'rkka') return 'rkka';
-  if (f === 'germany' || f === 'wehrmacht') return 'wehrmacht';
-  return 'none';
-}
-
-function unitSideMatches(unit: Record<string, unknown>, side: 'rkka' | 'wehrmacht'): boolean {
-  return normalizeSideFaction(unitFactionKey(unit)) === side;
-}
-
-export function hasActiveFireAdjustmentSpotter(cells: Cell[], viewerFaction: string): boolean {
-  const side = normalizeSideFaction(viewerFaction);
-  if (side === 'none') return false;
-  for (const cell of cells) {
-    for (const raw of cell.units || []) {
-      const u = raw as Record<string, unknown>;
-      if (getStr(u) <= 0) continue;
-      if (!unitSideMatches(u, side)) continue;
-      if (isBattleAirUnit(u)) continue;
-      if (!battleUnitHasPropKey(u, 'fireAdjustment')) continue;
-      if (isUnitInTransport(u)) continue;
-      return true;
-    }
-  }
-  return false;
-}
-
-export function isCellVisibleToAnyFriendly(cells: Cell[], viewerFaction: string, targetCell: Cell): boolean {
-  const side = normalizeSideFaction(viewerFaction);
-  if (side === 'none' || !targetCell) return false;
-  for (const cell of cells) {
-    for (const raw of cell.units || []) {
-      const u = raw as Record<string, unknown>;
-      if (getStr(u) <= 0) continue;
-      if (!unitSideMatches(u, side)) continue;
-      if (isBattleAirUnit(u)) continue;
-      const seen = visibleCellIdsInRange(cell, readVisionRange(u), cells);
-      if (seen.has(targetCell.id)) return true;
-    }
-  }
-  return false;
+export function unitIsFireAdjustmentSpotter(u: Record<string, unknown>): boolean {
+  return unitHasOrderKeyBattle(u, 'fireAdjustment') || battleUnitHasPropKey(u, 'fireAdjustment');
 }
 
 export function isArtilleryUnitBattle(u: Record<string, unknown>): boolean {
   return String(u.type ?? '').toLowerCase() === 'artillery';
 }
 
-export function canArtilleryUseFireAdjustment(
-  unit: Record<string, unknown>,
-  orderKey: string,
-): boolean {
-  if (String(orderKey).trim() !== 'fire') return false;
-  if (isBattleAirUnit(unit)) return false;
-  return (
-    isArtilleryUnitBattle(unit) ||
-    battleUnitHasPropKey(unit, 'areaFire') ||
-    battleUnitHasPropKey(unit, 'concealedTargetFire')
-  );
-}
-
-export function fireAdjustmentAlreadyUsedInOrders(
-  pendingOrders: Array<{ useFireAdjustment?: boolean; unitInstanceId?: number }>,
-  viewerFaction: string,
+/** Союзная артиллерия на поле — цель приказа корректировки огня. */
+export function computeFireAdjustmentTargetInstanceIds(
   cells: Cell[],
-  findUnitById: (id: number) => Record<string, unknown> | null,
-): boolean {
-  const side = normalizeSideFaction(viewerFaction);
-  if (side === 'none') return false;
-  for (const o of pendingOrders) {
-    if (!o.useFireAdjustment) continue;
-    const u = findUnitById(Number(o.unitInstanceId));
-    if (!u) continue;
-    if (unitSideMatches(u, side)) return true;
+  spotterUnit: Record<string, unknown>,
+): Set<number> {
+  const out = new Set<number>();
+  const fac = String(spotterUnit.faction || unitFactionKey(spotterUnit) || '');
+  const selfId = Number(spotterUnit.instanceId);
+  for (const cell of cells) {
+    for (const raw of cell.units || []) {
+      const u = raw as unknown as Record<string, unknown>;
+      const iid = Number(u.instanceId);
+      if (!Number.isFinite(iid) || iid === selfId) continue;
+      if (getStr(u) < 1) continue;
+      if (!isArtilleryUnitBattle(u) && !unitUsesGunDeploy(u)) continue;
+      if (isBattleAirUnit(u)) continue;
+      if (!factionsAlliedOnMap(String(u.faction || ''), fac)) continue;
+      if (isInstanceIdInAnyTruckCargo(cells, iid)) continue;
+      if (isUnitInTransport(u)) continue;
+      out.add(iid);
+    }
   }
-  return false;
-}
-
-export function canOfferFireAdjustment(
-  cells: Cell[],
-  viewerFaction: string,
-  pendingOrders: Array<{ useFireAdjustment?: boolean; unitInstanceId?: number }>,
-  findUnitById: (id: number) => Record<string, unknown> | null,
-): boolean {
-  if (!hasActiveFireAdjustmentSpotter(cells, viewerFaction)) return false;
-  return !fireAdjustmentAlreadyUsedInOrders(pendingOrders, viewerFaction, cells, findUnitById);
+  return out;
 }

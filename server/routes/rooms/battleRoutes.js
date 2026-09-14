@@ -12,6 +12,7 @@ const {
 } = require('./shared')
 const { rooms } = require('./state')
 const { creditKillsFromLog, applyRoomOutcomeIfNeeded } = require('../../playerStats')
+const { applyBotTurns, applyBotHqSkip } = require('../../game/lib/ai/battleBots')
 
 function cloneJson(v) {
   return JSON.parse(JSON.stringify(v))
@@ -26,11 +27,11 @@ function insertInterceptLogLines(log, interceptLines, turnIdx) {
   return log
 }
 
-function applyResolvedBattleTurn(room, needAck, merged, interceptLogLines) {
+async function applyResolvedBattleTurn(room, needAck, merged, interceptLogLines) {
   const { withBattleEnv, tickWeather } = require('../../game/lib/scenario/battleEnvironment')
   const cells = room.battleCells
   const turnIdx = room.battleTurnIndex
-  const log = withBattleEnv(room, () =>
+  const log = await withBattleEnv(room, () =>
     buildTurnResolutionLog(cells, merged, turnIdx, {
       makeLogMeta: battleLogMeta,
       formatOrderLine: formatSubmittedOrderLine,
@@ -50,6 +51,8 @@ function applyResolvedBattleTurn(room, needAck, merged, interceptLogLines) {
   room.battleTurnAck = new Set()
 
   tickWeather(room)
+  const { commitReinforcementsForTurn } = require('../../game/lib/map/battleReinforcements')
+  commitReinforcementsForTurn(room)
   withBattleEnv(room, () => {
     const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
     syncBattleReconByFaction(room, room.battleCells)
@@ -83,14 +86,16 @@ function startHqRewriteSession(room, needAck, intercept) {
   return true
 }
 
-function tryAdvanceAfterAllIn(room, needAck) {
+async function tryAdvanceAfterAllIn(room, needAck, validateSubmittedOrders) {
+  applyBotTurns(room, validateSubmittedOrders)
+  applyBotHqSkip(room)
   const session = room.battleHqRewriteSession
   if (session && session.turn === room.battleTurnIndex) {
     if (session.ack.size < session.needKeys.length) {
       return { advanced: false, hqRewritePending: true, resolutionLog: [] }
     }
     const merged = buildMergedOrders(room, needAck)
-    const log = applyResolvedBattleTurn(room, needAck, merged, session.logLines)
+    const log = await applyResolvedBattleTurn(room, needAck, merged, session.logLines)
     return { advanced: true, hqRewritePending: false, resolutionLog: log }
   }
 
@@ -101,9 +106,16 @@ function tryAdvanceAfterAllIn(room, needAck) {
     return radio.resolveAllRadioIntercepts(room.battleCells, merged)
   })
   if (startHqRewriteSession(room, needAck, intercept)) {
+    applyBotHqSkip(room)
+    const s = room.battleHqRewriteSession
+    if (s && s.ack.size >= s.needKeys.length) {
+      const mergedAfter = buildMergedOrders(room, needAck)
+      const log = await applyResolvedBattleTurn(room, needAck, mergedAfter, s.logLines)
+      return { advanced: true, hqRewritePending: false, resolutionLog: log }
+    }
     return { advanced: false, hqRewritePending: true, resolutionLog: [] }
   }
-  const log = applyResolvedBattleTurn(room, needAck, merged, intercept.logLines)
+  const log = await applyResolvedBattleTurn(room, needAck, merged, intercept.logLines)
   return { advanced: true, hqRewritePending: false, resolutionLog: log }
 }
 
@@ -191,6 +203,7 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       room.battleHqRewriteSession &&
       room.battleHqRewriteSession.turn === room.battleTurnIndex
     ) {
+      applyBotHqSkip(room)
       return res.json({
         ok: true,
         battleTurnIndex: room.battleTurnIndex,
@@ -199,24 +212,54 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
         battleHqRewrite: publicHqRewritePayload(room, key),
       })
     }
-    room.battleTurnAck.add(key)
-    const needAck = battleMembersNeedingTurnAck(room)
-    const allIn = needAck.length > 0 && needAck.every((m) => room.battleTurnAck.has(m.key))
-    let advanced = false
-    let resolutionLog = []
-    if (allIn) {
-      const result = tryAdvanceAfterAllIn(room, needAck)
-      advanced = result.advanced
-      resolutionLog = result.resolutionLog
+    if (room.battleTurnBusy) {
+      return res.status(409).json({
+        error: 'Сервер ещё считает ход. Подождите и не меняйте приказы.',
+        battleTurnBusy: true,
+        battleTurnIndex: room.battleTurnIndex,
+      })
     }
-    res.json({
-      ok: true,
-      battleTurnIndex: room.battleTurnIndex,
-      battleFieldRevision: room.battleFieldRevision ?? 0,
-      waitingForOthers: !advanced,
-      resolutionLog: advanced ? resolutionLog : undefined,
-      battleHqRewrite: publicHqRewritePayload(room, key),
-    })
+    room.battleTurnBusy = true
+    const t0 = Date.now()
+    try {
+      room.battleTurnAck.add(key)
+      await new Promise((resolve) => setImmediate(resolve))
+      applyBotTurns(room, validateSubmittedOrders)
+      const needAck = battleMembersNeedingTurnAck(room)
+      const allIn = needAck.length > 0 && needAck.every((m) => room.battleTurnAck.has(m.key))
+      let advanced = false
+      let resolutionLog = []
+      if (allIn) {
+        const result = await tryAdvanceAfterAllIn(room, needAck, validateSubmittedOrders)
+        advanced = result.advanced
+        resolutionLog = result.resolutionLog
+        if (advanced) {
+          const { enrichRoomBattleCellsIfNeeded } = require('../../game/lib/support/battleEnrich')
+          await enrichRoomBattleCellsIfNeeded(room)
+        }
+      }
+      if (!res.headersSent) {
+        res.json({
+          ok: true,
+          battleTurnIndex: room.battleTurnIndex,
+          battleFieldRevision: room.battleFieldRevision ?? 0,
+          waitingForOthers: !advanced,
+          resolutionLog: advanced ? resolutionLog : undefined,
+          battleHqRewrite: publicHqRewritePayload(room, key),
+        })
+      }
+      const elapsed = Date.now() - t0
+      if (elapsed >= 1500) {
+        console.log(`battle turn-ready room ${id}: ${elapsed}ms advanced=${advanced}`)
+      }
+    } catch (err) {
+      console.error('battle turn-ready:', err && err.message ? err.message : err)
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Не удалось обработать ход' })
+      }
+    } finally {
+      room.battleTurnBusy = false
+    }
   })
 
   router.post('/:id/battle/hq-rewrite', express.json(), async (req, res) => {
@@ -281,13 +324,30 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       room.battleOrdersDraft[key] = { turn, orders: Array.isArray(orders) ? orders : [] }
     }
     session.ack.add(key)
+    applyBotHqSkip(room)
     const needAck = battleMembersNeedingTurnAck(room)
     let advanced = false
     let resolutionLog = []
     if (session.ack.size >= session.needKeys.length) {
-      const result = tryAdvanceAfterAllIn(room, needAck)
-      advanced = result.advanced
-      resolutionLog = result.resolutionLog
+      if (room.battleTurnBusy) {
+        return res.status(409).json({
+          error: 'Сервер ещё считает ход. Подождите и не меняйте приказы.',
+          battleTurnBusy: true,
+          battleTurnIndex: room.battleTurnIndex,
+        })
+      }
+      room.battleTurnBusy = true
+      try {
+        const result = await tryAdvanceAfterAllIn(room, needAck, validateSubmittedOrders)
+        advanced = result.advanced
+        resolutionLog = result.resolutionLog
+        if (advanced) {
+          const { enrichRoomBattleCellsIfNeeded } = require('../../game/lib/support/battleEnrich')
+          await enrichRoomBattleCellsIfNeeded(room)
+        }
+      } finally {
+        room.battleTurnBusy = false
+      }
     }
     res.json({
       ok: true,
@@ -344,7 +404,8 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
           console.error('deploy-place building:', e.message)
         }
       }
-      const result = deploy.placeDeployStructure(room, mem, structureId, cellId, buildingInfo)
+      const mineKind = req.body?.mineKind === 'tank' ? 'tank' : req.body?.mineKind === 'infantry' ? 'infantry' : undefined
+      const result = deploy.placeDeployStructure(room, mem, structureId, cellId, buildingInfo, mineKind)
       if (result.error) return res.status(400).json({ error: result.error })
       return await sendRoomDetailOr500(res, room, key)
     }
@@ -387,6 +448,8 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
     const deploy = require('../../game/lib/map/battleDeployPhase')
     const result = deploy.setDeployReady(room, mem, req.body?.ready !== false)
     if (result.error) return res.status(400).json({ error: result.error })
+    const { enrichRoomBattleCellsIfNeeded } = require('../../game/lib/support/battleEnrich')
+    await enrichRoomBattleCellsIfNeeded(room)
     return await sendRoomDetailOr500(res, room, key)
   })
 

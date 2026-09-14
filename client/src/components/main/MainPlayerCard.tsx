@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import styles from '../styleModules/mainBlock.module.css'
 import Button from '../Button'
 import Modal from '../Modal'
@@ -18,6 +18,7 @@ import {
   type LobbyModerationAction,
   type LobbyPlayerProfile,
   type LobbyRoleKey,
+  type LobbyStatVs,
 } from '../../api/lobbyHub'
 import { useAuth } from '../../context/AuthContext'
 import { isCatalogEditorAdmin } from '../../utils/catalogEditorAdmin'
@@ -63,6 +64,41 @@ function formatUntil(active: boolean, until: number | null): string | null {
   return new Date(until).toLocaleString('ru-RU')
 }
 
+function sumUnitCounts(map: Record<string, number> | null | undefined): number {
+  if (!map || typeof map !== 'object') return 0
+  let n = 0
+  for (const v of Object.values(map)) {
+    const x = Number(v)
+    if (Number.isFinite(x) && x > 0) n += Math.floor(x)
+  }
+  return n
+}
+
+function UnitStatGrid({
+  title,
+  counts,
+}: {
+  title: string
+  counts: Record<string, number> | null | undefined
+}) {
+  return (
+    <div className={styles.profileKills}>
+      <h3 className={styles.profileKillsTitle}>{title}</h3>
+      <div className={styles.profileKillGrid}>
+        {UNIT_KILL_LABELS.map((row) => {
+          const n = Number(counts?.[row.key] ?? 0)
+          return (
+            <div key={row.key} className={styles.profileKillRow}>
+              <span>{row.label}</span>
+              <strong>{Number.isFinite(n) ? n : 0}</strong>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 type MainPlayerCardProps = {
   profile: LobbyPlayerProfile | null
   loading: boolean
@@ -88,6 +124,7 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
   const [roleError, setRoleError] = useState<string | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [statVs, setStatVs] = useState<LobbyStatVs>('player')
   const own = profile != null && user != null && Number(profile.id) === Number(user.id)
   const canEditRole = isCatalogEditorAdmin(user?.username) && profile != null && !profile.highlight
   const viewerIsAdmin = viewerRoleKey === 'admin'
@@ -100,7 +137,12 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
     profile.roleKey !== 'admin' &&
     (canBan || (canMute && (profile.roleKey === 'player' || profile.roleKey === 'veteran')))
   const avatarUrl = profile ? resolveLobbyAssetUrl(profile.avatarPath) : undefined
+  const combat = profile ? (statVs === 'bot' ? profile.vsBot : profile.vsPlayer) : null
   const nickClass = profile ? styles[lobbyNickClass(profile.roleKey, profile.highlight)] : undefined
+
+  useEffect(() => {
+    setStatVs('player')
+  }, [profile?.id])
 
   const onPickAvatar = async (file: File | undefined) => {
     if (!file || !own) return
@@ -152,7 +194,7 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
       elevated
       title={
         profile ? (
-          <span className={nickClass}>{decorateLobbyNick(profile.username, profile.roleKey, profile.highlight)}</span>
+          <span className={`${nickClass} ${styles.profileTitleNick}`}>{decorateLobbyNick(profile.username, profile.roleKey, profile.highlight)}</span>
         ) : (
           'Профиль игрока'
         )
@@ -202,12 +244,6 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
               }}
             />
             <div className={styles.profileRows}>
-              <div className={styles.profileRow}>
-                <span>Ник</span>
-                <strong className={nickClass}>
-                  {decorateLobbyNick(profile.username, profile.roleKey, profile.highlight)}
-                </strong>
-              </div>
               <div className={styles.profileRow}>
                 <span>Статус</span>
                 <strong>{profile.online ? 'В сети' : 'Не в сети'}</strong>
@@ -294,13 +330,45 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
                 <span>Регистрация</span>
                 <strong>{formatProfileDate(profile.createdAt)}</strong>
               </div>
+            </div>
+          </div>
+          <div className={styles.profileCombat}>
+            <div className={styles.leaderboardTabs} role="tablist" aria-label="Статистика боёв">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={statVs === 'player'}
+                className={`${styles.leaderboardTab} ${statVs === 'player' ? styles.leaderboardTabActive : ''}`}
+                onClick={() => setStatVs('player')}
+              >
+                Против игрока
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={statVs === 'bot'}
+                className={`${styles.leaderboardTab} ${statVs === 'bot' ? styles.leaderboardTabActive : ''}`}
+                onClick={() => setStatVs('bot')}
+              >
+                Против бота
+              </button>
+            </div>
+            <div className={styles.profileRows}>
               <div className={styles.profileRow}>
                 <span>Победы</span>
-                <strong>{profile.wins}</strong>
+                <strong>{combat?.wins ?? 0}</strong>
               </div>
               <div className={styles.profileRow}>
                 <span>Поражения</span>
-                <strong>{profile.losses}</strong>
+                <strong>{combat?.losses ?? 0}</strong>
+              </div>
+              <div className={styles.profileRow}>
+                <span>Уничтожены</span>
+                <strong>{sumUnitCounts(combat?.kills)}</strong>
+              </div>
+              <div className={styles.profileRow}>
+                <span>Потери</span>
+                <strong>{sumUnitCounts(combat?.casualties)}</strong>
               </div>
             </div>
           </div>
@@ -316,20 +384,8 @@ const MainPlayerCard: React.FC<MainPlayerCardProps> = ({
           {avatarError ? <p className={styles.chatError}>{avatarError}</p> : null}
           {roleError ? <p className={styles.chatError}>{roleError}</p> : null}
           {actionError ? <p className={styles.chatError}>{actionError}</p> : null}
-          <div className={styles.profileKills}>
-            <h3 className={styles.profileKillsTitle}>Уничтоженные юниты</h3>
-            <div className={styles.profileKillGrid}>
-              {UNIT_KILL_LABELS.map((row) => {
-                const n = Number(profile.kills?.[row.key] ?? 0)
-                return (
-                  <div key={row.key} className={styles.profileKillRow}>
-                    <span>{row.label}</span>
-                    <strong>{Number.isFinite(n) ? n : 0}</strong>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+          <UnitStatGrid title="Уничтоженные юниты" counts={combat?.kills} />
+          <UnitStatGrid title="Потери" counts={combat?.casualties} />
         </div>
       ) : null}
     </Modal>

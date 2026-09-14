@@ -8,6 +8,8 @@ const VILLAGE_STR = 24
 const STATION_STR = 12
 const BRIDGE_STR = 3
 const BRIDGE_DEF = 3
+const STORAGE_STR = 4
+const STORAGE_DEF = 1
 
 function ensureBuilds(cell) {
   if (!cell.builds || typeof cell.builds !== 'object') cell.builds = {}
@@ -28,6 +30,8 @@ function hpKindForCell(cell) {
   if (sk) return sk
   if (special.isIntactBridgeHex(cell) && special.isRailwayBridgeHex(cell)) return 'railBridge'
   if (special.isIntactBridgeHex(cell)) return 'bridge'
+  const storage = require('./battleStorage')
+  if (storage.hasStorage(cell)) return 'storage'
   return null
 }
 
@@ -37,6 +41,9 @@ function defaultHp(kind) {
   if (kind === 'station') return { kind, str: STATION_STR, maxStr: STATION_STR, def: 1, maxDef: 1 }
   if (kind === 'bridge' || kind === 'railBridge') {
     return { kind, str: BRIDGE_STR, maxStr: BRIDGE_STR, def: BRIDGE_DEF, maxDef: BRIDGE_DEF }
+  }
+  if (kind === 'storage') {
+    return { kind, str: STORAGE_STR, maxStr: STORAGE_STR, def: STORAGE_DEF, maxDef: STORAGE_DEF }
   }
   return null
 }
@@ -52,6 +59,7 @@ function maxDefForHp(hp) {
   if (hp.kind === 'village') return str >= 17 ? 1 : 0
   if (hp.kind === 'station') return str > 0 ? 1 : 0
   if (hp.kind === 'bridge' || hp.kind === 'railBridge') return BRIDGE_DEF
+  if (hp.kind === 'storage') return Number(hp.str) > 0 ? STORAGE_DEF : 0
   return 0
 }
 
@@ -61,6 +69,10 @@ function isSettlementKind(kind) {
 
 function isBridgeKind(kind) {
   return kind === 'bridge' || kind === 'railBridge'
+}
+
+function isStorageKind(kind) {
+  return kind === 'storage'
 }
 
 function readHp(cell) {
@@ -97,20 +109,46 @@ function regenSettlementDefense(cells) {
   }
 }
 
-function unitHasBuildFire(unit) {
-  if (!unit) return false
-  const src = unit._useReactiveFire
-    ? unit.fireReactive
-    : unit.fireParsed || unit._fireRaw || unit.fire
+function buildFireSourcePositive(src) {
   if (!src || typeof src !== 'object') return false
   const raw = src.build
   if (raw == null || raw === '') return false
   return splitNums(raw).some((n) => n > 0)
 }
 
+function unitHasBuildFire(unit, useReactiveFire) {
+  if (!unit) return false
+  const reactive = !!(useReactiveFire || unit._useReactiveFire)
+  if (reactive) return buildFireSourcePositive(unit.fireReactive)
+  return (
+    buildFireSourcePositive(unit._fireRaw) ||
+    buildFireSourcePositive(unit.fire) ||
+    buildFireSourcePositive(unit.fireParsed)
+  )
+}
+
+function unitBuildFireIsMeleeOnly(unit, useReactiveFire) {
+  if (!unit) return false
+  const reactive = !!(useReactiveFire || unit._useReactiveFire)
+  const opts = reactive ? unit.fireRowOptionsReactive : unit.fireRowOptions
+  return !!(opts && typeof opts === 'object' && opts.build && opts.build.melee === true)
+}
+
+function unitCanRangedBuildFire(unit, useReactiveFire) {
+  return unitHasBuildFire(unit, useReactiveFire) && !unitBuildFireIsMeleeOnly(unit, useReactiveFire)
+}
+
 function isShootableStructureCell(cell) {
   const hp = ensureStructureHp(cell)
   return !!(hp && Number(hp.str) > 0)
+}
+
+function isBuildFireTargetCell(cell) {
+  if (isShootableStructureCell(cell)) return true
+  const { hasDotOnCell } = require('./battleDot')
+  if (cell && hasDotOnCell(cell.builds)) return true
+  const storage = require('./battleStorage')
+  return !!(cell && storage.hasStorage(cell))
 }
 
 function kindLabel(kind) {
@@ -119,6 +157,7 @@ function kindLabel(kind) {
   if (kind === 'station') return 'станция'
   if (kind === 'railBridge') return 'железнодорожный мост'
   if (kind === 'bridge') return 'мост'
+  if (kind === 'storage') return 'склад'
   return 'сооружение'
 }
 
@@ -235,7 +274,8 @@ function applyStructureHits(cells, cell, hits, le, ph, deps) {
     if (hp.def > hp.maxDef) hp.def = hp.maxDef
   }
   const destroyed = Number(hp.str) <= 0
-  if (typeof le === 'function' && (defAbsorb > 0 || strAbsorb > 0)) {
+  if (typeof le === 'function' && (defAbsorb > 0 || strAbsorb > 0 || destroyed)) {
+    const fireLine = deps && deps.fireLine
     le(
       ph,
       `Огонь по сооружению: кл. ${cell.id} (${kindLabel(hp.kind)}) попаданий ${n}, защита ${prevDef}→${hp.def}, прочность ${prevStr}→${hp.str}`,
@@ -245,19 +285,24 @@ function applyStructureHits(cells, cell, hits, le, ph, deps) {
         structureCellId: Number(cell.id),
         structureDef: hp.def,
         structureStr: hp.str,
+        structureDestroyed: destroyed,
+        ...(fireLine && typeof fireLine === 'object' ? { fireLine } : {}),
       },
     )
   }
   if (destroyed) {
     if (isSettlementKind(hp.kind)) destroySettlement(cells, cell, le, ph)
     else if (isBridgeKind(hp.kind)) destroyBridge(cells, cell, hp, le, ph, deps)
+    else if (isStorageKind(hp.kind)) {
+      require('./battleStorage').destroyWarehouse(cell)
+    }
   }
   return { applied: true, destroyed, defLost: defAbsorb, strLost: strAbsorb }
 }
 
 function applyMissRerollsToStructure(cells, cell, rollResults, accuracy, attacker, le, ph, deps) {
+  if (!unitCanRangedBuildFire(attacker)) return { applied: false }
   if (!isShootableStructureCell(cell)) return { applied: false }
-  if (!unitHasBuildFire(attacker)) return { applied: false }
   const cap = buildDiceCap(attacker, deps)
   if (!(cap > 0)) return { applied: false }
   const acc = Number(accuracy) || 0
@@ -278,8 +323,8 @@ function applyMissRerollsToStructure(cells, cell, rollResults, accuracy, attacke
 }
 
 function shootStructureDirect(cells, cell, attacker, shooterCell, distance, isSup, deps, le, ph) {
+  if (!unitCanRangedBuildFire(attacker)) return { applied: false }
   if (!isShootableStructureCell(cell)) return { applied: false }
-  if (!unitHasBuildFire(attacker)) return { applied: false }
   const { intensityArrayFor, rangeArrayForAtCell, computeShoot } = deps || {}
   if (typeof computeShoot !== 'function') return { applied: false }
   const ia = intensityArrayFor(attacker, { type: 'build' })
@@ -300,14 +345,19 @@ function shootStructureDirect(cells, cell, attacker, shooterCell, distance, isSu
     1,
   )
   const hits = Number(res && res.hits) || 0
-  const hpNow = readHp(cell)
-  if (typeof le === 'function') {
-    le(
-      ph,
-      `Огонь по сооружению: юнит ${attacker.instanceId} → кл. ${cell.id} (${kindLabel(hpNow && hpNow.kind)}), попаданий ${hits} (выпало: ${(res.rollResults || []).join(',')})`,
-    )
+  const fireLine = {
+    attackerId: Number(attacker.instanceId),
+    targetId: null,
+    fromCellId: shooterCell && shooterCell.id != null ? Number(shooterCell.id) : null,
+    targetCellId: Number(cell.id),
+    hits,
+    damages: hits,
+    rollResults: Array.isArray(res && res.rollResults) ? res.rollResults : [],
+    diceCount: Number(res && res.diceCount) || 0,
+    baseDiceCount: Number(res && res.baseDiceCount) || 0,
+    isSuppression: !!isSup,
   }
-  return applyStructureHits(cells, cell, hits, le, ph, deps)
+  return applyStructureHits(cells, cell, hits, le, ph, { ...(deps || {}), fireLine })
 }
 
 function unitCanEnterDamagedStructure(unit, cell) {
@@ -352,10 +402,14 @@ module.exports = {
   ensureAllStructureHp,
   regenSettlementDefense,
   unitHasBuildFire,
+  unitBuildFireIsMeleeOnly,
+  unitCanRangedBuildFire,
   isShootableStructureCell,
+  isBuildFireTargetCell,
   applyStructureHits,
   applyMissRerollsToStructure,
   shootStructureDirect,
+  buildDiceCap,
   unitCanEnterDamagedStructure,
   stationHasLoadBonus,
   zeroHpOnArsonDestroy,

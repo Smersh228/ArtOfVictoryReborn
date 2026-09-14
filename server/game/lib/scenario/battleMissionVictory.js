@@ -1,6 +1,6 @@
 'use strict'
 
-const { getStr, unitFaction, opposing, findUnitOnField } = require('../unit/battleUnitField')
+const { getStr, unitFaction, findUnitOnField } = require('../unit/battleUnitField')
 const { effectiveMaxTurns } = require('./battleEnvironment')
 
 function parseIdList(raw) {
@@ -40,14 +40,17 @@ function isInstanceAliveAnywhere(cells, instanceId) {
   return false
 }
 
-function hasLivingOpposingUnit(struggle, cells) {
+function hasLivingFactionUnits(faction, cells) {
+  const side = faction === 'rkka' || faction === 'wehrmacht' ? faction : null
+  if (!side || !Array.isArray(cells)) return false
   const seen = new Set()
   function consider(u) {
     if (!u || getStr(u) <= 0) return false
+    if (unitFaction(u) !== side) return false
     const iid = Number(u.instanceId)
     if (!Number.isFinite(iid) || seen.has(iid)) return false
     seen.add(iid)
-    return opposing(struggle, unitFaction(u))
+    return true
   }
   for (const cell of cells) {
     for (const u of cell.units || []) {
@@ -61,6 +64,10 @@ function hasLivingOpposingUnit(struggle, cells) {
     }
   }
   return false
+}
+
+function hasLivingOpposingUnit(struggle, cells) {
+  return hasLivingFactionUnits(oppositeFaction(struggle), cells)
 }
 
 function isCaptureZonesSatisfied(conditions, struggleFaction, cells) {
@@ -152,4 +159,5 @@ module.exports = {
   isMissionTurnLimitReached,
   oppositeFaction,
   normalizeStruggleFaction,
+  hasLivingFactionUnits,
 }

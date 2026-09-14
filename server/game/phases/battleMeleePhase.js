@@ -9,6 +9,7 @@ const { applyWireBreakthroughOnStep } = require('../lib/map/battleWireEdges')
 const flank = require('../lib/map/battleFlank')
 const suppression = require('../core/battleSuppression')
 const { isTruckUnit, isInfantryUnit } = require('../core/battleUnitType')
+const hiddenState = require('../lib/unit/battleHiddenState')
 
 function orderKeyOf(id, ordersByUnit) {
   const spec = ordersByUnit && typeof ordersByUnit.get === 'function' ? ordersByUnit.get(Number(id)) : null
@@ -140,6 +141,7 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
     dmgToB = res.damages
     for (const r of res.rollResults) rollsA.push(r)
     setAmmo(A.unit, getAmmo(A.unit) - 1)
+    hiddenState.revealHiddenByOpeningFire(A.unit, le, ph)
   }
 
   if (getStr(A.unit) > 0 && bShoots) {
@@ -149,6 +151,7 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
     dmgToA = res.damages
     for (const r of res.rollResults) rollsB.push(r)
     setAmmo(B.unit, getAmmo(B.unit) - 1)
+    hiddenState.revealHiddenByOpeningFire(B.unit, le, ph)
   }
 
   if (getStr(B.unit) > 0) {
@@ -172,7 +175,10 @@ function resolveMutualMeleeRound(cells, ordersByUnit, le, ph, idA, idB, deps) {
       targetCellId: B.cell.id,
       hits: 0,
       damages: dmgToB,
-      rollResults: rollsA.length ? rollsA : rollsB,
+      damagesTaken: dmgToA,
+      rollResults: rollsA,
+      rollResultsB: rollsB,
+      meleeMutual: true,
     },
   })
 
@@ -283,8 +289,8 @@ function runOngoingMeleeRounds(cells, ordersByUnit, le, ph, deps) {
       const fire = require('../lib/map/battleSettlementFire')
       const aLive = findUnitOnField(cells, ida)
       const dLive = findUnitOnField(cells, oid)
-      if (aLive) fire.maybeIgniteFromFlamethrower(aLive.unit, aLive.cell, cells, le, ph)
-      if (dLive) fire.maybeIgniteFromFlamethrower(dLive.unit, dLive.cell, cells, le, ph)
+      if (aLive) fire.maybeIgniteFromFlamethrower(aLive.unit, aLive.cell, cells, le, ph, deps)
+      if (dLive) fire.maybeIgniteFromFlamethrower(dLive.unit, dLive.cell, cells, le, ph, deps)
     }
   }
 }
@@ -394,8 +400,8 @@ function processSingleAttackOrder(cells, o, ordersByUnit, le, ph, movedInstanceI
     const fire = require('../lib/map/battleSettlementFire')
     const aFlame = findUnitOnField(cells, o.unitId)
     const dFlame = findUnitOnField(cells, tid)
-    if (aFlame) fire.maybeIgniteFromFlamethrower(aFlame.unit, aFlame.cell, cells, le, ph)
-    if (dFlame) fire.maybeIgniteFromFlamethrower(dFlame.unit, dFlame.cell, cells, le, ph)
+    if (aFlame) fire.maybeIgniteFromFlamethrower(aFlame.unit, aFlame.cell, cells, le, ph, deps)
+    if (dFlame) fire.maybeIgniteFromFlamethrower(dFlame.unit, dFlame.cell, cells, le, ph, deps)
     const d3 = findUnitOnField(cells, tid)
     if (suppressedTarget && d3 && deps.getStr(d3.unit) > 0 && d3.unit.tactical && d3.unit.tactical.fireSuppression) {
       analog.tryForcedRetreat(cells, d3.unit, approachCell, le, ph, { ...deps, cells })

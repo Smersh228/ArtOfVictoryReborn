@@ -14,6 +14,12 @@ import {
   teamDeployPool,
   type EditorDeploymentState,
 } from '../../game/editorMapDeployment'
+import {
+  catalogTransportKind,
+  padCargoSlots,
+  slotIndicesForUnitId,
+} from '../../game/editorMapTransportCargo'
+import TransportCargoEditor from './TransportCargoEditor'
 
 type CatalogUnit = {
   id: number
@@ -21,6 +27,10 @@ type CatalogUnit = {
   type: string
   faction: string
   imagePath: string
+  heavyTech?: boolean
+  heavyArtillery?: boolean
+  properties?: Array<{ prop_key?: string; name?: string }>
+  orders?: Array<{ order_key?: string; key?: string; name?: string }>
 }
 
 type CatalogBuilding = {
@@ -43,6 +53,7 @@ interface EditorMapDeploymentModalProps {
   catalogBuildings: CatalogBuilding[]
   onAddUnit: (unitId: number) => void
   onRemoveUnit: (unitId: number) => void
+  onSetUnitCargo: (slotIndex: number, cargoIds: number[]) => void
   onAddStructure: (structureId: string) => void
   onRemoveStructure: (structureId: string) => void
 }
@@ -58,6 +69,7 @@ const EditorMapDeploymentModal: React.FC<EditorMapDeploymentModalProps> = ({
   catalogBuildings,
   onAddUnit,
   onRemoveUnit,
+  onSetUnitCargo,
   onAddStructure,
   onRemoveStructure,
 }) => {
@@ -76,7 +88,7 @@ const EditorMapDeploymentModal: React.FC<EditorMapDeploymentModalProps> = ({
       onClose={onClose}
       size="xl"
       title="Юниты для расстановки"
-      subtitle="Добавьте несколько экземпляров одного юнита или сооружения — плюс и минус на карточке"
+      subtitle="Грузовик: пехота или артиллерия внутри. Поезд (ЖД, техника): 2 пехоты и 2 любых. Груз задаётся здесь и в бою уже внутри."
       footer={
         <div className={styles.modalFooterActionsCenter}>
           <Button name="Готово" onClick={onClose} />
@@ -113,6 +125,9 @@ const EditorMapDeploymentModal: React.FC<EditorMapDeploymentModalProps> = ({
           unitsForTeam.map((unit) => {
             const count = poolCopyCount(pool.unitIds, unit.id)
             const src = resolveEditorImageUrl(unit.imagePath) ?? unit.imagePath
+            const kind = catalogTransportKind(unit)
+            const slots = slotIndicesForUnitId(pool.unitIds, unit.id)
+            const cargoSlots = padCargoSlots(pool.unitCargo, pool.unitIds.length)
             return (
               <div
                 key={unit.id}
@@ -142,6 +157,24 @@ const EditorMapDeploymentModal: React.FC<EditorMapDeploymentModalProps> = ({
                     +
                   </button>
                 </div>
+                {kind && slots.length
+                  ? slots.map((slotIndex, copyIdx) => (
+                      <TransportCargoEditor
+                        key={`${unit.id}-${slotIndex}`}
+                        kind={kind}
+                        cargoIds={cargoSlots[slotIndex] ?? []}
+                        catalogUnits={unitsForTeam}
+                        faction={unit.faction}
+                        hostUnit={unit}
+                        title={
+                          slots.length > 1
+                            ? `${kind === 'train' ? 'Поезд' : 'Грузовик'} ${copyIdx + 1}`
+                            : undefined
+                        }
+                        onChange={(ids) => onSetUnitCargo(slotIndex, ids)}
+                      />
+                    ))
+                  : null}
               </div>
             )
           })}

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import styles from './Modal.module.css'
 
-export type ModalSize = 'md' | 'lg' | 'xl'
+export type ModalSize = 'md' | 'lg' | 'xl' | 'full'
 
 export interface ModalProps {
   isOpen: boolean
@@ -13,9 +13,21 @@ export interface ModalProps {
   footer?: React.ReactNode
   /** Выше обычных модалок (профиль поверх белого списка). */
   elevated?: boolean
+  /** Без внутренних отступов тела (для вложенного макета). */
+  flush?: boolean
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, size = 'md', children, footer, elevated }) => {
+const Modal: React.FC<ModalProps> = ({
+  isOpen,
+  onClose,
+  title,
+  subtitle,
+  size = 'md',
+  children,
+  footer,
+  elevated,
+  flush,
+}) => {
   useEffect(() => {
     if (!isOpen) return
     const prev = document.body.style.overflow
@@ -38,7 +50,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, size = 
       }}
     >
       <div
-        className={`${styles.dialog} ${size === 'lg' ? styles.dialogWide : ''} ${size === 'xl' ? styles.dialogXl : ''}`}
+        className={`${styles.dialog} ${size === 'lg' ? styles.dialogWide : ''} ${size === 'xl' ? styles.dialogXl : ''} ${size === 'full' ? styles.dialogFull : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
@@ -52,7 +64,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, subtitle, size = 
             {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
           </div>
         </header>
-        <div className={styles.body}>{children}</div>
+        <div className={`${styles.body} ${flush ? styles.bodyFlush : ''}`}>{children}</div>
         {footer ? <div className={styles.footer}>{footer}</div> : null}
       </div>
     </div>

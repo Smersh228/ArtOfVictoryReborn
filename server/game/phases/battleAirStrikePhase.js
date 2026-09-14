@@ -80,6 +80,11 @@ function resolveAirMissionOrder(cells, o, le, ph, deps) {
   if (!AIR_MISSION_ORDER_KEYS.has(k)) return false
   const cur = findUnitOnField(cells, o.unitId)
   if (!cur) return false
+  const rainBlock = airSortie.airLaunchWeatherBlockReason(k)
+  if (rainBlock) {
+    le(ph, `Авиация: юнит ${cur.unit.instanceId} — ${rainBlock}`)
+    return true
+  }
   const block = validateUnitOrdersAllowed(cur.unit)
   if (block) {
     le(ph, `Авиация: юнит ${cur.unit.instanceId} — ${block}`)
@@ -684,6 +689,11 @@ function processAirPhase(cells, list, ordersByUnit, le, ph, steadfastnessQueue, 
     if (!AIR_STRIKE_ORDER_KEYS.has(k)) continue
     let atk = findUnitOnField(cells, o.unitId)
     if (!atk) continue
+    const rainBlock = airSortie.airLaunchWeatherBlockReason(k)
+    if (rainBlock) {
+      le(ph, `Авиаудар: юнит ${atk.unit.instanceId} — ${rainBlock}`)
+      continue
+    }
     const block = validateUnitOrdersAllowed(atk.unit)
     if (block) {
       le(ph, `Авиаудар: юнит ${atk.unit.instanceId} — ${block}`)

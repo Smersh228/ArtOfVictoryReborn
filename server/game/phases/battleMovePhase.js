@@ -9,6 +9,66 @@ const analog = require('../lib/unit/battleMeleeAnalog')
 const collision = require('../lib/map/battleMoveCollision')
 const smokeMod = require('../lib/map/battleSmoke')
 const meleePhase = require('./battleMeleePhase')
+const { opposing } = require('../lib/unit/battleUnitField')
+const { isBattleAirUnitType, createMoveSlopeCounters } = require('../lib/map/battleElevation')
+const { unitInDot } = require('../lib/map/battleDot')
+const settlementFire = require('../lib/map/battleSettlementFire')
+const { hexDistCells } = require('../lib/map/battleHexGeometry')
+const { canEnterCell } = require('../lib/map/battleHexMovement')
+
+function tryAdjacentMovePath(fromCell, toCell, unit, cells, fog, budget, terrainEntryCost) {
+  if (!fromCell || !toCell || hexDistCells(fromCell, toCell) !== 1) return null
+  const counters = createMoveSlopeCounters()
+  if (!canEnterCell(toCell, unit, fog, cells, fromCell, counters, false)) return null
+  const cost = typeof terrainEntryCost === 'function' ? terrainEntryCost(toCell, unit) : 1
+  if (!(cost > 0) || cost > budget) return null
+  return [fromCell, toCell]
+}
+
+function pickContactMeleeEnemy(cell, mover, getStr, unitFaction) {
+  const fac = unitFaction(mover)
+  const selfId = Number(mover.instanceId)
+  for (const u of cell.units || []) {
+    if (getStr(u) <= 0) continue
+    if (Number(u.instanceId) === selfId) continue
+    if (!opposing(fac, unitFaction(u))) continue
+    if (isBattleAirUnitType(u) || unitInDot(u)) continue
+    const mid = Number(u.tactical && u.tactical.meleeOpponentInstanceId)
+    if (Number.isFinite(mid) && mid > 0 && mid !== selfId) continue
+    return u
+  }
+  return null
+}
+
+function startContactMeleeAfterMove(cells, moverPack, ordersByUnit, le, ph, deps) {
+  const { getStr, unitFaction, getMeleeOpponentId, ensureTacticalBattle, findUnitOnField } = deps
+  if (!moverPack || isBattleAirUnitType(moverPack.unit)) return { died: false }
+  if (typeof getMeleeOpponentId === 'function' && getMeleeOpponentId(moverPack.unit) != null) {
+    return { died: false }
+  }
+  const enemy = pickContactMeleeEnemy(moverPack.cell, moverPack.unit, getStr, unitFaction)
+  if (!enemy) return { died: false }
+  meleePhase.linkMeleeOpponents(moverPack.unit, enemy, { ensureTacticalBattle })
+  le(
+    ph,
+    `Ход: юнит ${moverPack.unit.instanceId} вышел на кл. ${moverPack.cell.id} с противником — ближний бой`,
+  )
+  meleePhase.resolveMutualMeleeRound(
+    cells,
+    ordersByUnit,
+    le,
+    ph,
+    Number(moverPack.unit.instanceId),
+    Number(enemy.instanceId),
+    { ...deps, ordersByUnit },
+  )
+  const aLive = findUnitOnField(cells, moverPack.unit.instanceId)
+  const dLive = findUnitOnField(cells, enemy.instanceId)
+  if (aLive) settlementFire.maybeIgniteFromFlamethrower(aLive.unit, aLive.cell, cells, le, ph, deps)
+  if (dLive) settlementFire.maybeIgniteFromFlamethrower(dLive.unit, dLive.cell, cells, le, ph, deps)
+  const after = findUnitOnField(cells, moverPack.unit.instanceId)
+  return { died: !after || getStr(after.unit) <= 0 }
+}
 
 function applyMoveCollisions(cells, list, le, ph, deps) {
   const {
@@ -20,7 +80,16 @@ function applyMoveCollisions(cells, list, le, ph, deps) {
     unitFaction,
     findReachable,
     findPath,
+    terrainEntryCost,
   } = deps
+  const fogCache = Object.create(null)
+  const fogFor = (unit) => {
+    const f = unitFaction(unit)
+    if (!Object.prototype.hasOwnProperty.call(fogCache, f)) {
+      fogCache[f] = computeRevealedCellIdsForFaction(cells, f)
+    }
+    return fogCache[f]
+  }
   const intents = []
   for (const o of list) {
     const cur = findUnitOnField(cells, o.unitId)
@@ -34,10 +103,13 @@ function applyMoveCollisions(cells, list, le, ph, deps) {
     const budgetKey = k === 'fireMove' ? 'move' : o.orderKey
     const mp = getMovePoint(cur.unit)
     const budget = moveBudgetForOrderKey(mp, budgetKey)
-    const fog = computeRevealedCellIdsForFaction(cells, unitFaction(cur.unit))
-    const reach = findReachable(cur.cell, budget, cells, cur.unit, fog)
-    if (!reach.some((c) => Number(c.id) === Number(targetCell.id))) continue
-    const path = findPath(cur.cell, targetCell, cells, cur.unit, fog)
+    const fog = fogFor(cur.unit)
+    let path = tryAdjacentMovePath(cur.cell, targetCell, cur.unit, cells, fog, budget, terrainEntryCost)
+    if (!path) {
+      const reach = findReachable(cur.cell, budget, cells, cur.unit, fog)
+      if (!reach.some((c) => Number(c.id) === Number(targetCell.id))) continue
+      path = findPath(cur.cell, targetCell, cells, cur.unit, fog)
+    }
     if (!path) continue
     intents.push({
       unitId: o.unitId,
@@ -113,19 +185,22 @@ function executeOneGroundMove(cells, o, ordersByUnit, le, ph, movedInstanceIds, 
   }
   const mp = getMovePoint(cur.unit)
   const budget = moveBudgetForOrderKey(mp, budgetOrderKey)
-  const fog = computeRevealedCellIdsForFaction(cells, unitFaction(cur.unit))
   let path = Array.isArray(o.collisionPath) ? o.collisionPath : null
   if (!path) {
-    const reach = findReachable(cur.cell, budget, cells, cur.unit, fog)
-    if (!reach.some((c) => Number(c.id) === Number(targetCell.id))) {
-      path = findPath(cur.cell, targetCell, cells, cur.unit, fog, true)
-      if (path) path = smokeMod.truncatePathBeforeSmoke(path)
-      if (!path || path.length < 2) {
-        le(ph, `Ход: ${cur.unit.instanceId} — клетка ${cid} недостижима за ОД`)
-        return null
+    const fog = computeRevealedCellIdsForFaction(cells, unitFaction(cur.unit))
+    path = tryAdjacentMovePath(cur.cell, targetCell, cur.unit, cells, fog, budget, terrainEntryCost)
+    if (!path) {
+      const reach = findReachable(cur.cell, budget, cells, cur.unit, fog)
+      if (!reach.some((c) => Number(c.id) === Number(targetCell.id))) {
+        path = findPath(cur.cell, targetCell, cells, cur.unit, fog, true)
+        if (path) path = smokeMod.truncatePathBeforeSmoke(path)
+        if (!path || path.length < 2) {
+          le(ph, `Ход: ${cur.unit.instanceId} — клетка ${cid} недостижима за ОД`)
+          return null
+        }
+      } else {
+        path = findPath(cur.cell, targetCell, cells, cur.unit, fog)
       }
-    } else {
-      path = findPath(cur.cell, targetCell, cells, cur.unit, fog)
     }
   }
   if (path) path = smokeMod.truncatePathBeforeSmoke(path)
@@ -200,15 +275,23 @@ function executeOneGroundMove(cells, o, ordersByUnit, le, ph, movedInstanceIds, 
     movedInstanceIds.add(Number(afterOw.unit.instanceId))
     return { died: true, path, endStepIndex, pack: afterOw }
   }
+  const contact =
+    endStepIndex > 0 ? startContactMeleeAfterMove(cells, afterMine, ordersByUnit, le, ph, deps) : { died: false }
   revealAmbushesAdjacentToCell(cells, afterMine.unit, afterMine.cell, le, ph)
-  movedInstanceIds.add(Number(afterMine.unit.instanceId))
-  if (isTruckUnit(afterMine.unit) || require('../lib/map/battleRailway').isRailwayUnit(afterMine.unit)) {
-    syncCargoAfterTransportMove(cells, afterMine.unit.instanceId)
+  hiddenState.concealHiddenIfNoAdjacentEnemy(cells)
+  const afterContact = findUnitOnField(cells, o.unitId)
+  if (contact.died || !afterContact || getStr(afterContact.unit) <= 0) {
+    movedInstanceIds.add(Number(afterOw.unit.instanceId))
+    return { died: true, path, endStepIndex, pack: afterOw }
+  }
+  movedInstanceIds.add(Number(afterContact.unit.instanceId))
+  if (isTruckUnit(afterContact.unit) || require('../lib/map/battleRailway').isRailwayUnit(afterContact.unit)) {
+    syncCargoAfterTransportMove(cells, afterContact.unit.instanceId)
   }
   const k = String(o.orderKey || '').trim()
-  if (k === 'move' || k === 'fireMove') hiddenState.markHiddenMarched(afterMine.unit)
-  if (endStepIndex > 0) hiddenState.markHiddenMovedHex(afterMine.unit)
-  return { died: false, path, endStepIndex, pack: afterMine }
+  if (k === 'move' || k === 'fireMove') hiddenState.markHiddenMarched(afterContact.unit)
+  if (endStepIndex > 0) hiddenState.markHiddenMovedHex(afterContact.unit)
+  return { died: false, path, endStepIndex, pack: afterContact }
 }
 
 function processMovePhase(cells, list, ordersByUnit, le, ph, movedInstanceIds, deps) {
@@ -223,6 +306,7 @@ function processMovePhase(cells, list, ordersByUnit, le, ph, movedInstanceIds, d
     if (!moved || moved.died) continue
     fireMoveMod.resolveFireMoveShot(cells, o, moved.pack, moved.path, moved.endStepIndex, le, ph, deps)
   }
+  hiddenState.concealHiddenIfNoAdjacentEnemy(cells)
 }
 
 module.exports = {

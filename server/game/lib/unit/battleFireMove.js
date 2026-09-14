@@ -3,7 +3,7 @@
 const { findPath } = require('../map/battleHexMovement')
 const { hexDistCells } = require('../map/battleHexGeometry')
 const { terrainAccuracyBonusFromCell } = require('../map/battleTerrain')
-const { isHiddenConcealed, canSpotHiddenTarget } = require('../unit/battleHiddenState')
+const { isHiddenConcealed, canSpotHiddenTarget, revealHiddenByOpeningFire } = require('../unit/battleHiddenState')
 
 function pathContainsCellId(path, cellId) {
   const id = Number(cellId)
@@ -105,6 +105,10 @@ function resolveFireMoveShot(cells, o, moverPack, path, endStepIndex, le, ph, de
 
   const tgt = findUnitOnField(cells, tid)
   const targetDead = !tgt || getStr(tgt.unit) <= 0
+  if (getMeleeOpponentId(moverPack.unit) != null) {
+    le(ph, `Стрельба в движении: юнит ${moverPack.unit.instanceId} — в ближнем бою, выстрел не производится`)
+    return
+  }
   if (!targetDead && getMeleeOpponentId(tgt.unit) != null) {
     le(ph, `Стрельба в движении: юнит ${moverPack.unit.instanceId} — цель в ближнем бою, выстрел не производится`)
     return
@@ -170,6 +174,7 @@ function resolveFireMoveShot(cells, o, moverPack, path, endStepIndex, le, ph, de
     { intensityHalveCeil: true },
   )
   setAmmo(moverPack.unit, ammo - 1)
+  revealHiddenByOpeningFire(moverPack.unit, le, ph)
   if (isHiddenConcealed(tgt.unit)) revealHiddenUnit(tgt.unit)
   const structureHp = require('../map/battleStructureHp')
   structureHp.applyMissRerollsToStructure(

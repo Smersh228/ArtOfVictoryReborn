@@ -48,7 +48,7 @@ function trySteadfastnessAfterOverwatchDamage(le, ph, unit, damageDealt, deps) {
   t.steadfastnessUiRoll = sum
   morale.applyMoraleRollResult(unit, sum)
   if (threshold <= 0) return
-  if (sum < threshold) {
+  if (sum <= threshold) {
     le(ph, `Стойкость: юнит ${unit.instanceId} — бросок ${sum} (порог ${threshold})`)
     return
   }
@@ -60,7 +60,7 @@ function trySteadfastnessAfterOverwatchDamage(le, ph, unit, damageDealt, deps) {
     findUnitOnField: deps.findUnitOnField,
     ordersByUnit: deps.ordersByUnit,
   })
-  le(ph, `Стойкость: юнит ${unit.instanceId} — провал ${sum} ≥ ${threshold} → подавление`)
+  le(ph, `Стойкость: юнит ${unit.instanceId} — провал ${sum} > ${threshold} → подавление`)
 }
 
 module.exports = {

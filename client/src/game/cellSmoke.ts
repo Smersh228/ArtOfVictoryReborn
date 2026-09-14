@@ -37,6 +37,7 @@ export const SMOKE_BLOCKED_ORDERS = new Set([
   'cutGlade',
   'repairRailway',
   'arson',
+  'fireAdjustment',
   'demolition',
 ]);
 

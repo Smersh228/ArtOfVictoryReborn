@@ -605,6 +605,11 @@ const EditorUnit = () => {
           razvedkaRange,
           svzyRange,
           mapEditorPublic,
+          heavyTech:
+            (getNamed('unit_type') === 'tech' || getNamed('unit_type') === 'armor') &&
+            readCheckbox(root, 'unit_heavy_tech'),
+          heavyArtillery:
+            getNamed('unit_type') === 'artillery' && readCheckbox(root, 'unit_heavy_artillery'),
         }
         const res: any = await saveEditorUnit(body)
         const data = await reloadCatalog()

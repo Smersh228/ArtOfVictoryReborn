@@ -318,6 +318,13 @@ const EditorUnitWorkspace: React.FC<EditorUnitWorkspaceProps> = (props) => {
     EditorImageField,
   } = props;
 
+  const [draftUnitType, setDraftUnitType] = useState(String(selectedUnit?.type || 'infantry'));
+  useEffect(() => {
+    setDraftUnitType(String(selectedUnit?.type || 'infantry'));
+  }, [selectedUnit?.id, selectedUnit?.type]);
+  const showHeavyTech = draftUnitType === 'tech' || draftUnitType === 'armor';
+  const showHeavyArtillery = draftUnitType === 'artillery';
+
   const [orderGroupFilter, setOrderGroupFilter] = useState<EditorBattleOrderCategory>(
     EDITOR_BATTLE_ORDER_GROUP_ORDER[0],
   );
@@ -482,13 +489,44 @@ const EditorUnitWorkspace: React.FC<EditorUnitWorkspaceProps> = (props) => {
                     </div>
                     <div>
                       <label className={styles.fieldLabel}>Тип</label>
-                      <select name="unit_type" className={styles.fieldSelect} defaultValue={selectedUnit?.type || 'infantry'}>
+                      <select
+                        name="unit_type"
+                        className={styles.fieldSelect}
+                        value={draftUnitType}
+                        onChange={(e) => setDraftUnitType(e.target.value)}
+                      >
                         {unitTypes.slice(1).map((t) => (
                           <option key={t.id} value={t.id}>
                             {t.label}
                           </option>
                         ))}
                       </select>
+                      {showHeavyTech ? (
+                        <label className={styles.fieldCheckboxRow}>
+                          <input
+                            type="checkbox"
+                            name="unit_heavy_tech"
+                            defaultChecked={Boolean(selectedUnit?.heavyTech ?? selectedUnit?.heavy_tech)}
+                          />
+                          Тяжёлая техника
+                          <span className={styles.fieldHint}>
+                            Буксирует тяжёлую и лёгкую артиллерию. Без галочки — только лёгкую.
+                          </span>
+                        </label>
+                      ) : null}
+                      {showHeavyArtillery ? (
+                        <label className={styles.fieldCheckboxRow}>
+                          <input
+                            type="checkbox"
+                            name="unit_heavy_artillery"
+                            defaultChecked={Boolean(
+                              selectedUnit?.heavyArtillery ?? selectedUnit?.heavy_artillery,
+                            )}
+                          />
+                          Тяжёлая артиллерия
+                          <span className={styles.fieldHint}>Буксирует только тяжёлая техника.</span>
+                        </label>
+                      ) : null}
                     </div>
                     <div>
                       <label className={styles.fieldLabel}>Фракция</label>

@@ -17,12 +17,10 @@
   border: 1px solid rgba(255, 255, 255, 0.55);
   background: linear-gradient(
     160deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(200, 206, 214, 0.18) 50%,
-    rgba(255, 255, 255, 0.12) 100%
+    rgba(210, 214, 220, 0.88) 0%,
+    rgba(186, 192, 200, 0.9) 50%,
+    rgba(200, 206, 214, 0.86) 100%
   );
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
 }
 
@@ -60,6 +58,29 @@
   gap: 14px;
   align-items: stretch;
   overflow: hidden;
+}
+
+.manualLayoutEmbedded {
+  height: 100%;
+  min-height: 0;
+}
+
+.manualInModal {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.manualInModal .cardDescriptionTextBody {
+  font-size: 15px;
+}
+
+.manualSidebarCompact {
+  flex: 0 0 248px;
+  width: 248px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 
@@ -187,11 +208,13 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  container-type: inline-size;
+  container-name: cards-list;
 }
 
 .card {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.55);
@@ -199,6 +222,8 @@
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  container-type: inline-size;
+  container-name: rule-card;
 }
 
 .card:hover {
@@ -220,12 +245,14 @@
   flex-shrink: 0;
   width: 108px;
   min-height: 100px;
+  align-self: flex-start;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 10px;
   background: rgba(255, 255, 255, 0.35);
   border-right: 1px solid rgba(0, 0, 0, 0.06);
+  box-sizing: border-box;
 }
 
 .cardImage img {
@@ -302,15 +329,15 @@
 
 .cardDescriptionTextRow {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px 16px;
-  align-items: center;
+  align-items: start;
 }
 
 .cardDescriptionPhotoCol {
   min-width: 0;
-  max-width: min(180px, 26vw);
-  flex-shrink: 0;
+  max-width: 180px;
+  width: min(180px, 100%);
 }
 
 .cardDescriptionPhotoColLeft {
@@ -329,6 +356,10 @@
   font-weight: 600;
   line-height: 1.5;
   color: #000;
+}
+
+.cardDescriptionTextBody:only-child {
+  grid-column: 1 / -1;
 }
 
 .cardRuleExtraPhotoFrame {
@@ -357,6 +388,32 @@
   vertical-align: middle;
 }
 
+@media (max-width: 1440px), (max-height: 900px) {
+  .manual {
+    height: calc(100dvh - 16px);
+    max-height: calc(100dvh - 16px);
+    margin-top: 6px;
+    padding: 8px 10px;
+  }
+
+  .manualHeader {
+    padding: 10px 12px 12px;
+    margin-bottom: 8px;
+  }
+
+  .manualName {
+    font-size: 20px;
+  }
+
+  .manualLayout {
+    gap: 10px;
+  }
+
+  .manualSidebarCompact {
+    flex-basis: 220px;
+  }
+}
+
 @media (max-width: 640px) {
   .cardDescriptionTextRow {
     grid-template-columns: 1fr;
@@ -365,7 +422,8 @@
   }
 
   .cardDescriptionPhotoCol {
-    max-width: 100%;
+    max-width: min(220px, 100%);
+    width: auto;
     justify-self: center !important;
   }
 
@@ -376,6 +434,56 @@
   .cardDescriptionTextBody {
     order: -1;
     width: 100%;
+  }
+}
+
+@container rule-card (max-width: 740px) {
+  .cardDescriptionTextRow {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 10px 12px;
+  }
+
+  .cardDescriptionTextBody {
+    flex: 1 1 100%;
+    order: -1;
+    width: 100%;
+    font-size: 15px;
+    text-align: left;
+  }
+
+  .cardDescriptionPhotoCol {
+    flex: 1 1 140px;
+    max-width: 200px;
+    width: auto;
+  }
+
+  .cardDescriptionPhotoColRight .cardRuleExtraPhotoFrame {
+    margin-left: 0;
+  }
+
+  .statGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .ruleCardTitle {
+    font-size: 16px;
+    text-align: left;
+  }
+}
+
+@container cards-list (max-width: 520px) {
+  .card {
+    flex-direction: column;
+  }
+
+  .cardImage {
+    width: 100%;
+    min-height: 84px;
+    border-right: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
   }
 }
 
@@ -479,49 +587,15 @@
     height: 100dvh;
     max-height: 100dvh;
     margin: 0;
-    padding: 8px;
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
     border-radius: 0;
+    overflow: hidden;
   }
 
   .manualHeader {
-    padding: 10px 12px 12px;
-    margin-bottom: 8px;
-    border-radius: 10px;
-  }
-
-  .manualName {
-    font-size: 18px;
-  }
-
-  .manualLayout {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .manualSidebar {
-    width: 100%;
-    flex-basis: auto;
-    padding: 8px;
-  }
-
-  .manualSidebar > div {
-    width: 100%;
-  }
-
-  .manualTutorial {
-    padding: 10px;
-    border-radius: 10px;
-  }
-}
-
-@media (max-width: 480px) {
-  .manual {
-    padding: 6px;
-  }
-
-  .manualHeader {
-    padding: 8px 10px 10px;
+    padding: 8px 10px;
     margin-bottom: 6px;
+    border-radius: 10px;
   }
 
   .manualName {
@@ -530,6 +604,103 @@
 
   .manualSubtitle {
     font-size: 12px;
+    margin-top: 4px;
+  }
+
+  .manualLayout {
+    flex-direction: column;
+    gap: 8px;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .manualSidebar,
+  .manualSidebarCompact {
+    width: 100%;
+    flex: 0 0 auto;
+    flex-basis: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 8px;
+    overflow: visible;
+  }
+
+  .manualSidebarButton,
+  .manualSidebar > div,
+  .manualSidebarCompact > div {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    font-size: 13px;
+    line-height: 1.25;
+    padding: 8px 6px !important;
+    box-sizing: border-box;
+  }
+
+  .manualTutorial {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 10px;
+    border-radius: 10px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sectionTitle {
+    font-size: 16px;
+    margin-bottom: 10px;
+  }
+
+  .filters {
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+
+  .filterButton {
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+
+  .cardInfo {
+    padding: 12px;
+  }
+
+  .contentText {
+    padding: 12px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .manual {
+    padding: 6px 6px max(6px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .manualHeader {
+    padding: 6px 8px;
+    margin-bottom: 6px;
+  }
+
+  .manualName {
+    font-size: 15px;
+  }
+
+  .manualSubtitle {
+    font-size: 11px;
+  }
+
+  .manualSidebar,
+  .manualSidebarCompact {
+    padding: 6px;
+    gap: 5px;
+  }
+
+  .manualSidebarButton,
+  .manualSidebar > div,
+  .manualSidebarCompact > div {
+    font-size: 12px;
+    padding: 8px 4px !important;
   }
 
   .manualTutorial {
@@ -545,5 +716,9 @@
     min-height: 84px;
     border-right: none;
     border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  }
+
+  .cardDescriptionTextBody {
+    font-size: 15px;
   }
 }

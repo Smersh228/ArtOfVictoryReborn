@@ -2,7 +2,7 @@
 
 const { getStr, unitFaction, opposing } = require('../unit/battleUnitField')
 const { readVisionRange } = require('../unit/battleUnitVision')
-const { hexDistCells } = require('./battleHexGeometry')
+const { hexDistCells, findCellByCoor } = require('./battleHexGeometry')
 const { dotOccupantVisionCellIds } = require('./battleDot')
 const {
   effectiveElevationLevel,
@@ -75,11 +75,33 @@ function cubeLineDraw(a, b) {
 }
 
 function findCellByCube(cells, cube) {
-  for (let i = 0; i < cells.length; i++) {
-    const c = cells[i]
-    if (c.coor.x === cube.x && c.coor.y === cube.y && c.coor.z === cube.z) return c
+  return findCellByCoor(cells, cube)
+}
+
+let fogMemoCells = null
+let fogMemo = null
+let fogMemoDepth = 0
+
+function beginFogMemo(cells) {
+  if (fogMemoDepth === 0) {
+    fogMemoCells = cells || null
+    fogMemo = Object.create(null)
   }
-  return null
+  fogMemoDepth += 1
+}
+
+function endFogMemo() {
+  fogMemoDepth = Math.max(0, fogMemoDepth - 1)
+  if (fogMemoDepth === 0) {
+    fogMemoCells = null
+    fogMemo = null
+  }
+}
+
+function invalidateFogMemo(cells) {
+  if (!fogMemo || fogMemoDepth <= 0) return
+  if (cells && fogMemoCells && cells !== fogMemoCells) return
+  fogMemo = Object.create(null)
 }
 
 function isRavineLikeRiver(cell) {
@@ -104,11 +126,11 @@ function isRavineLikeRiver(cell) {
 }
 
 function cellBlocksLineOfSight(cell) {
+  const ex = cell && cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
+  const vb = cell && cell.visionBlock != null ? cell.visionBlock : ex && ex.visionBlock
+  if (vb === true || vb === 'true' || vb === 1 || vb === '1') return true
   if (isRavineLikeRiver(cell)) return false
   if (cell.mapBuilding != null) return true
-  const ex = cell.hexExtra && typeof cell.hexExtra === 'object' ? cell.hexExtra : null
-  const vb = cell.visionBlock != null ? cell.visionBlock : ex && ex.visionBlock
-  if (vb === true || vb === 'true' || vb === 1 || vb === '1') return true
   if (cell.visible === false) return true
   const t = String(cell.type || '')
     .trim()
@@ -153,23 +175,13 @@ function lineOpenWithElevationRidge(observer, target, cells) {
   return true
 }
 
-/** Тень в один гекс сразу за преградой для видимости. */
+/** Преграда видимости закрывает всю линию за собой; сам гекс преграды виден как цель. */
 function lineOpenWithOneHexShadow(observer, target, cells) {
   const line = cubeLineDraw(cellToCube(observer), cellToCube(target))
-  const targetCube = cellToCube(target)
   for (let i = 1; i < line.length - 1; i++) {
     const c = findCellByCube(cells, line[i])
     if (!c) return false
-    if (!cellBlocksLineOfSight(c)) continue
-    const shadowCube = line[i + 1]
-    if (
-      shadowCube &&
-      shadowCube.x === targetCube.x &&
-      shadowCube.y === targetCube.y &&
-      shadowCube.z === targetCube.z
-    ) {
-      return false
-    }
+    if (cellBlocksLineOfSight(c)) return false
   }
   return true
 }
@@ -185,14 +197,14 @@ function isHexVisible(observer, target, cells, options) {
 }
 
 function observerVisionCellIds(observer, unit, cells) {
-  const fromDot = dotOccupantVisionCellIds(observer, unit, cells)
+      const fromDot = dotOccupantVisionCellIds(observer, unit, cells)
   if (fromDot) {
     const out = new Set()
     out.add(Number(observer.id))
     for (const id of fromDot) {
       const c = cells.find((x) => Number(x.id) === Number(id))
       if (!c) continue
-      if (lineOpenThroughSmoke(observer, c, cells)) out.add(Number(c.id))
+      if (Number(c.id) === Number(observer.id) || isHexVisible(observer, c, cells)) out.add(Number(c.id))
     }
     return out
   }
@@ -204,14 +216,14 @@ function observerVisionCellIds(observer, unit, cells) {
 function visibleCellIdsInRange(observer, maxRange, cells, options) {
   const obs = cellToCube(observer)
   const out = new Set()
-  out.add(observer.id)
+  out.add(Number(observer.id))
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i]
-    if (c.id === observer.id) continue
+    if (Number(c.id) === Number(observer.id)) continue
     const dist = cubeDistance(obs, cellToCube(c))
     const bonus = elevationLoSBonusSteps(observer, c)
     if (dist > maxRange + bonus) continue
-    if (isHexVisible(observer, c, cells, options)) out.add(c.id)
+    if (isHexVisible(observer, c, cells, options)) out.add(Number(c.id))
   }
   return out
 }
@@ -238,11 +250,14 @@ function isCellSeenByAnyHostileUnit(subjectUnit, targetCell, cells) {
       if (!opposing(mySide, unitFaction(u))) continue
       const fromDot = dotOccupantVisionCellIds(cell, u, cells)
       if (fromDot) {
-        if (fromDot.has(targetCell.id)) return true
+        if (Number(targetCell.id) === Number(cell.id)) return true
+        if (fromDot.has(targetCell.id) && isHexVisible(cell, targetCell, cells)) return true
         continue
       }
-      const seen = observerVisionCellIds(cell, u, cells)
-      if (seen.has(targetCell.id)) return true
+      const maxRange = readVisionRange(u)
+      const dist = hexDistCells(cell, targetCell)
+      const bonus = elevationLoSBonusSteps(cell, targetCell)
+      if (dist > maxRange + bonus) continue
       if (isUnitVisibleFromCell(cell, u, targetCell, null, cells)) return true
     }
   }
@@ -251,6 +266,7 @@ function isCellSeenByAnyHostileUnit(subjectUnit, targetCell, cells) {
 
 function computeRevealedCellIdsForFaction(cells, faction) {
   if (faction === 'none') return null
+  if (fogMemo && cells === fogMemoCells && fogMemo[faction]) return fogMemo[faction]
   const revealed = new Set()
   for (let ci = 0; ci < cells.length; ci++) {
     const cell = cells[ci]
@@ -260,13 +276,17 @@ function computeRevealedCellIdsForFaction(cells, faction) {
       if (unitFaction(u) !== faction) continue
       if (getStr(u) <= 0) continue
       const ids = observerVisionCellIds(cell, u, cells)
-      ids.forEach((id) => revealed.add(id))
+      ids.forEach((id) => revealed.add(Number(id)))
     }
   }
+  if (fogMemo && cells === fogMemoCells) fogMemo[faction] = revealed
   return revealed
 }
 
 module.exports = {
+  beginFogMemo,
+  endFogMemo,
+  invalidateFogMemo,
   computeRevealedCellIdsForFaction,
   visibleCellIdsInRange,
   observerVisionCellIds,

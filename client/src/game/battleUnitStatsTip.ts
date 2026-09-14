@@ -204,10 +204,10 @@ export function unitStatsRowsForTip(
   if (mineStore > 0) {
     out.push({ key: 'Мины', val: String(mineStore) });
   }
-  const expl = readUnitStatNumber(unit, 'explosives');
-  if (expl != null && expl > 0) out.push({ key: 'Взрывчатка', val: String(expl) });
-  const smoke = readUnitStatNumber(unit, 'smokeShells');
-  if (smoke != null && smoke > 0) out.push({ key: 'Дымовые снаряды', val: String(smoke) });
+  const expl = getUnitExplosivesStock(unit);
+  if (expl > 0) out.push({ key: 'Взрывчатка', val: String(expl) });
+  const smoke = getUnitSmokeShellsStock(unit);
+  if (smoke > 0) out.push({ key: 'Дымовые снаряды', val: String(smoke) });
   const fa = unit.fireActions as { range?: number[] } | undefined;
   if (fa?.range && fa.range.length) {
     out.push({ key: 'Дальность (табл.)', val: fa.range.map((x) => String(x)).join(' / ') });

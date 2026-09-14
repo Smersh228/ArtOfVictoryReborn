@@ -99,6 +99,19 @@ function fighterMembers(room) {
   return out
 }
 
+function isVsBotRoom(room) {
+  if (!room) return false
+  if (room.solo) return true
+  for (const m of room.members || []) {
+    if (m && (m.isBot || String(m.key || '').startsWith('bot:'))) return true
+  }
+  return false
+}
+
+function emptyBucket() {
+  return { wins: 0, losses: 0, kills: emptyKills(), casualties: emptyKills() }
+}
+
 async function ensurePlayerStatsSchema() {
   if (schemaReady) return
   await pool.query(`
@@ -107,6 +120,7 @@ async function ensurePlayerStatsSchema() {
       wins INTEGER NOT NULL DEFAULT 0,
       losses INTEGER NOT NULL DEFAULT 0,
       kills JSONB NOT NULL DEFAULT '{}'::jsonb,
+      casualties JSONB NOT NULL DEFAULT '{}'::jsonb,
       avatar_path TEXT,
       role TEXT NOT NULL DEFAULT 'player',
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -114,6 +128,11 @@ async function ensurePlayerStatsSchema() {
   `)
   await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'player'`)
   await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`)
+  await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS casualties JSONB NOT NULL DEFAULT '{}'::jsonb`)
+  await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS wins_bot INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS losses_bot INTEGER NOT NULL DEFAULT 0`)
+  await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS kills_bot JSONB NOT NULL DEFAULT '{}'::jsonb`)
+  await pool.query(`ALTER TABLE player_profiles ADD COLUMN IF NOT EXISTS casualties_bot JSONB NOT NULL DEFAULT '{}'::jsonb`)
   schemaReady = true
 }
 
@@ -125,37 +144,50 @@ async function ensureRow(userId) {
   )
 }
 
-async function addWin(userId) {
+async function addWin(userId, vsBot) {
   await ensureRow(userId)
+  const col = vsBot ? 'wins_bot' : 'wins'
   await pool.query(
-    `UPDATE player_profiles SET wins = wins + 1, updated_at = NOW() WHERE user_id = $1`,
+    `UPDATE player_profiles SET ${col} = ${col} + 1, updated_at = NOW() WHERE user_id = $1`,
     [userId],
   )
 }
 
-async function addLoss(userId) {
+async function addLoss(userId, vsBot) {
   await ensureRow(userId)
+  const col = vsBot ? 'losses_bot' : 'losses'
   await pool.query(
-    `UPDATE player_profiles SET losses = losses + 1, updated_at = NOW() WHERE user_id = $1`,
+    `UPDATE player_profiles SET ${col} = ${col} + 1, updated_at = NOW() WHERE user_id = $1`,
     [userId],
   )
 }
 
-async function addKill(userId, unitType) {
+async function bumpUnitJsonCount(userId, column, unitType) {
   const key = normalizeUnitType(unitType)
+  const cols = { kills: 'kills', casualties: 'casualties', kills_bot: 'kills_bot', casualties_bot: 'casualties_bot' }
+  const col = cols[column]
+  if (!col) return
   await ensureRow(userId)
   await pool.query(
     `UPDATE player_profiles
-     SET kills = jsonb_set(
-       COALESCE(kills, '{}'::jsonb),
+     SET ${col} = jsonb_set(
+       COALESCE(${col}, '{}'::jsonb),
        ARRAY[$1]::text[],
-       to_jsonb(COALESCE((kills->>$1)::int, 0) + 1),
+       to_jsonb(COALESCE((${col}->>$1)::int, 0) + 1),
        true
      ),
      updated_at = NOW()
      WHERE user_id = $2`,
     [key, userId],
   )
+}
+
+async function addKill(userId, unitType, vsBot) {
+  await bumpUnitJsonCount(userId, vsBot ? 'kills_bot' : 'kills', unitType)
+}
+
+async function addCasualty(userId, unitType, vsBot) {
+  await bumpUnitJsonCount(userId, vsBot ? 'casualties_bot' : 'casualties', unitType)
 }
 
 async function setAvatarPath(userId, avatarPath) {
@@ -198,20 +230,101 @@ async function touchLastSeen(userId, atMs) {
   )
 }
 
+function jsonCountTotalSql(column) {
+  return `(
+    SELECT COALESCE(SUM((value)::int), 0)
+    FROM jsonb_each_text(COALESCE(${column}, '{}'::jsonb))
+    WHERE value ~ '^[0-9]+$'
+  )`
+}
+
+async function listLeaderboard(sortKey, limit, vsKey) {
+  await ensurePlayerStatsSchema()
+  const sort = String(sortKey || 'kills').trim()
+  const vsBot = String(vsKey || 'player').trim() === 'bot'
+  const winsCol = vsBot ? 'COALESCE(p.wins_bot, 0)' : 'COALESCE(p.wins, 0)'
+  const lossesCol = vsBot ? 'COALESCE(p.losses_bot, 0)' : 'COALESCE(p.losses, 0)'
+  const killsCol = vsBot ? 'p.kills_bot' : 'p.kills'
+  const casCol = vsBot ? 'p.casualties_bot' : 'p.casualties'
+  const orderExpr =
+    sort === 'wins'
+      ? 'wins DESC, kills_total DESC, losses ASC'
+      : sort === 'losses'
+        ? 'losses DESC, casualties_total DESC, wins ASC'
+        : sort === 'casualties'
+          ? 'casualties_total DESC, losses DESC, kills_total DESC'
+          : 'kills_total DESC, wins DESC, casualties_total ASC'
+  const cap = Math.min(50, Math.max(1, Math.floor(Number(limit) || 10)))
+  const r = await pool.query(
+    `SELECT
+       u.id,
+       u.username,
+       ${winsCol} AS wins,
+       ${lossesCol} AS losses,
+       COALESCE(${killsCol}, '{}'::jsonb) AS kills,
+       COALESCE(${casCol}, '{}'::jsonb) AS casualties,
+       COALESCE(p.role, 'player') AS role,
+       ${jsonCountTotalSql(killsCol)} AS kills_total,
+       ${jsonCountTotalSql(casCol)} AS casualties_total
+     FROM player_profiles p
+     JOIN users u ON u.id = p.user_id
+     ORDER BY ${orderExpr}, u.username ASC
+     LIMIT $1`,
+    [cap],
+  )
+  return r.rows.map((row) => ({
+    id: Number(row.id),
+    username: String(row.username || '').trim(),
+    wins: Number(row.wins) || 0,
+    losses: Number(row.losses) || 0,
+    kills: mergeKills(row.kills),
+    casualties: mergeKills(row.casualties),
+    killsTotal: Number(row.kills_total) || 0,
+    casualtiesTotal: Number(row.casualties_total) || 0,
+    role: normalizeRole(row.role),
+    vs: vsBot ? 'bot' : 'player',
+  }))
+}
+
 async function readProfileStats(userId) {
   await ensurePlayerStatsSchema()
   const r = await pool.query(
-    'SELECT wins, losses, kills, avatar_path, role, last_seen_at FROM player_profiles WHERE user_id = $1',
+    `SELECT wins, losses, kills, casualties, wins_bot, losses_bot, kills_bot, casualties_bot,
+            avatar_path, role, last_seen_at
+     FROM player_profiles WHERE user_id = $1`,
     [userId],
   )
   const row = r.rows[0]
   if (!row) {
-    return { wins: 0, losses: 0, kills: emptyKills(), avatarPath: null, role: 'player', lastSeenAt: null }
+    const empty = emptyBucket()
+    return {
+      ...empty,
+      vsPlayer: emptyBucket(),
+      vsBot: emptyBucket(),
+      avatarPath: null,
+      role: 'player',
+      lastSeenAt: null,
+    }
   }
-  return {
+  const vsPlayer = {
     wins: Number(row.wins) || 0,
     losses: Number(row.losses) || 0,
     kills: mergeKills(row.kills),
+    casualties: mergeKills(row.casualties),
+  }
+  const vsBot = {
+    wins: Number(row.wins_bot) || 0,
+    losses: Number(row.losses_bot) || 0,
+    kills: mergeKills(row.kills_bot),
+    casualties: mergeKills(row.casualties_bot),
+  }
+  return {
+    wins: vsPlayer.wins,
+    losses: vsPlayer.losses,
+    kills: vsPlayer.kills,
+    casualties: vsPlayer.casualties,
+    vsPlayer,
+    vsBot,
     avatarPath: row.avatar_path ? String(row.avatar_path) : null,
     role: normalizeRole(row.role),
     lastSeenAt: isoFromDbDate(row.last_seen_at),
@@ -222,6 +335,7 @@ async function creditKillsFromLog(room, log) {
   if (!room || !Array.isArray(log) || !log.length) return
   const fighters = fighterMembers(room)
   if (!fighters.length) return
+  const vsBot = isVsBotRoom(room)
   const seen = new Set()
   for (const e of log) {
     const meta = e && e.meta && typeof e.meta === 'object' ? e.meta : e
@@ -237,21 +351,23 @@ async function creditKillsFromLog(room, log) {
     const type = normalizeUnitType(meta.unitType)
     const opp = deadFaction === 'rkka' ? 'wehrmacht' : 'rkka'
     for (const p of fighters) {
-      if (p.faction === opp) await addKill(p.id, type)
+      if (p.faction === opp) await addKill(p.id, type, vsBot)
+      else if (p.faction === deadFaction) await addCasualty(p.id, type, vsBot)
     }
   }
 }
 
 async function applyRoomOutcomeIfNeeded(room) {
   if (!room || room.playerStatsApplied) return
+  const vsBot = isVsBotRoom(room)
   const scenarioWinner = room.battleScenarioWinnerFaction
   const surrendered = (room.battleSurrenderSeq ?? 0) > 0 && room.battleSurrenderBy
   if ((room.battleScenarioEndSeq ?? 0) > 0 && (scenarioWinner === 'rkka' || scenarioWinner === 'wehrmacht')) {
     room.playerStatsApplied = true
     const fighters = fighterMembers(room)
     for (const p of fighters) {
-      if (p.faction === scenarioWinner) await addWin(p.id)
-      else await addLoss(p.id)
+      if (p.faction === scenarioWinner) await addWin(p.id, vsBot)
+      else await addLoss(p.id, vsBot)
     }
     return
   }
@@ -260,8 +376,8 @@ async function applyRoomOutcomeIfNeeded(room) {
     const loserId = userIdFromMemberKey(room.battleSurrenderBy)
     const fighters = fighterMembers(room)
     for (const p of fighters) {
-      if (p.key === room.battleSurrenderBy || p.id === loserId) await addLoss(p.id)
-      else await addWin(p.id)
+      if (p.key === room.battleSurrenderBy || p.id === loserId) await addLoss(p.id, vsBot)
+      else await addWin(p.id, vsBot)
     }
   }
 }
@@ -274,6 +390,7 @@ module.exports = {
   roleLabel,
   ensurePlayerStatsSchema,
   readProfileStats,
+  listLeaderboard,
   touchLastSeen,
   setAvatarPath,
   setPlayerRole,

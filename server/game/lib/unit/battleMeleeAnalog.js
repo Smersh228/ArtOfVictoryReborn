@@ -38,8 +38,16 @@ function cellHasOtherMelee(cell, selfId, cells, deps) {
 function isValidMeleeRetreatCell(fromCell, toCell, unit, cells, deps) {
   if (!fromCell || !toCell || !unit) return false
   if (hexDistCells(fromCell, toCell) !== 1) return false
-  const { terrainEntryCost, unitFaction: uf } = deps
-  if (typeof terrainEntryCost === 'function' && terrainEntryCost(toCell, unit) === 0) return false
+  const { terrainEntryCost, unitFaction: uf, getMoveCap } = deps
+  if (typeof terrainEntryCost === 'function') {
+    const cost = terrainEntryCost(toCell, unit)
+    if (cost === 0) return false
+    const cap =
+      typeof getMoveCap === 'function'
+        ? getMoveCap(unit)
+        : Number(unit.mov ?? unit.moveCap ?? 4)
+    if (Number.isFinite(cap) && cost > cap) return false
+  }
   const { unitHasPropKey } = require('../../core/battleUnitType')
   const special = require('../map/battleSpecialTerrain')
   if (!special.canEnterElevation3(unit, toCell)) return false

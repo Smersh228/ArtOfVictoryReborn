@@ -36,6 +36,13 @@ function asUniqueIntList(raw) {
   return out
 }
 
+function asCargoSlots(raw, length) {
+  const src = Array.isArray(raw) ? raw : []
+  const out = []
+  for (let i = 0; i < length; i++) out.push(asIntCopies(src[i]).slice(0, 4))
+  return out
+}
+
 function asStringCopies(raw) {
   if (!Array.isArray(raw)) return []
   const out = []
@@ -66,8 +73,10 @@ function parseDeployment(raw) {
       const team = Math.floor(Number(k))
       if (!Number.isFinite(team) || team < 1) continue
       const row = v && typeof v === 'object' ? v : {}
+      const unitIds = asIntCopies(row.unitIds)
       pools[String(team)] = {
-        unitIds: asIntCopies(row.unitIds),
+        unitIds,
+        unitCargo: asCargoSlots(row.unitCargo, unitIds.length),
         structureIds: asStringCopies(row.structureIds),
       }
     }
@@ -165,6 +174,7 @@ function initBattleDeployPhase(room, deployment) {
       (deployment.pools && deployment.pools[String(team)]) || { unitIds: [], structureIds: [] }
     remaining[m.key] = {
       unitIds: [...(pool.unitIds || [])],
+      unitCargo: asCargoSlots(pool.unitCargo, (pool.unitIds || []).length),
       structureIds: [...(pool.structureIds || [])],
     }
   }
@@ -176,6 +186,39 @@ function initBattleDeployPhase(room, deployment) {
     placed: [],
   }
   stripPreviewOccupantsFromDeployZones(room)
+}
+
+function initReinforcementDeploy(room, wave, zoneIds) {
+  const remaining = {}
+  const ready = {}
+  const team = Number(wave && wave.team)
+  const side = Number(team) % 2 === 1 ? 'rkka' : 'wehrmacht'
+  const isBot = (m) => m && (m.isBot || String(m.key || '').startsWith('bot:'))
+  const members = room.members || []
+  const owners = members.filter((m) => m.faction === side)
+  const owner = owners.find((m) => !isBot(m)) || owners[0] || null
+  for (const m of members) {
+    const isOwner = Boolean(owner && m.key === owner.key)
+    remaining[m.key] = {
+      unitIds: isOwner ? [...(wave.unitIds || [])] : [],
+      unitCargo: isOwner ? asCargoSlots(wave.unitCargo, (wave.unitIds || []).length) : [],
+      structureIds: [],
+    }
+    ready[m.key] = !isOwner
+  }
+  const zones = {}
+  if (Number.isFinite(team) && team >= 1) {
+    zones[String(team)] = Array.isArray(zoneIds) ? zoneIds.map((id) => Number(id)).filter((n) => n > 0) : []
+  }
+  room.battleDeployPhase = {
+    active: true,
+    isReinforcement: true,
+    reinforcementWaveId: wave && wave.id,
+    zones,
+    remaining,
+    ready,
+    placed: [],
+  }
 }
 
 function publicBattleDeploy(room, selfKey) {
@@ -210,6 +253,7 @@ function publicBattleDeploy(room, selfKey) {
       isYou: Boolean(selfKey && m.key === selfKey),
     })),
     yourPlaced,
+    isReinforcement: ph.isReinforcement === true,
   }
 }
 
@@ -241,12 +285,14 @@ function cellInTeamZone(ph, team, cellId) {
 function finishIfAllReady(room) {
   const ph = room.battleDeployPhase
   if (!ph || !ph.active) return false
-  const members = room.members || []
+  const members = (room.members || []).filter((m) => m.faction === 'rkka' || m.faction === 'wehrmacht')
   if (!members.length) return false
   const allReady = members.every((m) => ph.ready && ph.ready[m.key])
   if (!allReady) return false
   ph.active = false
   room.battleFieldRevision = (room.battleFieldRevision || 0) + 1
+  const { commitReinforcementsForTurn } = require('./battleReinforcements')
+  commitReinforcementsForTurn(room)
   const { withBattleEnv } = require('../scenario/battleEnvironment')
   withBattleEnv(room, () => {
     const { syncBattleReconByFaction } = require('../recon/battleReconResolve')
@@ -265,15 +311,23 @@ function placeDeployUnit(room, mem, catalogUnitId, cellId) {
   const rem = ph.remaining[mem.key]
   if (!rem) return { error: 'Нет пула расстановки' }
   const uid = Math.floor(Number(catalogUnitId))
-  if (!takeOne(rem.unitIds, uid)) return { error: 'Этого юнита нет в пуле' }
+  const cargoIdx = rem.unitIds.indexOf(uid)
+  if (cargoIdx < 0) return { error: 'Этого юнита нет в пуле' }
+  const cargoIds = Array.isArray(rem.unitCargo) ? rem.unitCargo[cargoIdx] : []
+  rem.unitIds.splice(cargoIdx, 1)
+  if (Array.isArray(rem.unitCargo)) rem.unitCargo.splice(cargoIdx, 1)
   const cell = findCell(room.battleCells, cellId)
   if (!cell) {
     rem.unitIds.push(uid)
+    if (!Array.isArray(rem.unitCargo)) rem.unitCargo = []
+    rem.unitCargo.push(Array.isArray(cargoIds) ? cargoIds.slice() : [])
     return { error: 'Клетка не найдена' }
   }
   if (!Array.isArray(cell.units)) cell.units = []
   if (cell.units.length >= MAX_UNITS_PER_CELL) {
     rem.unitIds.push(uid)
+    if (!Array.isArray(rem.unitCargo)) rem.unitCargo = []
+    rem.unitCargo.push(Array.isArray(cargoIds) ? cargoIds.slice() : [])
     return { error: `Не больше ${MAX_UNITS_PER_CELL} юнитов на гекс` }
   }
   const instanceId = nextInstanceId(room.battleCells)
@@ -283,6 +337,16 @@ function placeDeployUnit(room, mem, catalogUnitId, cellId) {
     team,
     faction: factionForTeam(team),
     deployPlacedBy: mem.key,
+  }
+  const { orderEditorMetaFromCargoIds } = require('./battleMapEditorMeta')
+  const cargoMeta = orderEditorMetaFromCargoIds(cargoIds)
+  if (cargoMeta) {
+    unit.orderEditorMeta = cargoMeta
+    room.battleReinforcementsNeedEnrich = true
+  }
+  if (ph.isReinforcement) {
+    unit.reinforcementWaveId = ph.reinforcementWaveId
+    room.battleReinforcementsNeedEnrich = true
   }
   cell.units.push(unit)
   ph.placed.push({ key: mem.key, kind: 'unit', cellId: Number(cell.id), instanceId })
@@ -309,12 +373,15 @@ function removeDeployUnit(room, mem, instanceId) {
   ph.placed = ph.placed.filter((p) => p !== rec)
   if (Number.isFinite(catalogId) && catalogId > 0) {
     ph.remaining[mem.key].unitIds.push(catalogId)
+    if (!Array.isArray(ph.remaining[mem.key].unitCargo)) ph.remaining[mem.key].unitCargo = []
+    const { cargoIdsFromOrderEditorMeta } = require('./battleMapEditorMeta')
+    ph.remaining[mem.key].unitCargo.push(cargoIdsFromOrderEditorMeta(unit.orderEditorMeta))
   }
   room.battleFieldRevision = (room.battleFieldRevision || 0) + 1
   return { ok: true }
 }
 
-function applyFortification(cell, structureId, team) {
+function applyFortification(cell, structureId, team, mineKind) {
   const builds = ensureBuilds(cell.builds)
   const key = FORT_BUILD_KEY[structureId]
   if (!key) return { error: 'Неизвестное сооружение' }
@@ -337,7 +404,8 @@ function applyFortification(cell, structureId, team) {
   }
   if (key === 'mine') {
     if (Number(builds.mine) > 0) return { error: 'На гексе уже есть мина' }
-    cell.builds = { ...builds, mine: 1, mineKind: 'infantry', mineTeam: team }
+    const kind = mineKind === 'tank' ? 'tank' : 'infantry'
+    cell.builds = { ...builds, mine: 1, mineKind: kind, mineTeam: team }
     return { ok: true }
   }
   if (key === 'wire') {
@@ -364,7 +432,7 @@ function restoreFortification(cell, structureId, prevBuilds, prevMapBuilding) {
   cell.builds = prevBuilds
 }
 
-function placeDeployStructure(room, mem, structureId, cellId, buildingInfo) {
+function placeDeployStructure(room, mem, structureId, cellId, buildingInfo, mineKind) {
   const blocked = assertCanAct(room, mem)
   if (blocked) return { error: blocked }
   const ph = room.battleDeployPhase
@@ -394,7 +462,7 @@ function placeDeployStructure(room, mem, structureId, cellId, buildingInfo) {
       imagePath: String(buildingInfo.imagePath || ''),
     }
   } else {
-    const applied = applyFortification(cell, sid, team)
+    const applied = applyFortification(cell, sid, team, mineKind)
     if (applied.error) {
       rem.structureIds.push(sid)
       return applied
@@ -447,6 +515,7 @@ function setDeployReady(room, mem, ready) {
 module.exports = {
   loadDeploymentFromPayload,
   initBattleDeployPhase,
+  initReinforcementDeploy,
   publicBattleDeploy,
   placeDeployUnit,
   removeDeployUnit,

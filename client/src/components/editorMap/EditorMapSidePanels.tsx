@@ -2,6 +2,30 @@ import React from 'react';
 import styles from '../../pages/styleModules/editorMap.module.css';
 import unitStyles from '../../pages/styleModules/editorUnit.module.css';
 import { resolveEditorImageUrl } from '../../api/editorCatalog';
+import {
+  botsSlotsForLimit,
+  type MapBotsState,
+} from '../../game/editorMapBots';
+import {
+  addReinforcementUnit,
+  createReinforcementWave,
+  MAX_REINFORCEMENT_WAVES,
+  poolCopyCount,
+  reinforcementWaveUnitCap,
+  REINFORCEMENT_UNITS_PER_HEX,
+  removeReinforcementUnit,
+  setReinforcementUnitCargo,
+  type MapReinforcementsState,
+  type ReinforcementWave,
+} from '../../game/editorMapReinforcements';
+import { factionForTeam, isWehrmachtFaction, teamSideLabel, teamsForLimit } from '../../game/editorMapTeam';
+import {
+  catalogTransportKind,
+  padCargoSlots,
+  slotIndicesForUnitId,
+} from '../../game/editorMapTransportCargo';
+import type { MapEnvironmentFlags } from '../../game/editorMapEnvironment';
+import TransportCargoEditor from './TransportCargoEditor';
 
 type FactionId = string;
 type UnitTypeId = string;
@@ -21,74 +45,6 @@ interface AxisEliminationState {
 
 type StruggleFactionId = string;
 export type ScenarioPhotoSlot = 0 | 1;
-
-export type MapWeatherSpec = {
-  enabled: boolean;
-  chance: string;
-  duration: string;
-};
-
-export type MapEnvironmentFlags = {
-  night: boolean;
-  nightFromFirst: boolean;
-  fog: MapWeatherSpec;
-  rain: MapWeatherSpec;
-  strongWind: MapWeatherSpec;
-};
-
-const DEFAULT_WEATHER_SPEC: MapWeatherSpec = { enabled: false, chance: '30', duration: '3' };
-
-export const DEFAULT_MAP_ENVIRONMENT: MapEnvironmentFlags = {
-  night: false,
-  nightFromFirst: true,
-  fog: { ...DEFAULT_WEATHER_SPEC },
-  rain: { ...DEFAULT_WEATHER_SPEC },
-  strongWind: { ...DEFAULT_WEATHER_SPEC },
-};
-
-function weatherSpecFromRaw(raw: unknown): MapWeatherSpec {
-  if (raw === true) return { enabled: true, chance: '30', duration: '3' }
-  if (!raw || typeof raw !== 'object') return { ...DEFAULT_WEATHER_SPEC }
-  const o = raw as Record<string, unknown>
-  const chanceN = Number(o.chance)
-  const durationN = Number(o.duration)
-  return {
-    enabled: o.enabled === true,
-    chance: String(Number.isFinite(chanceN) ? Math.max(0, Math.min(100, Math.trunc(chanceN))) : 30),
-    duration: String(Number.isFinite(durationN) && durationN > 0 ? Math.trunc(durationN) : 3),
-  }
-}
-
-export function parseEnvironmentFromPayload(raw: unknown): MapEnvironmentFlags {
-  const env = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
-  return {
-    night: env.night === true,
-    nightFromFirst: env.nightFromFirst !== false,
-    fog: weatherSpecFromRaw(env.fog),
-    rain: weatherSpecFromRaw(env.rain),
-    strongWind: weatherSpecFromRaw(env.strongWind),
-  }
-}
-
-function weatherSpecToPayload(spec: MapWeatherSpec) {
-  const chance = Number(spec.chance)
-  const duration = Number(spec.duration)
-  return {
-    enabled: spec.enabled,
-    chance: Number.isFinite(chance) ? Math.max(0, Math.min(100, Math.trunc(chance))) : 30,
-    duration: Number.isFinite(duration) && duration > 0 ? Math.trunc(duration) : 3,
-  }
-}
-
-export function environmentToPayload(env: MapEnvironmentFlags) {
-  return {
-    night: env.night,
-    nightFromFirst: env.nightFromFirst,
-    fog: weatherSpecToPayload(env.fog),
-    rain: weatherSpecToPayload(env.rain),
-    strongWind: { enabled: false, chance: 30, duration: 3 },
-  }
-}
 
 const WEATHER_ROWS: { key: 'fog' | 'rain'; label: string }[] = [
   { key: 'fog', label: 'Туман' },
@@ -357,6 +313,335 @@ export const ConditionsPanel: React.FC<{
     </div>
   </>
 );
+
+const BOT_DIFFICULTIES: { id: 'easy' | 'normal' | 'hard'; label: string }[] = [
+  { id: 'easy', label: 'Легко' },
+  { id: 'normal', label: 'Нормально' },
+  { id: 'hard', label: 'Сложно' },
+];
+
+function teamFactionLabel(team: number): string {
+  return team % 2 === 1 ? 'РККА' : 'Вермахт';
+}
+
+export const BotsPanel: React.FC<{
+  bots: MapBotsState;
+  setBots: React.Dispatch<React.SetStateAction<MapBotsState>>;
+  teamLimit: 2 | 4 | 6;
+}> = ({ bots, setBots, teamLimit }) => {
+  const slots = botsSlotsForLimit(teamLimit, bots.slots);
+  return (
+    <>
+      <div className={styles.filterGroup}>
+        <div className={styles.filterGroupTitle}>Боты</div>
+        <label className={styles.checkboxRow}>
+          <input
+            type="checkbox"
+            checked={bots.enabled}
+            onChange={(e) => setBots((prev) => ({ ...prev, enabled: e.target.checked, slots }))}
+          />
+          Разрешить ботов на карте
+        </label>
+        <p className={styles.botsHint}>
+          Слоты «Бот» займёт ИИ при создании комнаты. Карта на двоих (один игрок и один бот) после проверки
+          появится во вкладке «Одиночная игра».
+        </p>
+      </div>
+      {bots.enabled ? (
+        <>
+          <div className={styles.filterGroup}>
+            <div className={styles.filterGroupTitle}>Сложность</div>
+            <div className={styles.filterRow}>
+              {BOT_DIFFICULTIES.map((row) => (
+                <div
+                  key={row.id}
+                  className={`${styles.filterItem} ${bots.difficulty === row.id ? styles.active : ''}`}
+                  onClick={() => setBots((prev) => ({ ...prev, difficulty: row.id }))}
+                >
+                  {row.label}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className={styles.filterGroup}>
+            <div className={styles.filterGroupTitle}>Слоты</div>
+            {slots.map((slot) => (
+              <div key={slot.team} className={styles.botsSlot}>
+                <div className={styles.botsSlotTitle}>
+                  Команда {slot.team} · {teamFactionLabel(slot.team)}
+                </div>
+                <div className={styles.filterRow}>
+                  <div
+                    className={`${styles.filterItem} ${slot.kind === 'player' ? styles.active : ''}`}
+                    onClick={() =>
+                      setBots((prev) => ({
+                        ...prev,
+                        slots: slots.map((s) => (s.team === slot.team ? { ...s, kind: 'player' } : s)),
+                      }))
+                    }
+                  >
+                    Игрок
+                  </div>
+                  <div
+                    className={`${styles.filterItem} ${slot.kind === 'bot' ? styles.active : ''}`}
+                    onClick={() =>
+                      setBots((prev) => ({
+                        ...prev,
+                        slots: slots.map((s) => (s.team === slot.team ? { ...s, kind: 'bot' } : s)),
+                      }))
+                    }
+                  >
+                    Бот
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : null}
+    </>
+  );
+};
+
+type CatalogUnitLite = {
+  id: number;
+  name: string;
+  type?: string;
+  faction: string;
+  imagePath: string;
+  heavyTech?: boolean;
+  heavyArtillery?: boolean;
+  properties?: Array<{ prop_key?: string; name?: string }>;
+  orders?: Array<{ order_key?: string; key?: string; name?: string }>;
+};
+
+export const ReinforcementsPanel: React.FC<{
+  reinforcements: MapReinforcementsState;
+  setReinforcements: React.Dispatch<React.SetStateAction<MapReinforcementsState>>;
+  teamLimit: 2 | 4 | 6;
+  catalogUnits: CatalogUnitLite[];
+  pickingWaveId: string | null;
+  onPickWaveHexes: (waveId: string | null) => void;
+}> = ({
+  reinforcements,
+  setReinforcements,
+  teamLimit,
+  catalogUnits,
+  pickingWaveId,
+  onPickWaveHexes,
+}) => {
+  const teams = teamsForLimit(teamLimit);
+
+  function patchWave(waveId: string, patch: (wave: ReinforcementWave) => ReinforcementWave) {
+    setReinforcements((prev) => ({
+      ...prev,
+      waves: prev.waves.map((w) => (w.id === waveId ? patch(w) : w)),
+    }));
+  }
+
+  return (
+    <>
+      <div className={styles.filterGroup}>
+        <div className={styles.filterGroupTitle}>Подкрепления</div>
+        <label className={styles.checkboxRow}>
+          <input
+            type="checkbox"
+            checked={reinforcements.enabled}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              setReinforcements((prev) => ({ ...prev, enabled }));
+              if (!enabled) onPickWaveHexes(null);
+            }}
+          />
+          Включить подкрепления на карте
+        </label>
+        <p className={styles.botsHint}>
+          Число совпадает со счётчиком «Ход» в бою (с нуля). 0 — сразу после расстановки. 2 — два раза «Следующий
+          ход», на панели «Ход: 2». Клик по карте отмечает гекс появления — в бою отряды встанут именно туда, без
+          ручной расстановки. Без гексов волна не выйдет. На гекс — не больше {REINFORCEMENT_UNITS_PER_HEX} отрядов.
+          В грузовик можно посадить пехоту или артиллерию, в поезд (техника со свойством ЖД) — 2 пехоты и 2 любых.
+        </p>
+      </div>
+      {reinforcements.enabled ? (
+        <>
+          <div className={styles.filterGroup}>
+            <div className={styles.filterGroupTitle}>Волны</div>
+            <div
+              className={styles.filterItem}
+              onClick={() => {
+                if (reinforcements.waves.length >= MAX_REINFORCEMENT_WAVES) return;
+                const last = reinforcements.waves[reinforcements.waves.length - 1];
+                const wave = createReinforcementWave(last?.team ?? 1, last ? last.arriveTurn + 1 : 0);
+                setReinforcements((prev) => ({ ...prev, waves: [...prev.waves, wave] }));
+                onPickWaveHexes(wave.id);
+              }}
+            >
+              Добавить волну
+            </div>
+          </div>
+          {reinforcements.waves.map((wave, index) => {
+            const unitsForTeam = catalogUnits.filter((u) =>
+              factionForTeam(wave.team) === 'ussr'
+                ? String(u.faction).toLowerCase() === 'ussr'
+                : isWehrmachtFaction(u.faction),
+            );
+            const picking = pickingWaveId === wave.id;
+            const unitCap = reinforcementWaveUnitCap(wave);
+            const atUnitCap = wave.unitIds.length >= unitCap;
+            return (
+              <div key={wave.id} className={`${styles.filterGroup} ${styles.reinforceWave}`}>
+                <div className={styles.reinforceWaveHead}>
+                  <div className={styles.botsSlotTitle}>
+                    Волна {index + 1} · {teamFactionLabel(wave.team)}
+                  </div>
+                  <div
+                    className={styles.filterItem}
+                    onClick={() => {
+                      if (picking) onPickWaveHexes(null);
+                      setReinforcements((prev) => ({
+                        ...prev,
+                        waves: prev.waves.filter((w) => w.id !== wave.id),
+                      }));
+                    }}
+                  >
+                    Удалить
+                  </div>
+                </div>
+                <div className={styles.filterGroupTitle}>Команда</div>
+                <div className={styles.filterRow}>
+                  {teams.map((team) => (
+                    <div
+                      key={team}
+                      className={`${styles.filterItem} ${wave.team === team ? styles.active : ''}`}
+                      onClick={() =>
+                        patchWave(wave.id, (w) => ({
+                          ...w,
+                          team,
+                          unitIds: factionForTeam(w.team) === factionForTeam(team) ? w.unitIds : [],
+                          unitCargo: factionForTeam(w.team) === factionForTeam(team) ? w.unitCargo : [],
+                        }))
+                      }
+                    >
+                      {team} {teamSideLabel(team)}
+                    </div>
+                  ))}
+                </div>
+                <label className={styles.fieldLabel} htmlFor={`rf-turn-${wave.id}`}>
+                  Ход появления
+                </label>
+                <input
+                  id={`rf-turn-${wave.id}`}
+                  type="number"
+                  min={0}
+                  max={99}
+                  className={`${styles.panelInput} ${styles.fullWidth}`}
+                  value={wave.arriveTurn}
+                  onChange={(e) => {
+                    const n = Math.floor(Number(e.target.value));
+                    patchWave(wave.id, (w) => ({
+                      ...w,
+                      arriveTurn: Number.isFinite(n) && n >= 0 ? Math.min(99, n) : 0,
+                    }));
+                  }}
+                />
+                <div className={styles.filterRow}>
+                  <div
+                    className={`${styles.filterItem} ${picking ? styles.active : ''}`}
+                    onClick={() => onPickWaveHexes(picking ? null : wave.id)}
+                  >
+                    {picking ? 'Клик по карте — гекс' : 'Гекс появления'}
+                  </div>
+                  {wave.cellIds.length ? (
+                    <div
+                      className={styles.filterItem}
+                      onClick={() => patchWave(wave.id, (w) => ({ ...w, cellIds: [] }))}
+                    >
+                      Очистить гексы
+                    </div>
+                  ) : null}
+                </div>
+                <p className={styles.botsHint}>
+                  {wave.cellIds.length
+                    ? `Гексы: ${wave.cellIds.join(', ')} · максимум ${unitCap} отр. (${REINFORCEMENT_UNITS_PER_HEX} на гекс)`
+                    : 'Отметьте гексы на карте — без них подкрепление в бою не появится.'}
+                </p>
+                <div className={styles.filterGroupTitle}>
+                  Состав ({wave.unitIds.length}/{unitCap})
+                </div>
+                <div className={styles.reinforceUnitList}>
+                  {unitsForTeam.map((unit) => {
+                    const count = poolCopyCount(wave.unitIds, unit.id);
+                    const src = resolveEditorImageUrl(unit.imagePath) ?? unit.imagePath;
+                    const kind = catalogTransportKind(unit);
+                    const slots = slotIndicesForUnitId(wave.unitIds, unit.id);
+                    const cargoSlots = padCargoSlots(wave.unitCargo, wave.unitIds.length);
+                    return (
+                      <div key={unit.id} className={styles.reinforceUnitBlock}>
+                        <div className={styles.reinforceUnitRow}>
+                          <div className={styles.reinforceUnitThumb}>
+                            {src ? <img src={src} alt="" /> : null}
+                          </div>
+                          <div className={styles.reinforceUnitName}>{unit.name}</div>
+                          <div className={styles.deployQtyRow}>
+                            <button
+                              type="button"
+                              className={styles.deployQtyBtn}
+                              disabled={count <= 0}
+                              onClick={() =>
+                                setReinforcements((prev) => removeReinforcementUnit(prev, wave.id, unit.id))
+                              }
+                              aria-label="Убрать"
+                            >
+                              −
+                            </button>
+                            <span className={styles.deployQtyValue}>{count}</span>
+                            <button
+                              type="button"
+                              className={styles.deployQtyBtn}
+                              disabled={atUnitCap}
+                              onClick={() =>
+                                setReinforcements((prev) => addReinforcementUnit(prev, wave.id, unit.id))
+                              }
+                              aria-label="Добавить"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                        {kind && slots.length
+                          ? slots.map((slotIndex, copyIdx) => (
+                              <TransportCargoEditor
+                                key={`${wave.id}-${unit.id}-${slotIndex}`}
+                                kind={kind}
+                                cargoIds={cargoSlots[slotIndex] ?? []}
+                                catalogUnits={unitsForTeam}
+                                faction={unit.faction}
+                                hostUnit={unit}
+                                title={
+                                  slots.length > 1
+                                    ? `${kind === 'train' ? 'Поезд' : 'Грузовик'} ${copyIdx + 1}`
+                                    : undefined
+                                }
+                                onChange={(ids) =>
+                                  setReinforcements((prev) =>
+                                    setReinforcementUnitCargo(prev, wave.id, slotIndex, ids),
+                                  )
+                                }
+                              />
+                            ))
+                          : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      ) : null}
+    </>
+  );
+};
 
 const ScenarioImageRow: React.FC<{
   label: string;

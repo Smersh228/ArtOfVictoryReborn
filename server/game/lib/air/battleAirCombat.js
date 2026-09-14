@@ -477,9 +477,11 @@ function computeAirCombatShot(attacker, attackerCell, defender, combatCell, deps
     getStr: getStrFn,
   } = deps
   const ia = intensityArrayFor(attacker, defender)
-  const ra = rangeArrayForAtCell
+  const raRaw = rangeArrayForAtCell
     ? rangeArrayForAtCell(attacker, attackerCell)
     : rangeArrayFor(attacker)
+  const { applyAirAccuracyRangeShift } = require('../scenario/battleEnvironment')
+  const ra = applyAirAccuracyRangeShift(raRaw)
   const closeRange = ra[0] ?? 3
   const warDef = moveWarDefenseBonus(defender.instanceId, ordersByUnit)
   const accBonus = terrainAccuracyBonusFromCell(attackerCell, attacker, defender, false)
@@ -515,11 +517,11 @@ function tryAirCombatSteadfastness(unit, damageDealt, le, ph, deps) {
   const sum = roll2d6()
   const tac = ensureTactical(unit)
   tac.steadfastnessUiRoll = sum
-  if (sum < threshold) {
-    le(ph, `Воздушный бой · стойкость: юнит ${unit.instanceId} — ${sum} < ${threshold}`)
+  if (sum <= threshold) {
+    le(ph, `Воздушный бой · стойкость: юнит ${unit.instanceId} — ${sum} ≤ ${threshold}`)
     return true
   }
-  le(ph, `Воздушный бой · стойкость: юнит ${unit.instanceId} — провал ${sum} ≥ ${threshold} → возврат на базу`)
+  le(ph, `Воздушный бой · стойкость: юнит ${unit.instanceId} — провал ${sum} > ${threshold} → возврат на базу`)
   return false
 }
 

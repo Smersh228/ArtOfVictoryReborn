@@ -28,6 +28,7 @@ function phaseForOrderKey(key) {
   if (k === 'ambush') return PHASE_KEYS.ambush
   if (k === 'fireHard') return PHASE_KEYS.fireHard
   if (k === 'fire') return PHASE_KEYS.fire
+  if (k === 'fireAdjustment') return PHASE_KEYS.fire
   if (k === 'smoke') return PHASE_KEYS.fire
   if (AIR_PHASE_ORDER_KEYS.has(k)) return PHASE_KEYS.air
   if (k === 'attack' || k === 'hardMove') return PHASE_KEYS.attack

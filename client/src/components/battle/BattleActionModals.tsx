@@ -3,6 +3,19 @@ import { createPortal } from 'react-dom';
 import Button from '../Button';
 import styles from '../../pages/styleModules/battle.module.css';
 
+import {
+  getAmmoCapacityMaxUi,
+  getExplosivesCapacityMaxUi,
+  getMinesCapacityMaxUi,
+  getSmokeCapacityMaxUi,
+  readAmmoCountUi,
+  readExplosivesCountUi,
+  readMinesCountUi,
+  readSmokeCountUi,
+  supplyAmountsTotal,
+  type BattleSupplyAmounts,
+} from '../../game/battleLogisticsUi';
+
 interface BattleUnitLite {
   instanceId?: number | string;
   name?: string;
@@ -15,14 +28,15 @@ interface BattleActionModalsProps {
     giver: BattleUnitLite;
     receiver: BattleUnitLite;
     maxTransfer: number;
+    maxMines: number;
+    maxExplosives: number;
+    maxSmoke: number;
     warehouseCellId?: number;
   } | null;
-  ammoPickCount: number;
-  onChangeAmmoPickCount: (count: number) => void;
+  supplyPick: BattleSupplyAmounts;
+  onChangeSupplyPick: (next: BattleSupplyAmounts) => void;
   onCloseAmmoModal: () => void;
   onConfirmAmmoTransfer: () => void;
-  readAmmoCountUi: (unit: BattleUnitLite) => number;
-  getAmmoCapacityMaxUi: (unit: BattleUnitLite) => number;
   unloadCargoPickModal: {
     truck: BattleUnitLite;
     orderLabel: string;
@@ -50,14 +64,46 @@ interface BattleActionModalsProps {
   onSelectMineKind: (kind: 'infantry' | 'tank') => void;
 }
 
+function SupplySlider(props: {
+  label: string;
+  stockLabel: string;
+  capLabel: string;
+  value: number;
+  max: number;
+  onChange: (n: number) => void;
+}) {
+  const { label, stockLabel, capLabel, value, max, onChange } = props;
+  if (max < 1) return null;
+  return (
+    <label className={styles.battleModalLabel}>
+      {label}
+      <span className={styles.battleModalMetaMuted}>
+        {stockLabel} · {capLabel}
+      </span>
+      <strong>{value}</strong>
+      <input
+        type="range"
+        className={styles.battleModalRange}
+        min={0}
+        max={max}
+        step={1}
+        value={Math.min(value, max)}
+        onChange={(e) => {
+          const v = Math.floor(parseInt(e.target.value, 10));
+          if (!Number.isFinite(v)) return;
+          onChange(Math.max(0, Math.min(max, v)));
+        }}
+      />
+    </label>
+  );
+}
+
 const BattleActionModals: React.FC<BattleActionModalsProps> = ({
   battleAmmoModal,
-  ammoPickCount,
-  onChangeAmmoPickCount,
+  supplyPick,
+  onChangeSupplyPick,
   onCloseAmmoModal,
   onConfirmAmmoTransfer,
-  readAmmoCountUi,
-  getAmmoCapacityMaxUi,
   unloadCargoPickModal,
   unloadingIconUrl,
   onCloseUnloadCargoModal,
@@ -77,7 +123,11 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
         ? createPortal(
             <div
               role="dialog"
-              aria-label={battleAmmoModal.warehouseCellId != null ? 'Сколько боеприпасов взять со склада' : 'Сколько боеприпасов передать'}
+              aria-label={
+                battleAmmoModal.warehouseCellId != null
+                  ? 'Сколько припасов взять со склада'
+                  : 'Сколько припасов передать'
+              }
               className={styles.battleModalBackdrop}
               onMouseDown={(e) => {
                 if (e.target === e.currentTarget) onCloseAmmoModal();
@@ -85,7 +135,7 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
             >
               <div className={styles.battleModalPanel} onMouseDown={(e) => e.stopPropagation()}>
                 <h3 className={styles.battleModalTitle}>
-                  {battleAmmoModal.warehouseCellId != null ? 'Загрузка со склада' : 'Передача боеприпасов'}
+                  {battleAmmoModal.warehouseCellId != null ? 'Загрузка со склада' : 'Передача припасов'}
                 </h3>
                 <p className={styles.battleModalMeta}>
                   {battleAmmoModal.warehouseCellId != null ? (
@@ -99,44 +149,61 @@ const BattleActionModals: React.FC<BattleActionModalsProps> = ({
                     </>
                   )}
                 </p>
-                <p className={styles.battleModalMetaMuted}>
-                  {battleAmmoModal.warehouseCellId != null ? (
-                    <>
-                      На складе: {readAmmoCountUi(battleAmmoModal.giver)} БК · У грузовика:{' '}
-                      {readAmmoCountUi(battleAmmoModal.receiver)} / {getAmmoCapacityMaxUi(battleAmmoModal.receiver)}{' '}
-                      (лимит)
-                    </>
-                  ) : (
-                    <>
-                      В грузовике: {readAmmoCountUi(battleAmmoModal.giver)} БК · У получателя:{' '}
-                      {readAmmoCountUi(battleAmmoModal.receiver)} / {getAmmoCapacityMaxUi(battleAmmoModal.receiver)}{' '}
-                      (лимит)
-                    </>
-                  )}
-                </p>
-                <label className={styles.battleModalLabel}>
-                  Сколько {battleAmmoModal.warehouseCellId != null ? 'взять' : 'передать'}:{' '}
-                  <strong>{ammoPickCount}</strong>
-                  <input
-                    type="range"
-                    className={styles.battleModalRange}
-                    min={1}
-                    max={Math.max(1, battleAmmoModal.maxTransfer)}
-                    step={1}
-                    value={Math.min(ammoPickCount, battleAmmoModal.maxTransfer)}
-                    onChange={(e) => {
-                      const v = Math.floor(parseInt(e.target.value, 10));
-                      if (!isFinite(v)) return;
-                      onChangeAmmoPickCount(Math.max(1, Math.min(battleAmmoModal.maxTransfer, v)));
-                    }}
-                  />
-                </label>
+                <SupplySlider
+                  label="Боезапас"
+                  stockLabel={
+                    battleAmmoModal.warehouseCellId != null
+                      ? `склад ${readAmmoCountUi(battleAmmoModal.giver)}`
+                      : `грузовик ${readAmmoCountUi(battleAmmoModal.giver)}`
+                  }
+                  capLabel={`${readAmmoCountUi(battleAmmoModal.receiver)} / ${getAmmoCapacityMaxUi(battleAmmoModal.receiver)}`}
+                  value={supplyPick.ammo}
+                  max={battleAmmoModal.maxTransfer}
+                  onChange={(ammo) => onChangeSupplyPick({ ...supplyPick, ammo })}
+                />
+                <SupplySlider
+                  label="Мины"
+                  stockLabel={
+                    battleAmmoModal.warehouseCellId != null
+                      ? `склад ${readMinesCountUi(battleAmmoModal.giver)}`
+                      : `грузовик ${readMinesCountUi(battleAmmoModal.giver)}`
+                  }
+                  capLabel={`${readMinesCountUi(battleAmmoModal.receiver)} / ${getMinesCapacityMaxUi(battleAmmoModal.receiver)}`}
+                  value={supplyPick.mines}
+                  max={battleAmmoModal.maxMines}
+                  onChange={(mines) => onChangeSupplyPick({ ...supplyPick, mines })}
+                />
+                <SupplySlider
+                  label="Взрывчатка"
+                  stockLabel={
+                    battleAmmoModal.warehouseCellId != null
+                      ? `склад ${readExplosivesCountUi(battleAmmoModal.giver)}`
+                      : `грузовик ${readExplosivesCountUi(battleAmmoModal.giver)}`
+                  }
+                  capLabel={`${readExplosivesCountUi(battleAmmoModal.receiver)} / ${getExplosivesCapacityMaxUi(battleAmmoModal.receiver)}`}
+                  value={supplyPick.explosives}
+                  max={battleAmmoModal.maxExplosives}
+                  onChange={(explosives) => onChangeSupplyPick({ ...supplyPick, explosives })}
+                />
+                <SupplySlider
+                  label="Дымовые снаряды"
+                  stockLabel={
+                    battleAmmoModal.warehouseCellId != null
+                      ? `склад ${readSmokeCountUi(battleAmmoModal.giver)}`
+                      : `грузовик ${readSmokeCountUi(battleAmmoModal.giver)}`
+                  }
+                  capLabel={`${readSmokeCountUi(battleAmmoModal.receiver)} / ${getSmokeCapacityMaxUi(battleAmmoModal.receiver)}`}
+                  value={supplyPick.smoke}
+                  max={battleAmmoModal.maxSmoke}
+                  onChange={(smoke) => onChangeSupplyPick({ ...supplyPick, smoke })}
+                />
                 <div className={styles.battleModalActions}>
                   <Button name="Отмена" className={styles.battleModalBtn} onClick={onCloseAmmoModal} />
                   <Button
                     name={battleAmmoModal.warehouseCellId != null ? 'Загрузить' : 'Передать'}
                     className={styles.battleModalBtn}
                     onClick={onConfirmAmmoTransfer}
+                    disabled={supplyAmountsTotal(supplyPick) < 1}
                   />
                 </div>
               </div>

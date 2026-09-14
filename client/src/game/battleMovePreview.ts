@@ -19,6 +19,8 @@ import { hasSettlementFire } from './cellSettlementFire';
 import { cellAllowsRailwayDetachment } from './cellRailway';
 import { canEnterElevation3, waterUnitCanEnterCell } from './battleSpecialTerrain';
 import { unitCanEnterDamagedStructure } from './cellStructureHp';
+import { findCellByCube } from './hexVisibility';
+import { isAmbushConcealedClient, isHiddenConcealedClient } from './battleHiddenState';
 
 /** Совпадает с сервером: для авиации ОД не ограничивают дальность превью хода. */
 const AIR_BATTLE_EFFECTIVE_MOVE_POINTS = 99999999;
@@ -37,11 +39,13 @@ export function normalizeBattleInstanceId(raw: unknown): number | null {
 }
 
 export function battleInstanceIdInList(
-  list: readonly number[] | null | undefined,
+  list: ReadonlySet<number> | readonly number[] | null | undefined,
   raw: unknown,
 ): boolean {
   const id = normalizeBattleInstanceId(raw);
-  if (id == null || !list?.length) return false;
+  if (id == null || !list) return false;
+  if (list instanceof Set) return list.has(id);
+  if (!list.length) return false;
   for (let i = 0; i < list.length; i++) {
     if (Number(list[i]) === id) return true;
   }
@@ -173,6 +177,8 @@ function canEnterCell(
   for (let i = 0; i < us.length; i++) {
     const occ = us[i] as { faction?: string; str?: unknown; strength?: unknown };
     if (opposing(mine, unitFaction(occ)) && getStr(occ) > 0) {
+      const occRec = occ as Record<string, unknown>;
+      if (isHiddenConcealedClient(occRec) || isAmbushConcealedClient(occRec)) continue;
       if (fogRevealedCellIds != null && !fogRevealedCellIds.has(cell.id)) continue;
       return false;
     }
@@ -207,11 +213,20 @@ function getNeighbor(hex: { x: number; y: number; z: number }, dir: number) {
 }
 
 function findCellByCoor(cells: Cell[], coor: { x: number; y: number; z: number }): Cell | null {
-  for (let i = 0; i < cells.length; i++) {
-    const c = cells[i];
-    if (c.coor.x === coor.x && c.coor.y === coor.y && c.coor.z === coor.z) return c;
+  return findCellByCube(cells, coor) ?? null;
+}
+
+function takeMinCostItem<T>(queue: T[], costOf: (item: T) => number): T {
+  let bestI = 0;
+  let best = costOf(queue[0]);
+  for (let i = 1; i < queue.length; i++) {
+    const c = costOf(queue[i]);
+    if (c < best) {
+      best = c;
+      bestI = i;
+    }
   }
-  return null;
+  return queue.splice(bestI, 1)[0];
 }
 
 
@@ -230,8 +245,7 @@ export function findReachableCells(
   visited[startKey] = 0;
   queue.push({ cell: start, spent: 0, counters: startCounters });
   while (queue.length > 0) {
-    queue.sort((a, b) => a.spent - b.spent);
-    const current = queue.shift()!;
+    const current = takeMinCostItem(queue, (row) => row.spent);
     if (current.spent <= maxPoints) result.push(current.cell);
     for (let dir = 0; dir < 6; dir++) {
       const nb = getNeighbor(current.cell.coor, dir);
@@ -279,8 +293,7 @@ export function findMovementPath(
   queue.push({ cell: start, cost: 0, counters: startCounters, key: startKey });
   let goalKey: string | null = null;
   while (queue.length > 0) {
-    queue.sort((a, b) => a.cost - b.cost);
-    const current = queue.shift()!;
+    const current = takeMinCostItem(queue, (row) => row.cost);
     if (current.cell.id === target.id) {
       goalKey = current.key;
       break;
@@ -321,6 +334,13 @@ export function findMovementPath(
   return path.length ? path : null;
 }
 
+
+function retreatMoveCap(unit: { type?: unknown; mov?: unknown; moveCap?: unknown }): number {
+  const ty = String(unit.type ?? '').trim();
+  if (ty === 'lightAir' || ty === 'heavyAir') return AIR_BATTLE_EFFECTIVE_MOVE_POINTS;
+  const n = Number(unit.mov ?? unit.moveCap ?? 4);
+  return Number.isFinite(n) && n > 0 ? n : 4;
+}
 
 export function getBattleMoveBudget(unit: Record<string, unknown>): number {
   const ty = String(unit.type ?? '').trim();
@@ -439,7 +459,9 @@ export function isValidMeleeRetreatCell(
 ): boolean {
   if (!from || !to) return false;
   if (hexDistCells(from, to) !== 1) return false;
-  if (terrainEntryCost(to, unit) === 0) return false;
+  const entryCost = terrainEntryCost(to, unit);
+  if (entryCost === 0) return false;
+  if (entryCost > retreatMoveCap(unit)) return false;
   if (!canEnterElevation3(unit, to)) return false;
   if (!waterUnitCanEnterCell(unit, to)) return false;
   if (!unitCanEnterDamagedStructure(unit, to)) return false;

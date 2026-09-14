@@ -1,6 +1,7 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import type { BattleDefendHoverState, BattleReportReplayHighlight } from '../components/map/Cells';
 import { findUnitCellByInstanceId } from '../game/battleMovePreview';
+import { hasDotOnCell, unitFiresFromDot } from '../game/cellDot';
 import {
   computePatrolVisibilityCellIds,
   computeReconZoneCellIds,
@@ -26,6 +27,79 @@ function cellsFromPathIds(pathIds: number[], cells: Cell[]): Cell[] {
     if (c) out.push(c);
   }
   return out;
+}
+
+function parseCellIdsFromReinforcementText(text: string): number[] {
+  const m = String(text || '').match(/кл\.\s*([\d,\s]+)/);
+  if (!m) return [];
+  return m[1]
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
+
+export function buildReinforcementReplayFromLogEntry(entry: any, cells?: Cell[]) {
+  const text = String(entry?.text ?? '');
+  const rl = entry?.meta?.reinforcementLine;
+  if (!rl && !/^Подкрепление:/.test(text)) return null;
+
+  let cellIds = normalizeCellIdList(rl?.cellIds).filter((n) => n > 0);
+  let instanceIds = normalizeCellIdList(rl?.instanceIds).filter((n) => n > 0);
+  if (!cellIds.length) cellIds = parseCellIdsFromReinforcementText(text);
+
+  if (!cellIds.length && instanceIds.length && Array.isArray(cells)) {
+    const seen = new Set<number>();
+    for (const uid of instanceIds) {
+      const live = findUnitCellByInstanceId(cells, uid);
+      const cid = Number(live?.cell?.id);
+      if (!Number.isFinite(cid) || cid <= 0 || seen.has(cid)) continue;
+      seen.add(cid);
+      cellIds.push(cid);
+    }
+  }
+
+  if (!cellIds.length && !instanceIds.length) return null;
+  return {
+    kind: 'reinforcement' as const,
+    cellIds,
+    instanceIds,
+  };
+}
+
+function collectFireReportDotCellIds(r: {
+  shooterInstanceId?: unknown;
+  shooterInstanceIds?: unknown;
+  fromDot?: unknown;
+  fromCellId?: unknown;
+  fromDotCellIds?: unknown;
+}, cells?: Cell[]): number[] {
+  if (!cells?.length) return [];
+  const out = new Set<number>();
+  const addDotCell = (cellId: unknown) => {
+    const n = Number(cellId);
+    if (!Number.isFinite(n)) return;
+    const cell = cells.find((c) => Number(c.id) === n);
+    if (cell && hasDotOnCell(cell.builds)) out.add(n);
+  };
+  const shooterIds = [
+    ...(Array.isArray(r.shooterInstanceIds) ? r.shooterInstanceIds : []),
+    r.shooterInstanceId,
+  ]
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const fromDot = r.fromDot === true;
+  if (Array.isArray(r.fromDotCellIds)) {
+    for (const id of r.fromDotCellIds) addDotCell(id);
+  }
+  if (fromDot) addDotCell(r.fromCellId);
+  for (const uid of shooterIds) {
+    const live = findUnitCellByInstanceId(cells, uid);
+    if (!live) continue;
+    if (fromDot || unitFiresFromDot(live.unit as Record<string, unknown>)) {
+      addDotCell(live.cell.id);
+    }
+  }
+  return [...out];
 }
 
 function parseTrajectoryCellIdsFromText(text: string): number[] {
@@ -764,10 +838,12 @@ export function buildBattleReportReplayHighlight(
   if (r.kind === 'unitGlow') {
     const ids = (r.instanceIds as number[] | undefined)?.filter((x: number) => Number.isFinite(x) && x > 0) ?? [];
     const cid = Number((r as { lossCellId?: unknown }).lossCellId);
-    return ids.length
+    const spawn = normalizeCellIdList((r as { spawnCellIds?: unknown }).spawnCellIds).filter((n) => n > 0);
+    return ids.length || spawn.length
       ? {
           glowInstanceIds: ids,
           lossCellId: Number.isFinite(cid) ? cid : undefined,
+          spawnCellIds: spawn.length ? spawn : undefined,
         }
       : null;
   }
@@ -833,11 +909,17 @@ export function buildBattleReportReplayHighlight(
         ),
       ),
     ];
+    const dotGlowCellIds = collectFireReportDotCellIds(r, cells);
+    const orderKeyForDot = String(r.orderKey || '').trim();
     return {
       glowInstanceIds: glow,
       lossCellId: targetCellId,
       targetDecal:
         targetIds.length > 0 ? { orderKey: r.orderKey as 'fire' | 'fireHard', targetInstanceIds: targetIds } : undefined,
+      dotGlowCellIds: dotGlowCellIds.length ? dotGlowCellIds : undefined,
+      dotOrderKey: dotGlowCellIds.length && (orderKeyForDot === 'fire' || orderKeyForDot === 'fireHard')
+        ? orderKeyForDot
+        : undefined,
     };
   }
   if (r.kind === 'artilleryAirSector') {
@@ -922,6 +1004,15 @@ export function buildBattleReportReplayHighlight(
       highlight.reconOrderKey = String(r.orderKey || 'patrol').trim() || 'patrol';
     }
     return highlight;
+  }
+  if (r.kind === 'reinforcement') {
+    const zone = normalizeCellIdList(r.cellIds).filter((n) => n > 0);
+    const glow = normalizeCellIdList(r.instanceIds).filter((n) => n > 0);
+    if (!zone.length && !glow.length) return null;
+    return {
+      glowInstanceIds: glow,
+      spawnCellIds: zone.length ? zone : undefined,
+    };
   }
   if (r.kind === 'airAppearance') {
     const uid = Number(r.unitInstanceId);

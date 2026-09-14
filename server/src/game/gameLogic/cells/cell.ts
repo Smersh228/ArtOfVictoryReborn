@@ -77,7 +77,7 @@ settlementFire?: {
 };
 /** HP домов / моста: защита и прочность. */
 structureHp?: {
-  kind: 'city' | 'village' | 'station' | 'bridge' | 'railBridge'
+  kind: 'city' | 'village' | 'station' | 'bridge' | 'railBridge' | 'storage'
   str: number
   maxStr: number
   def: number

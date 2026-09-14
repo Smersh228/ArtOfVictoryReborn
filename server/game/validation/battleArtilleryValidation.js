@@ -77,7 +77,7 @@ function validateArtilleryAreaFireOnCellOnly(cells, atk, targetCellId, orderKey,
           artilleryAreaClosedIgnoresTerrainLos(atk.unit) || isHexVisible(atk.cell, tc, cells),
       }
   if (!losVis.allowed) {
-    return losVis.reason || 'нет прямой видимости на клетку (нужно «Стрельба по закрытым целям» или корректировка огня)'
+    return losVis.reason || 'нет прямой видимости на клетку (нужно свойство «Стрельба по закрытым целям»)'
   }
   return null
 }

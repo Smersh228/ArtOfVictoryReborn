@@ -6,7 +6,7 @@ const path = require('path')
 const multer = require('multer')
 const { verifyToken } = require('../db')
 const { getTokenFromRequest } = require('../cookieAuth')
-const { touchPresence, dropPresence, addChatMessage, pushSystem, snapshot, getPublicProfile } = require('../lobbyHub')
+const { touchPresence, dropPresence, addChatMessage, pushSystem, snapshot, getPublicProfile, getLeaderboard } = require('../lobbyHub')
 const { setAvatarPath, setPlayerRole, ROLE_KEYS } = require('../playerStats')
 const { isMapAdminUser } = require('../mapsPolicy')
 const { applyModeration, rememberRole, getActiveBan } = require('../playerModeration')
@@ -80,6 +80,17 @@ router.post('/chat', async (req, res) => {
     return res.status(400).json({ ...(await snapshot(user)), error: result.error })
   }
   res.json(await snapshot(user))
+})
+
+router.get('/leaderboard', async (req, res) => {
+  const user = await requireUser(req, res)
+  if (!user) return
+  touchPresence(user)
+  const sort = String((req.query && req.query.sort) || 'kills').trim()
+  const vs = String((req.query && req.query.vs) || 'player').trim() === 'bot' ? 'bot' : 'player'
+  const allowed = new Set(['kills', 'casualties', 'wins', 'losses'])
+  const rows = await getLeaderboard(allowed.has(sort) ? sort : 'kills', vs)
+  res.json({ sort: allowed.has(sort) ? sort : 'kills', vs, rows })
 })
 
 router.get('/profile/:userId', async (req, res) => {

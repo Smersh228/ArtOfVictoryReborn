@@ -2,12 +2,15 @@
 html {
   font-family: "Courier New", Courier, monospace;
   font-weight: 700;
+  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   font-family: inherit;
   font-weight: inherit;
+  overflow-x: hidden;
+  min-height: 100dvh;
 }
 
 *,

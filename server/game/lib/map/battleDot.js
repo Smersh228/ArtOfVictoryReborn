@@ -1,8 +1,9 @@
 'use strict'
 
 const { getNeighbor, findCellByCoor, hexDistCells } = require('./battleHexGeometry')
-const { targetTypeToFireKey } = require('../fire/battleFireNormalize')
-const { unitHasPropKey } = require('../../core/battleUnitType')
+const { splitNums, targetTypeToFireKey } = require('../fire/battleFireNormalize')
+const { unitHasPropKey, isArtilleryDeployedForBattle } = require('../../core/battleUnitType')
+const { getStr, setStr } = require('../unit/battleUnitField')
 
 const EMPTY_BUILDS = {
   trench: 0,
@@ -24,10 +25,11 @@ const DOT_ART_RANGE = [0, 2, 2, 1, 1]
 const DOT_INF_MAX_STEPS = DOT_INF_RANGE.length - 1
 const DOT_ART_MAX_STEPS = DOT_ART_RANGE.length - 1
 
-const DOT_INF_INTENSITY = { inf: 10, art: 10, tech: 10 }
+const DOT_INF_INTENSITY = { inf: 10, art: 10, tech: 10, build: 10 }
 const DOT_ART_INTENSITY = {
   inf: 6,
   art: 6,
+  build: 6,
   tech: 9,
   armor: 10,
   lt: 12,
@@ -183,25 +185,48 @@ function hasEditorDotFacing(builds) {
   return Number.isFinite(cid)
 }
 
+function fireRowIsMeleeOnly(unit, key) {
+  const opts = unit && unit.fireRowOptions
+  if (!opts || typeof opts !== 'object' || Array.isArray(opts)) return false
+  const row = opts[key]
+  return !!(row && row.melee === true)
+}
+
+function fireRowHasRangedPositive(unit, key) {
+  if (fireRowIsMeleeOnly(unit, key)) return false
+  const src = (unit && unit._fireRaw && typeof unit._fireRaw === 'object' && unit._fireRaw) ||
+    (unit && unit.fire && typeof unit.fire === 'object' && unit.fire) ||
+    null
+  if (!src) return false
+  return splitNums(src[key]).some((n) => n > 0)
+}
+
+function dotShooterUsesArtilleryTables(unit, isArtilleryUnit) {
+  if (typeof isArtilleryUnit === 'function' && isArtilleryUnit(unit)) return true
+  if (String(unit && unit.type ? unit.type : '').toLowerCase() === 'artillery') return true
+  if (unitHasPropKey(unit, 'fireSector')) return true
+  return ['armor', 'lt', 'mt', 'ht'].some((k) => fireRowHasRangedPositive(unit, k))
+}
+
 function dotRangeArrayForUnit(unit, isInfantryUnit, isArtilleryUnit) {
   if (!unitInDot(unit) || unitDotExiting(unit)) return null
-  if (isArtilleryUnit(unit)) return DOT_ART_RANGE.slice()
-  if (isInfantryUnit(unit)) return DOT_INF_RANGE.slice()
+  if (dotShooterUsesArtilleryTables(unit, isArtilleryUnit)) return DOT_ART_RANGE.slice()
+  if (typeof isInfantryUnit === 'function' ? isInfantryUnit(unit) : String(unit && unit.type).toLowerCase() === 'infantry') {
+    return DOT_INF_RANGE.slice()
+  }
   return null
 }
 
 function dotIntensityArrayFor(attacker, target, isInfantryUnit, isArtilleryUnit) {
   if (!unitInDot(attacker) || unitDotExiting(attacker)) return null
   const key = targetTypeToFireKey(target.type)
-  let v = 0
-  if (isInfantryUnit(attacker)) {
-    v = DOT_INF_INTENSITY[key] ?? 0
-  } else if (isArtilleryUnit(attacker)) {
-    v = DOT_ART_INTENSITY[key] ?? 0
-  } else {
-    return null
+  if (dotShooterUsesArtilleryTables(attacker, isArtilleryUnit)) {
+    return [DOT_ART_INTENSITY[key] ?? 0]
   }
-  return [v]
+  if (typeof isInfantryUnit === 'function' ? isInfantryUnit(attacker) : String(attacker && attacker.type).toLowerCase() === 'infantry') {
+    return [DOT_INF_INTENSITY[key] ?? 0]
+  }
+  return null
 }
 
 function getDotAmmo(builds) {
@@ -227,15 +252,23 @@ function dotShooterCanFire(unit) {
   return !unitDotExiting(unit)
 }
 
-/** Огонь из ДОТ по сектору: без проверки LoS местности (как подсветка целей на клиенте). */
-function dotFireIgnoresTerrainLos(unit) {
-  return unitInDot(unit) && !unitDotExiting(unit)
+/** Огонь из ДОТ: LoS местности и туман проверяются как у обычного огня. */
+function dotFireIgnoresTerrainLos() {
+  return false
 }
 
 function dotMaxRangeStepsForUnit(unit, isInfantryUnit, isArtilleryUnit) {
-  if (typeof isArtilleryUnit === 'function' && isArtilleryUnit(unit)) return DOT_ART_MAX_STEPS
-  if (String(unit && unit.type ? unit.type : '').toLowerCase() === 'artillery') return DOT_ART_MAX_STEPS
+  if (dotShooterUsesArtilleryTables(unit, isArtilleryUnit)) return DOT_ART_MAX_STEPS
   return DOT_INF_MAX_STEPS
+}
+
+/** Дальность огня из ДОТ после тумана/ночи. Видимость сектора не режется. */
+function dotMaxFireStepsForEnvironment(unit) {
+  const { applyAccuracyRangeShift } = require('../scenario/battleEnvironment')
+  const ra = applyAccuracyRangeShift(
+    dotShooterUsesArtilleryTables(unit) ? DOT_ART_RANGE.slice() : DOT_INF_RANGE.slice(),
+  )
+  return Math.max(0, ra.length - 1)
 }
 
 function getDotAmmoCost(isSup) {
@@ -266,26 +299,45 @@ function consumeDotAmmoForFire(cell, isSup) {
   return true
 }
 
-function ejectDotOccupant(cells, cell, le, ph, findUnitOnField, ensureTacticalBattle) {
-  const occId = getDotOccupantInstanceId(cell.builds)
-  if (occId == null) return
-  const found = findUnitOnField(cells, occId)
-  if (found) {
-    const tac = ensureTacticalBattle(found.unit)
+function clearDotOccupantFlags(unit, ensureTacticalBattle) {
+  if (!unit) return
+  if (typeof ensureTacticalBattle === 'function') {
+    const tac = ensureTacticalBattle(unit)
     delete tac.inDot
     delete tac.dotExitTurnsLeft
     delete tac.dotEnterTurnsLeft
-    if (le && ph) le(ph, `Юнит ${occId} выбит из ДОТ на кл. ${cell.id}`)
+    return
   }
+  if (unit.tactical && typeof unit.tactical === 'object') {
+    delete unit.tactical.inDot
+    delete unit.tactical.dotExitTurnsLeft
+    delete unit.tactical.dotEnterTurnsLeft
+  }
+}
+
+function killDotOccupant(cells, cell, le, ph, deps) {
+  const { findUnitOnField, ensureTacticalBattle, logUnitDestroyed } = deps || {}
+  const occId = getDotOccupantInstanceId(cell.builds)
   cell.builds = ensureBuilds(cell.builds)
   delete cell.builds.dotOccupantId
+  if (occId == null || typeof findUnitOnField !== 'function') return
+  const found = findUnitOnField(cells, occId)
+  if (!found) return
+  const u = found.unit
+  clearDotOccupantFlags(u, ensureTacticalBattle)
+  const prev = getStr(u)
+  if (!(prev > 0)) return
+  setStr(u, 0)
+  if (typeof logUnitDestroyed === 'function') {
+    logUnitDestroyed(le, ph, u, prev, 'уничтожение ДОТ', cell.id)
+  } else if (le && ph) {
+    le(ph, `Юнит ${occId} уничтожен (уничтожение ДОТ)`)
+  }
 }
 
 function destroyDot(cells, cell, le, ph, reason, deps) {
-  const { findUnitOnField, ensureTacticalBattle } = deps || {}
-  if (findUnitOnField && ensureTacticalBattle) {
-    ejectDotOccupant(cells, cell, le, ph, findUnitOnField, ensureTacticalBattle)
-  }
+  const { skipLog } = deps || {}
+  killDotOccupant(cells, cell, le, ph, deps)
   cell.builds = ensureBuilds(cell.builds)
   cell.builds.dot = 0
   cell.builds.dotDef = 0
@@ -293,7 +345,14 @@ function destroyDot(cells, cell, le, ph, reason, deps) {
   delete cell.builds.dotOccupantId
   delete cell.builds.dotFacing
   delete cell.builds.dotFacingCellId
-  if (le && ph) le(ph, `ДОТ на кл. ${cell.id} уничтожен (${reason})`)
+  if (le && ph && !skipLog) {
+    le(ph, `ДОТ на кл. ${cell.id} уничтожен (${reason})`, {
+      structureHp: true,
+      structureKind: 'dot',
+      structureCellId: Number(cell.id),
+      structureDestroyed: true,
+    })
+  }
 }
 
 function applyDotDefDamage(cells, cell, damages, le, ph, deps) {
@@ -306,38 +365,92 @@ function applyDotDefDamage(cells, cell, damages, le, ph, deps) {
     return true
   }
   cell.builds.dotDef = def
-  if (le && ph) le(ph, `ДОТ кл. ${cell.id}: защита ${def} (−${damages})`)
+  if (le && ph && !(deps && deps.skipLog)) {
+    le(ph, `ДОТ кл. ${cell.id}: защита ${def} (−${damages})`, {
+      structureHp: true,
+      structureKind: 'dot',
+      structureCellId: Number(cell.id),
+      structureDef: def,
+    })
+  }
   return true
 }
 
 function tryDamageDotFromFire(targetCell, attacker, shooterCell, distance, deps, le, ph) {
   if (!targetCell || !attacker || !hasDotOnCell(targetCell.builds)) return false
-  const { intensityArrayFor, rangeArrayForAtCell, computeShoot, cells, findUnitOnField, ensureTacticalBattle } =
-    deps
-  const virtualTarget = { type: 'build', def: 1, str: 1 }
+  const structureHp = require('./battleStructureHp')
+  if (!structureHp.unitCanRangedBuildFire(attacker) && !unitInDot(attacker)) return false
+  const {
+    intensityArrayFor,
+    rangeArrayForAtCell,
+    computeShoot,
+    cells,
+    findUnitOnField,
+    ensureTacticalBattle,
+    getDiceCount,
+    isSuppression,
+    logUnitDestroyed,
+  } = deps
+  const virtualTarget = { type: 'build', def: 0, str: 1 }
   const intensity = intensityArrayFor(attacker, virtualTarget)
-  const buildPower = intensity && intensity.length ? Number(intensity[0]) : 0
-  if (!(buildPower > 0)) return false
-  const dotDef = getDotDef(targetCell.builds)
+  const hasIo = Array.isArray(intensity) && intensity.some((n) => Number(n) > 0)
+  if (!hasIo) return false
+  if (typeof getDiceCount === 'function' && !(Number(getDiceCount(attacker, intensity)) > 0)) return false
+  const prevDef = getDotDef(targetCell.builds)
   const rangeArray = rangeArrayForAtCell(attacker, shooterCell)
   const result = computeShoot(
     attacker,
     virtualTarget,
     targetCell,
     distance,
-    [buildPower],
+    intensity,
     rangeArray,
-    false,
+    !!isSuppression,
     null,
-    Math.max(0, dotDef - 1),
+    0,
     0,
     false,
     1,
   )
-  if (result.damages > 0) {
-    applyDotDefDamage(cells, targetCell, result.damages, le, ph, { findUnitOnField, ensureTacticalBattle })
-  } else if (le && ph) {
-    le(ph, `Огонь по ДОТ кл. ${targetCell.id}: попаданий ${result.hits}, урон 0 (защита ${dotDef})`)
+  const hits = Math.max(0, Math.floor(Number(result && result.hits) || 0))
+  if (hits > 0) {
+    applyDotDefDamage(cells, targetCell, hits, le, ph, {
+      findUnitOnField,
+      ensureTacticalBattle,
+      logUnitDestroyed,
+      skipLog: true,
+    })
+  }
+  const destroyed = !hasDotOnCell(targetCell.builds)
+  const nowDef = destroyed ? 0 : getDotDef(targetCell.builds)
+  if (le && ph) {
+    const rolls = Array.isArray(result && result.rollResults) ? result.rollResults : []
+    const fireLine = {
+      attackerId: Number(attacker.instanceId),
+      targetId: null,
+      fromCellId: shooterCell && shooterCell.id != null ? Number(shooterCell.id) : null,
+      targetCellId: Number(targetCell.id),
+      hits,
+      damages: hits,
+      rollResults: rolls,
+      diceCount: Number(result && result.diceCount) || rolls.length,
+      baseDiceCount: Number(result && result.baseDiceCount) || rolls.length,
+      isSuppression: !!isSuppression,
+    }
+    le(
+      ph,
+      destroyed
+        ? `ДОТ на кл. ${targetCell.id} уничтожен (огонь)`
+        : `Огонь по ДОТ: юнит ${attacker.instanceId} → кл. ${targetCell.id}, попаданий ${hits}, защита ${prevDef}→${nowDef} (выпало: ${rolls.join(',')})`,
+      {
+        structureHp: true,
+        structureKind: 'dot',
+        structureCellId: Number(targetCell.id),
+        structureDef: nowDef,
+        structureDestroyed: destroyed,
+        fireLine,
+      },
+    )
   }
   return true
 }
@@ -368,10 +481,20 @@ function tickDotEnterStates(cells, le, turnIndex, deps) {
       left -= 1
       if (left <= 0) {
         finishEnterDotOnUnit(c, u, { ensureTacticalBattle, isArtilleryUnit })
-        le(ph, `Юнит ${u.instanceId} занял ДОТ на кл. ${c.id}`, turnIndex)
+        le(ph, `Юнит ${u.instanceId} занял ДОТ на кл. ${c.id}`, {
+          unitInstanceId: Number(u.instanceId),
+          fromCellId: Number(c.id),
+          toCellId: Number(c.id),
+          dotEnter: true,
+        })
       } else {
         tac.dotEnterTurnsLeft = left
-        le(ph, `Юнит ${u.instanceId} занимает ДОТ (осталось ${left} ход.)`, turnIndex)
+        le(ph, `Юнит ${u.instanceId} занимает ДОТ (осталось ${left} ход.)`, {
+          unitInstanceId: Number(u.instanceId),
+          fromCellId: Number(c.id),
+          toCellId: Number(c.id),
+          dotEnter: true,
+        })
       }
     }
   }
@@ -393,7 +516,19 @@ function tickDotExitStates(cells, le, turnIndex, deps) {
         finished.push({ cell: c, unit: u, destId: Number(tac.dotExitCellId) })
       } else {
         tac.dotExitTurnsLeft = left
-        le('dotExit', `Юнит ${u.instanceId} выходит из ДОТ (осталось ${left} ход.)`, turnIndex)
+        const destId = Number(tac.dotExitCellId)
+        le(
+          'dotExit',
+          Number.isFinite(destId)
+            ? `Юнит ${u.instanceId} выходит из ДОТ (осталось ${left} ход.) → кл. ${destId}`
+            : `Юнит ${u.instanceId} выходит из ДОТ (осталось ${left} ход.)`,
+          {
+            unitInstanceId: Number(u.instanceId),
+            fromCellId: Number(c.id),
+            toCellId: Number.isFinite(destId) ? destId : undefined,
+            dotExit: true,
+          },
+        )
       }
     }
   }
@@ -419,9 +554,21 @@ function tickDotExitStates(cells, le, turnIndex, deps) {
       removeUnitFromCell(item.cell, item.unit.instanceId)
       addUnitToCell(dest, item.unit)
       syncUnitCoor(item.unit, dest)
-      le('dotExit', `Юнит ${item.unit.instanceId} покинул ДОТ → кл. ${dest.id}`, turnIndex)
+      le('dotExit', `Юнит ${item.unit.instanceId} покинул ДОТ → кл. ${dest.id}`, {
+        unitInstanceId: Number(item.unit.instanceId),
+        fromCellId: Number(item.cell.id),
+        toCellId: Number(dest.id),
+        dotExit: true,
+        dotExitDone: true,
+      })
     } else {
-      le('dotExit', `Юнит ${item.unit.instanceId} покинул ДОТ`, turnIndex)
+      le('dotExit', `Юнит ${item.unit.instanceId} покинул ДОТ`, {
+        unitInstanceId: Number(item.unit.instanceId),
+        fromCellId: Number(item.cell.id),
+        toCellId: Number.isFinite(item.destId) ? item.destId : undefined,
+        dotExit: true,
+        dotExitDone: true,
+      })
     }
   }
 }
@@ -459,6 +606,10 @@ function resolveEnterDot(cells, cur, o, le, ph, deps) {
   }
   if (!canEnterDotUnitType(cur.unit, isInfantryUnit, isArtilleryUnit)) {
     le(ph, `Занять ДОТ: ${cur.unit.instanceId} — только пехота или артиллерия`)
+    return
+  }
+  if (isArtilleryDeployedForBattle(cur.unit)) {
+    le(ph, `Занять ДОТ: ${cur.unit.instanceId} — сначала свернуть орудие`)
     return
   }
   const dist = hexDistCellsFn(cur.cell, dotCell)
@@ -501,7 +652,12 @@ function resolveEnterDot(cells, cur, o, le, ph, deps) {
   clearDefendOnUnit(cur.unit)
   const trench = require('./battleTrench')
   trench.leaveTrench(cur.unit, cur.cell)
-  le(ph, `Юнит ${cur.unit.instanceId} начинает занимать ДОТ на кл. ${dotCell.id} (войдёт на следующем ходу)`)
+  le(ph, `Юнит ${cur.unit.instanceId} начинает занимать ДОТ на кл. ${dotCell.id} (войдёт на следующем ходу)`, {
+    unitInstanceId: Number(cur.unit.instanceId),
+    fromCellId: Number(fromCellForFacing && fromCellForFacing.id),
+    toCellId: Number(dotCell.id),
+    dotEnter: true,
+  })
 }
 
 function resolveExitDot(cells, cur, o, le, ph, deps) {
@@ -532,7 +688,12 @@ function resolveExitDot(cells, cur, o, le, ph, deps) {
   const tac = ensureTacticalBattle(cur.unit)
   tac.dotExitTurnsLeft = turns
   tac.dotExitCellId = Number(dest.id)
-  le(ph, `Юнит ${cur.unit.instanceId} выходит из ДОТ на кл. ${dest.id} (${turns} ход.)`)
+  le(ph, `Юнит ${cur.unit.instanceId} выходит из ДОТ на кл. ${dest.id} (${turns} ход.)`, {
+    unitInstanceId: Number(cur.unit.instanceId),
+    fromCellId: Number(cur.cell && cur.cell.id),
+    toCellId: Number(dest.id),
+    dotExit: true,
+  })
 }
 
 /** Сектор пулемётчика в ДОТ: заполненный веер (фронт + два соседних направления). */
@@ -586,7 +747,8 @@ function isDotFireTargetCellAllowed(attacker, attackerCell, targetCellId, allCel
   if (!unitInDot(attacker) || unitDotExiting(attacker)) return true
   if (!attackerCell || !hasDotOnCell(attackerCell.builds)) return true
   const facing = resolveDotFacingDir(attackerCell, allCells)
-  const maxSteps = dotMaxRangeStepsForUnit(attacker)
+  const maxSteps = dotMaxFireStepsForEnvironment(attacker)
+  if (maxSteps < 1) return false
   const ids = computeDotMgSectorCellIds(attackerCell, facing, allCells, maxSteps)
   const cid = Number(targetCellId)
   return ids.some((id) => Number(id) === cid)
@@ -616,9 +778,11 @@ module.exports = {
   dotShooterCanFire,
   dotFireIgnoresTerrainLos,
   dotMaxRangeStepsForUnit,
+  dotMaxFireStepsForEnvironment,
   shooterHasAmmoForFire,
   deductShooterAmmoForFire,
   tryDamageDotFromFire,
+  applyDotDefDamage,
   tickDotExitStates,
   tickDotEnterStates,
   resolveEnterDot,

@@ -100,9 +100,17 @@ function enrichUnitFromCatalogRow(u, row) {
     const n = Number(row.explosives)
     if (Number.isFinite(n)) u.explosives = n
   }
+  if (u.explosivesMax == null && row.explosives != null) {
+    const n = Number(row.explosives)
+    if (Number.isFinite(n) && n >= 0) u.explosivesMax = Math.floor(n)
+  }
   if (u.smokeShells == null && row.smoke_shells != null) {
     const n = Number(row.smoke_shells)
     if (Number.isFinite(n)) u.smokeShells = n
+  }
+  if (u.smokeShellsMax == null && row.smoke_shells != null) {
+    const n = Number(row.smoke_shells)
+    if (Number.isFinite(n) && n >= 0) u.smokeShellsMax = Math.floor(n)
   }
   if (u.mines == null && row.mines != null) {
     const n = Number(row.mines)
@@ -111,6 +119,10 @@ function enrichUnitFromCatalogRow(u, row) {
       if (!u.ammunition || typeof u.ammunition !== 'object') u.ammunition = {}
       if (u.ammunition.mine == null) u.ammunition.mine = u.mines
     }
+  }
+  if (u.minesMax == null && row.mines != null) {
+    const n = Number(row.mines)
+    if (Number.isFinite(n) && n >= 0) u.minesMax = Math.floor(n)
   }
   const rawFire = row.fire && typeof row.fire === 'object' ? row.fire : {}
   const pack = {}
@@ -147,8 +159,14 @@ function enrichUnitFromCatalogRow(u, row) {
   if (row.fire_row_options != null && typeof row.fire_row_options === 'object') {
     u.fireRowOptions = row.fire_row_options
   }
+  if (row.fire_row_options_reactive != null && typeof row.fire_row_options_reactive === 'object') {
+    u.fireRowOptionsReactive = row.fire_row_options_reactive
+  }
   const fireTab = String(row.editor_fire_intensity_tab || '').trim().toLowerCase()
   u.editorFireIntensityTab = fireTab === 'reactive' ? 'reactive' : 'all'
+  u.heavyTech = row.heavy_tech === true || row.heavy_tech === 't' || row.heavy_tech === 'true'
+  u.heavyArtillery =
+    row.heavy_artillery === true || row.heavy_artillery === 't' || row.heavy_artillery === 'true'
   if (row.intelligence_air_range != null && String(row.intelligence_air_range).trim() !== '') {
     u.intelligenceAirRange = joinCsv(row.intelligence_air_range)
   }
@@ -359,6 +377,12 @@ function isRiverCategory(raw) {
 }
 
 async function enrichBattleCells(pool, cells) {
+  try {
+    const { ensureUnitCatalogColumns } = require('../../../routes/editor/shared')
+    await ensureUnitCatalogColumns()
+  } catch (e) {
+    /* колонки подтянутся при открытии редактора */
+  }
   await enrichBattleHexExtras(pool, cells)
   const ids = new Set()
   for (const c of cells) {
@@ -383,6 +407,8 @@ async function enrichBattleCells(pool, cells) {
       `SELECT u.id_unit, u.name, u.type, u.count, u.defend, u.morale, u.op, u.ammo, u.visible, u.explosives, u.smoke_shells, u.mines,
         u.standard_image,
         u.editor_fire_intensity_tab AS editor_fire_intensity_tab,
+        u.heavy_tech AS heavy_tech,
+        u.heavy_artillery AS heavy_artillery,
         ud.intelligence_air_range AS intelligence_air_range,
         ud.razvedka_range AS razvedka_range,
         ud.svzy_range AS svzy_range,
@@ -518,6 +544,32 @@ async function loadBattleMapDeploymentFromMapId(pool, mapId) {
   }
 }
 
+async function loadBattleMapReinforcementsFromMapId(pool, mapId) {
+  const id = Number(mapId)
+  if (!Number.isFinite(id)) return null
+  try {
+    const r = await pool.query('SELECT payload FROM saved_map WHERE id_map = $1', [id])
+    if (!r.rows.length) return null
+    const payload = r.rows[0].payload
+    const { loadReinforcementsFromPayload } = require('../map/battleReinforcements')
+    return loadReinforcementsFromPayload(payload)
+  } catch (e) {
+    console.error('loadBattleMapReinforcementsFromMapId:', e.message)
+    return null
+  }
+}
+
+async function enrichRoomBattleCellsIfNeeded(room) {
+  if (!room || !room.battleReinforcementsNeedEnrich) return
+  room.battleReinforcementsNeedEnrich = false
+  try {
+    const { pool } = require('../../../db')
+    await enrichBattleCells(pool, room.battleCells)
+  } catch (e) {
+    console.error('enrichRoomBattleCellsIfNeeded:', e.message)
+  }
+}
+
 module.exports = {
   enrichBattleCells,
   enrichBattleHexExtras,
@@ -525,4 +577,6 @@ module.exports = {
   loadBattleCellsFromMapId,
   loadBattleMapConditionsFromMapId,
   loadBattleMapDeploymentFromMapId,
+  loadBattleMapReinforcementsFromMapId,
+  enrichRoomBattleCellsIfNeeded,
 }

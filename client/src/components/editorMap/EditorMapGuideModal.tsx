@@ -35,7 +35,7 @@ const EditorMapGuideModal: React.FC<EditorMapGuideModalProps> = ({ isOpen, onClo
               <strong>Слева</strong> — поле карты (canvas): клик по гексу применяет выбранный в палитре объект.
             </li>
             <li>
-              <strong>Справа сверху</strong> — вкладки: Юниты, Гексы, Условия игры, Сценарий.
+              <strong>Справа сверху</strong> — вкладки: Юниты, Гексы, Сооружения, Расстановка, Подкрепления, Условия игры, Сценарий, Боты.
             </li>
             <li>
               <strong>Справа по центру</strong> — фильтры и поля выбранной вкладки.
@@ -54,7 +54,7 @@ const EditorMapGuideModal: React.FC<EditorMapGuideModalProps> = ({ isOpen, onClo
               <div>
                 <div className={styles.manualStepTitle}>Сетка</div>
                 <p className={styles.manualStepText}>
-                  Кнопка «Сгенерировать сетку» — задайте ширину (5–20) и высоту (5–10), подтвердите «Создать сетку».
+                  Кнопка «Сгенерировать сетку» — задайте ширину (5–30) и высоту (5–25), подтвердите «Создать сетку».
                 </p>
               </div>
             </li>
@@ -74,7 +74,8 @@ const EditorMapGuideModal: React.FC<EditorMapGuideModalProps> = ({ isOpen, onClo
                 <div className={styles.manualStepTitle}>Сценарий</div>
                 <p className={styles.manualStepText}>
                   Вкладки «Условия игры» и «Сценарий» — победа, погода и время суток, задачи сторон, лимит ходов, название и описание миссии,
-                  фото.
+                  фото. Вкладка «Подкрепления» — волны отрядов: ход появления, гексы на карте и состав из каталога.
+                  Вкладка «Боты» — разрешить ИИ на карте, сложность и слоты команд.
                 </p>
               </div>
             </li>

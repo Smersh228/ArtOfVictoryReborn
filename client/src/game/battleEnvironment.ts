@@ -55,6 +55,26 @@ export function applyAccuracyRangeShift(rangeArray: number[]): number[] {
   return ra.slice(0, keep)
 }
 
+/** Туман −1, ночь −1, складываются. Меткость авиации, не обрезка дальности. */
+export function airAccuracyPenalty(): number {
+  const snap = getLiveBattleEnvironment()
+  let n = 0
+  if (snap.fogActive) n += 1
+  if (snap.isNight) n += 1
+  return n
+}
+
+export function applyAirAccuracyRangeShift(rangeArray: number[]): number[] {
+  const ra = Array.isArray(rangeArray) && rangeArray.length ? rangeArray.slice() : [3, 2, 1]
+  const pen = airAccuracyPenalty()
+  if (pen <= 0) return ra
+  return ra.map((x) => Math.max(0, (Number(x) || 0) - pen))
+}
+
+export function rainBlocksAirLaunch(): boolean {
+  return getLiveBattleEnvironment().rainActive === true
+}
+
 export function applyIntensityPenalty(dice: number): number {
   const base = Number.isFinite(dice) ? dice : 0
   const pen = Number(getLiveBattleEnvironment().intensityPenalty) || 0
@@ -94,10 +114,10 @@ export function applyRainEntryCost(
 export const WEATHER_REPORT_TITLE = 'Погодные и временные условия'
 
 const ENVIRONMENT_DEBUFFS: Record<string, string[]> = {
-  Ночь: ['обзор −2', 'дальность точности −1 клетка', 'интенсивность огня −2 (не ниже 1)'],
+  Ночь: ['обзор −2', 'дальность точности −1 клетка', 'интенсивность огня −2 (не ниже 1)', 'авиация: меткость −1'],
   День: ['штрафов нет'],
-  Туман: ['обзор −1', 'дальность точности −1 клетка', 'интенсивность огня −1 (не ниже 1)'],
-  Дождь: ['вход в клетку: +0,5 ОД пехота и дорога, +1 остальные'],
+  Туман: ['обзор −1', 'дальность точности −1 клетка', 'интенсивность огня −1 (не ниже 1)', 'авиация: меткость −1'],
+  Дождь: ['вход в клетку: +0,5 ОД пехота и дорога, +1 остальные', 'авиация: вылет невозможен'],
 }
 
 export function parseEnvironmentLabelList(raw: string): string[] {

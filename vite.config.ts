@@ -35,6 +35,8 @@ export default defineConfig({
       '/api': {
         target: API_TARGET,
         changeOrigin: true,
+        timeout: 600000,
+        proxyTimeout: 600000,
         configure(proxy) {
           proxy.on('error', (err, _req, res) => {
             proxyApiErrorBody(res as ServerResponse | undefined, err as Error & { code?: string })

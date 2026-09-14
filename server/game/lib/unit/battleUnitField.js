@@ -23,16 +23,47 @@ function opposing(a, b) {
   return a !== b
 }
 
-function findUnitOnField(cells, instanceId) {
-  const id = Number(instanceId)
+let fieldMutGen = 0
+
+function noteFieldMutation() {
+  fieldMutGen += 1
+  try {
+    const fog = require('../map/battleFogVisibility')
+    if (typeof fog.invalidateFogMemo === 'function') fog.invalidateFogMemo()
+  } catch {
+    /* ignore */
+  }
+}
+
+const unitIndexByCells = new WeakMap()
+
+function rebuildUnitIndex(cells) {
+  const map = new Map()
+  if (!cells) return map
   for (let ci = 0; ci < cells.length; ci++) {
     const cell = cells[ci]
     const us = cell.units || []
     for (let ui = 0; ui < us.length; ui++) {
       const u = us[ui]
-      if (Number(u.instanceId) === id && getStr(u) > 0) return { unit: u, cell }
+      if (!u) continue
+      const id = Number(u.instanceId)
+      if (!Number.isFinite(id) || getStr(u) <= 0) continue
+      map.set(id, { unit: u, cell })
     }
   }
+  return map
+}
+
+function findUnitOnField(cells, instanceId) {
+  const id = Number(instanceId)
+  if (!cells) return null
+  let rec = unitIndexByCells.get(cells)
+  if (!rec || rec.gen !== fieldMutGen) {
+    rec = { gen: fieldMutGen, map: rebuildUnitIndex(cells) }
+    unitIndexByCells.set(cells, rec)
+  }
+  const hit = rec.map.get(id)
+  if (hit && getStr(hit.unit) > 0) return hit
   return null
 }
 
@@ -42,4 +73,5 @@ module.exports = {
   unitFaction,
   opposing,
   findUnitOnField,
+  noteFieldMutation,
 }

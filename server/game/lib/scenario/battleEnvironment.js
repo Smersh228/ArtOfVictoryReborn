@@ -177,6 +177,26 @@ function applyAccuracyRangeShift(rangeArray) {
   return ra.slice(0, keep)
 }
 
+/** Туман −1, ночь −1, складываются. Для авиации (удар/воздушный бой), не укорачивание таблицы. */
+function airAccuracyPenalty() {
+  const snap = getLiveEnvironment()
+  let n = 0
+  if (snap.fogActive) n += 1
+  if (snap.isNight) n += 1
+  return n
+}
+
+function applyAirAccuracyRangeShift(rangeArray) {
+  const ra = Array.isArray(rangeArray) && rangeArray.length ? rangeArray.slice() : [3, 2, 1]
+  const pen = airAccuracyPenalty()
+  if (pen <= 0) return ra
+  return ra.map((x) => Math.max(0, (Number(x) || 0) - pen))
+}
+
+function rainBlocksAirLaunch() {
+  return !!getLiveEnvironment().rainActive
+}
+
 function applyIntensityPenalty(dice) {
   const n = Number(dice)
   const base = Number.isFinite(n) ? n : 0
@@ -267,6 +287,9 @@ module.exports = {
   getLiveEnvironment,
   applyVisionPenalty,
   applyAccuracyRangeShift,
+  applyAirAccuracyRangeShift,
+  airAccuracyPenalty,
+  rainBlocksAirLaunch,
   applyIntensityPenalty,
   applyRainEntryCost,
   tickWeather,

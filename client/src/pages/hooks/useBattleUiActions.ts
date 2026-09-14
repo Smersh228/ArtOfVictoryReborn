@@ -3,7 +3,7 @@ import type React from 'react';
 import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
 import type { BattleOrderPayload } from '../../api/rooms';
 import { buildAccompanimentOrderPayload } from '../../game/battleAirSupport';
-import { sanitizeDotOrdersBeforeSubmit } from '../../game/cellDot';
+import { sanitizeDotOrdersBeforeSubmit, sanitizeStaleBattleOrders } from '../../game/cellDot';
 import { isRailwayUnitBattle } from '../../game/battleRailway';
 
 type BattleLeftPanelId = 'report' | 'tasks';
@@ -27,7 +27,7 @@ export function useBattleUiActions(params: {
   dismissScenarioOutcome: () => void;
   dismissVictory: () => void;
   battleAmmoModal: any;
-  ammoPickCount: number;
+  supplyPick: import('../../game/battleLogisticsUi').BattleSupplyAmounts;
   apiRoomId: number | null;
   setBattleAmmoModal: React.Dispatch<React.SetStateAction<any>>;
   setOrderPick: React.Dispatch<React.SetStateAction<any>>;
@@ -42,6 +42,7 @@ export function useBattleUiActions(params: {
     unitInstanceId: number;
     targetCellId: number;
     orderLabel: string;
+    deploy?: boolean;
   } | null;
   setMiningPickModal: React.Dispatch<React.SetStateAction<any>>;
   cells: Cell[];
@@ -64,7 +65,7 @@ export function useBattleUiActions(params: {
     dismissScenarioOutcome,
     dismissVictory,
     battleAmmoModal,
-    ammoPickCount,
+    supplyPick,
     apiRoomId,
     setBattleAmmoModal,
     setOrderPick,
@@ -125,7 +126,10 @@ export function useBattleUiActions(params: {
 
   const onConfirmNextTurn = useCallback(() => {
     closeCenterModal();
-    const snapshot = sanitizeDotOrdersBeforeSubmit([...pendingOrders], cells);
+    const snapshot = sanitizeStaleBattleOrders(
+      sanitizeDotOrdersBeforeSubmit([...pendingOrders], cells),
+      cells,
+    );
     void confirmNextTurn(snapshot).then((res) => {
       if (!res.ok) return;
       if (res.hqRewrite?.youCanRewrite) {
@@ -149,7 +153,10 @@ export function useBattleUiActions(params: {
 
   const onConfirmHqRewrite = useCallback(() => {
     closeCenterModal();
-    const snapshot = sanitizeDotOrdersBeforeSubmit([...pendingOrders], cells);
+    const snapshot = sanitizeStaleBattleOrders(
+      sanitizeDotOrdersBeforeSubmit([...pendingOrders], cells),
+      cells,
+    );
     void confirmHqRewrite({ orders: snapshot }).then((res) => {
       if (res.ok) {
         setPendingOrders([]);
@@ -188,7 +195,20 @@ export function useBattleUiActions(params: {
 
   const onConfirmAmmoTransfer = useCallback(() => {
     if (!battleAmmoModal || apiRoomId == null || !Number.isFinite(apiRoomId)) return;
-    const give = Math.max(1, Math.min(battleAmmoModal.maxTransfer, Math.floor(ammoPickCount) || 1));
+    const ammo = Math.max(0, Math.min(battleAmmoModal.maxTransfer, Math.floor(supplyPick.ammo) || 0));
+    const mines = Math.max(0, Math.min(battleAmmoModal.maxMines, Math.floor(supplyPick.mines) || 0));
+    const explosives = Math.max(
+      0,
+      Math.min(battleAmmoModal.maxExplosives, Math.floor(supplyPick.explosives) || 0),
+    );
+    const smoke = Math.max(0, Math.min(battleAmmoModal.maxSmoke, Math.floor(supplyPick.smoke) || 0));
+    if (ammo + mines + explosives + smoke < 1) return;
+    const transfer = {
+      ...(ammo > 0 ? { transferAmmo: ammo } : {}),
+      ...(mines > 0 ? { transferMines: mines } : {}),
+      ...(explosives > 0 ? { transferExplosives: explosives } : {}),
+      ...(smoke > 0 ? { transferSmoke: smoke } : {}),
+    };
     const warehouseCellId = Number(battleAmmoModal.warehouseCellId);
     if (battleAmmoModal.warehouseCellId != null && Number.isFinite(warehouseCellId)) {
       const truckId = Number(battleAmmoModal.receiver.instanceId);
@@ -199,7 +219,7 @@ export function useBattleUiActions(params: {
           unitInstanceId: truckId,
           orderKey: 'loadingSup',
           targetCellId: warehouseCellId,
-          transferAmmo: give,
+          ...transfer,
         });
         return next;
       });
@@ -216,7 +236,7 @@ export function useBattleUiActions(params: {
         unitInstanceId: giverId,
         orderKey: 'getSup',
         targetUnitInstanceId: recvId,
-        transferAmmo: give,
+        ...transfer,
       });
       return next;
     });
@@ -225,7 +245,7 @@ export function useBattleUiActions(params: {
   }, [
     battleAmmoModal,
     apiRoomId,
-    ammoPickCount,
+    supplyPick,
     setPendingOrders,
     setBattleAmmoModal,
     dismissOrderPicking,

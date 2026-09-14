@@ -1,9 +1,10 @@
 'use strict'
 
 const recon = require('../lib/recon/battleReconResolve')
-const { getStorageAmmo, setStorageAmmo, hasStorage } = require('../lib/map/battleStorage')
+const { hasStorage } = require('../lib/map/battleStorage')
+const supply = require('../lib/unit/battleSupplyTransfer')
 const { startMedicalJob, clearMedicalJob } = require('../lib/unit/battleMedical')
-const { unitUsesGunDeploy } = require('../core/battleUnitType')
+const { unitUsesGunDeploy, canTechTowArtillery } = require('../core/battleUnitType')
 
 function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
   const {
@@ -51,40 +52,33 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     const tid = o.targetUnitInstanceId
     const tgt = findUnitOnField(cells, tid)
     if (!tgt || !isTruckUnit(cur.unit) || !alliesSameFaction(cur.unit, tgt.unit)) {
-      le(ph, `Передача БК: юнит ${cur.unit.instanceId} — отклонено`)
+      le(ph, `Передача припасов: юнит ${cur.unit.instanceId} — отклонено`)
       return
     }
     if (hexDistCells(cur.cell, tgt.cell) > 1) {
-      le(ph, `Передача БК: ${cur.unit.instanceId} — цель не рядом`)
+      le(ph, `Передача припасов: ${cur.unit.instanceId} — цель не рядом`)
       return
     }
     const special = require('../lib/map/battleSpecialTerrain')
     if (special.unitInvolvesWaterUnit(cur.unit, tgt.unit) && hexDistCells(cur.cell, tgt.cell) !== 1) {
-      le(ph, `Передача БК: ${cur.unit.instanceId} — у водного отряда цель должна быть в соседнем гексе`)
+      le(ph, `Передача припасов: ${cur.unit.instanceId} — у водного отряда цель должна быть в соседнем гексе`)
       return
     }
-    const want = Math.floor(Number(o.transferAmmo))
-    if (!Number.isFinite(want) || want < 1) {
-      le(ph, `Передача БК: ${cur.unit.instanceId} — неверное количество`)
+    const want = supply.readTransferWants(o)
+    const maxes = supply.maxTruckToUnit(cur.unit, tgt.unit)
+    const give = supply.clampWants(want, maxes)
+    if (supply.wantsTotal(give) < 1) {
+      le(ph, `Передача припасов: ${cur.unit.instanceId} → ${tgt.unit.instanceId} — нельзя передать`)
       return
     }
-    const have = getAmmo(cur.unit)
-    const cap = getAmmoCapacityMax(tgt.unit)
-    const rec = getAmmo(tgt.unit)
-    const headroom = Math.max(0, cap - rec)
-    const give = Math.min(want, have, headroom)
-    if (give < 1) {
-      le(ph, `Передача БК: ${cur.unit.instanceId} → ${tgt.unit.instanceId} — нельзя передать`)
-      return
-    }
-    setAmmo(cur.unit, have - give)
-    setAmmo(tgt.unit, rec + give)
-    le(ph, `Передача БК: грузовик ${cur.unit.instanceId} → ${tgt.unit.instanceId}, +${give}`, {
+    supply.applyTruckToUnit(cur.unit, tgt.unit, give)
+    const parts = supply.formatSupplyParts(give)
+    le(ph, `Передача припасов: грузовик ${cur.unit.instanceId} → ${tgt.unit.instanceId}, ${parts}`, {
       logisticsLine: {
         orderKey: 'getSup',
         fromInstanceId: Number(cur.unit.instanceId),
         toInstanceId: Number(tgt.unit.instanceId),
-        amount: give,
+        ...supply.logisticsLineAmounts(give),
       },
     })
     return
@@ -109,28 +103,21 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
       le(ph, `Загрузка со склада: ${cur.unit.instanceId} — нет склада`)
       return
     }
-    const want = Math.floor(Number(o.transferAmmo))
-    if (!Number.isFinite(want) || want < 1) {
-      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — неверное количество`)
+    const want = supply.readTransferWants(o)
+    const maxes = supply.maxWarehouseToTruck(cur.unit, wh)
+    const take = supply.clampWants(want, maxes)
+    if (supply.wantsTotal(take) < 1) {
+      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — нельзя взять припасы`)
       return
     }
-    const stock = getStorageAmmo(wh)
-    const have = getAmmo(cur.unit)
-    const cap = getAmmoCapacityMax(cur.unit)
-    const headroom = Math.max(0, cap - have)
-    const take = Math.min(want, stock, headroom)
-    if (take < 1) {
-      le(ph, `Загрузка со склада: ${cur.unit.instanceId} — нельзя взять БК`)
-      return
-    }
-    setStorageAmmo(wh, stock - take)
-    setAmmo(cur.unit, have + take)
-    le(ph, `Загрузка со склада: грузовик ${cur.unit.instanceId} ← кл. ${cid}, +${take}`, {
+    supply.applyWarehouseToTruck(wh, cur.unit, take)
+    const parts = supply.formatSupplyParts(take)
+    le(ph, `Загрузка со склада: грузовик ${cur.unit.instanceId} ← кл. ${cid}, ${parts}`, {
       logisticsLine: {
         orderKey: 'loadingSup',
         fromInstanceId: Number(cur.unit.instanceId),
         toCellId: cid,
-        amount: take,
+        ...supply.logisticsLineAmounts(take),
       },
     })
     return
@@ -228,6 +215,10 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     const tgt = findUnitOnField(cells, tid)
     if (!tgt || !isTruckUnit(cur.unit) || !isArtilleryUnit(tgt.unit) || !alliesSameFaction(cur.unit, tgt.unit)) {
       le(ph, `Буксир: ${cur.unit.instanceId} — отклонено`)
+      return
+    }
+    if (!canTechTowArtillery(cur.unit, tgt.unit)) {
+      le(ph, `Буксир: лёгкая техника не берёт тяжёлую артиллерию`)
       return
     }
     if (!isArtilleryCollapsedForTow(tgt.unit)) {
@@ -595,18 +586,31 @@ function resolveSpecialPhaseOrder(cells, o, le, ph, deps) {
     const tgt = tid != null && Number.isFinite(Number(tid)) ? findUnitOnField(cells, tid) : null
     if (!tgt) {
       clearMedicalJob(cur.unit)
-      le(ph, `Лечение: юнит ${cur.unit.instanceId} — цель не на поле`)
+    le(ph, `Лечение: юнит ${cur.unit.instanceId} — цель не на поле`, {
+      medicalLine: { medicInstanceId: Number(cur.unit.instanceId), targetUnitInstanceId: Number(tid) },
+    })
       return
     }
     if (hexDistCells(cur.cell, tgt.cell) > 1) {
       clearMedicalJob(cur.unit)
-      le(ph, `Лечение: помощь отряду ${tgt.unit.instanceId} прервана — цель вне области санитара`)
+      le(ph, `Лечение: помощь отряду ${tgt.unit.instanceId} прервана — цель вне области санитара`, {
+        medicalLine: {
+          medicInstanceId: Number(cur.unit.instanceId),
+          targetUnitInstanceId: Number(tgt.unit.instanceId),
+        },
+      })
       return
     }
     startMedicalJob(cur.unit, tgt.unit.instanceId)
     le(
       ph,
       `Лечение: юнит ${cur.unit.instanceId} оказывает помощь отряду ${tgt.unit.instanceId} (+1 З, пока цель рядом)`,
+      {
+        medicalLine: {
+          medicInstanceId: Number(cur.unit.instanceId),
+          targetUnitInstanceId: Number(tgt.unit.instanceId),
+        },
+      },
     )
     return
   }

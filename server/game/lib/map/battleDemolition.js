@@ -101,15 +101,7 @@ function destroyUnitsOnCell(cells, cell, le, ph, deps) {
 }
 
 function destroyWarehouse(cell) {
-  if (!cell.builds || typeof cell.builds !== 'object') cell.builds = {}
-  cell.builds.storage = 0
-  cell.builds.storageAmmo = 0
-  cell.builds.storageSmoke = 0
-  cell.builds.storageExplosives = 0
-  cell.builds.storageMines = 0
-  if (cell.mapBuilding && typeof cell.mapBuilding === 'object') {
-    cell.mapBuilding.destroyed = true
-  }
+  require('./battleStorage').destroyWarehouse(cell)
 }
 
 function destroyStructure(cells, cell, kind, le, ph, deps) {
@@ -122,7 +114,11 @@ function destroyStructure(cells, cell, kind, le, ph, deps) {
     const dot = require('./battleDot')
     const findUnitOnField = deps && deps.findUnitOnField
     const ensureTacticalBattle = deps && deps.ensureTacticalBattle
-    dot.destroyDot(cells, cell, le, ph, 'подрыв', { findUnitOnField, ensureTacticalBattle })
+    dot.destroyDot(cells, cell, le, ph, 'подрыв', {
+      findUnitOnField,
+      ensureTacticalBattle,
+      logUnitDestroyed: deps && deps.logUnitDestroyed,
+    })
   } else if (kind === 'storage') {
     destroyWarehouse(cell)
     if (typeof le === 'function') le(ph, `Склад на кл. ${cell.id} уничтожен (подрыв)`)

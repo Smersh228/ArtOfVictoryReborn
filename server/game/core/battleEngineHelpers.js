@@ -1,5 +1,9 @@
 'use strict'
 
+const { hexDistCells } = require('../lib/map/battleHexGeometry')
+const { canEnterCell } = require('../lib/map/battleHexMovement')
+const { createMoveSlopeCounters } = require('../lib/map/battleElevation')
+
 function resetTurnMovePointsForUnit(u, deps) {
   const { setMovePoint, getMoveCap } = deps
   if (!u || typeof u !== 'object') return
@@ -36,6 +40,8 @@ function isMoveOrderValid(cells, unitInstanceId, targetCellId, orderKey, deps) {
     unitFaction,
     findReachable,
     getMeleeOpponentId,
+    getMoveCap,
+    terrainEntryCost,
   } = deps
   const cur = findUnitOnField(cells, unitInstanceId)
   if (!cur) return false
@@ -50,6 +56,12 @@ function isMoveOrderValid(cells, unitInstanceId, targetCellId, orderKey, deps) {
   }
   const budget = moveBudgetForOrderKey(getMovePoint(cur.unit), orderKey)
   const fog = computeRevealedCellIdsForFaction(cells, unitFaction(cur.unit))
+  if (hexDistCells(cur.cell, tc) === 1) {
+    const counters = createMoveSlopeCounters()
+    if (!canEnterCell(tc, cur.unit, fog, cells, cur.cell, counters, false)) return false
+    const cost = typeof terrainEntryCost === 'function' ? terrainEntryCost(tc, cur.unit) : 1
+    return cost > 0 && cost <= budget
+  }
   const reach = findReachable(cur.cell, budget, cells, cur.unit, fog)
   const tid = Number(tc.id)
   return reach.some((c) => Number(c.id) === tid)
@@ -71,6 +83,9 @@ function pathTerrainCostSlice(path, unit, endIdx, deps) {
 
 function cheapestEngagePath(cells, fromCell, unit, targetCell, fog, deps) {
   const { getNeighbor, findCellByCoor, findPath, terrainEntryCost } = deps
+  if (fromCell && targetCell && hexDistCells(fromCell, targetCell) === 1) {
+    return { path: [fromCell], cost: 0 }
+  }
   let bestPath = null
   let bestCost = Infinity
   for (let dir = 0; dir < 6; dir++) {
@@ -124,6 +139,7 @@ function isAttackOrderValid(cells, attackerId, targetId, deps) {
   if (!atk || !def) return false
   if (!opposing(unitFaction(atk.unit), unitFaction(def.unit))) return false
   if (!isSolitaryMeleeTargetCell(atk.unit, def, deps)) return false
+  if (hexDistCells(atk.cell, def.cell) === 1) return true
   const fog = computeRevealedCellIdsForFaction(cells, unitFaction(atk.unit))
   const ce = cheapestEngagePath(cells, atk.cell, atk.unit, def.cell, fog, deps)
   if (!ce) return false

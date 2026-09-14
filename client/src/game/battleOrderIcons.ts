@@ -39,6 +39,7 @@ import railUnloadingOrderImg from '../img/orderUnits/vigruzkay.png';
 import cutGladeOrderImg from '../img/orderUnits/les.png';
 import repairRailwayOrderImg from '../img/orderUnits/repairRoad.png';
 import arsonOrderImg from '../img/orderUnits/firebuild.png';
+import fireAdjustmentOrderImg from '../img/propertis/fireAdjustment.png';
 
 
 /** Группа приказов в редакторе юнита (фильтр и сворачиваемые списки). */
@@ -99,7 +100,7 @@ export const EDITOR_BATTLE_ORDER_DEFS: EditorBattleOrderDef[] = [
   { order_key: 'railLoading', name: 'Погрузка на ЖД', icon: railLoadingOrderImg, editorCategory: 'special' },
   { order_key: 'railUnloading', name: 'Выгрузка на ЖД', icon: railUnloadingOrderImg, editorCategory: 'special' },
   { order_key: 'arson', name: 'Поджёг', icon: arsonOrderImg, editorCategory: 'special' },
-  { order_key: 'demolition', name: 'Подрыв', icon: explomostOrderImg, editorCategory: 'special' },
+  { order_key: 'fireAdjustment', name: 'Корректировка огня артиллерии', icon: fireAdjustmentOrderImg, editorCategory: 'special' },
   { order_key: 'cutGlade', name: 'Вырубка просеки', icon: cutGladeOrderImg, editorCategory: 'sapper' },
   { order_key: 'repairRailway', name: 'Ремонт ЖД путей', icon: repairRailwayOrderImg, editorCategory: 'sapper' },
   { order_key: 'accompaniment', name: 'Сопровождение дружественной авиации', icon: accompanimentOrderImg, editorCategory: 'aviation' },
@@ -116,11 +117,18 @@ const ICON_BY_KEY: Record<string, string> = Object.fromEntries(
   EDITOR_BATTLE_ORDER_DEFS.filter((d) => d.icon != null).map((d) => [d.order_key, d.icon!]),
 );
 
-/** Приказы только в каталоге редактора: в бою кнопка есть, действия нет. */
+/** Приказы только в каталоге: в бою кнопки нет. */
 export const STUB_BATTLE_ORDER_KEYS = new Set(['cutGlade']);
+
+/** Приказы-способности: в бою не кликаются (корректировка — флаг корректировщика). */
+export const NON_ACTION_BATTLE_ORDER_KEYS = new Set(['demolition']);
 
 export function isStubBattleOrder(orderKey: string | null | undefined): boolean {
   return STUB_BATTLE_ORDER_KEYS.has(String(orderKey ?? '').trim());
+}
+
+export function isNonActionBattleOrder(orderKey: string | null | undefined): boolean {
+  return NON_ACTION_BATTLE_ORDER_KEYS.has(String(orderKey ?? '').trim());
 }
 
 

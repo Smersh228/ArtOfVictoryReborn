@@ -6,7 +6,6 @@ import attackMoralImg from '../img/propertis/attackMoral.png';
 import breakingThroughBarbedWireImg from '../img/propertis/breakingThroughBarbedWire.png';
 import crossingAWaterObstacleImg from '../img/propertis/crossingAWaterObstacle.png';
 import desantImg from '../img/propertis/desant.png';
-import fireAdjustmentImg from '../img/propertis/fireAdjustment.png';
 import hiddenStateImg from '../img/propertis/hiddenState.png';
 import mineDetectionImg from '../img/propertis/mineDetection.png';
 import sniperImg from '../img/propertis/sniper.png';
@@ -40,7 +39,6 @@ export const EDITOR_UNIT_PROPERTY_DEFS: EditorUnitPropertyDef[] = [
   { prop_key: 'crossingAWaterObstacle', name: 'Преодоление водной преграды', icon: crossingAWaterObstacleImg },
   { prop_key: 'desant', name: 'Десант', icon: desantImg },
   { prop_key: 'destructionOfBarbedWire', name: 'Подрыв колючего заграждения', icon: destructionOfBarbedWireImg },
-  { prop_key: 'fireAdjustment', name: 'Корректировка огня', icon: fireAdjustmentImg },
   { prop_key: 'hiddenState', name: 'Скрытый отряд', icon: hiddenStateImg },
   { prop_key: 'mineDetection', name: 'Обнаружение мин', icon: mineDetectionImg },
   { prop_key: 'movementThroughTheSwamp', name: 'Преодоление болота', icon: movementThroughTheSwampImg },

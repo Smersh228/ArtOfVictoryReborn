@@ -2,6 +2,7 @@ import type { BattleHqRevealedOrder, BattleOrderPayload, LobbyFaction } from '..
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { findUnitCellByInstanceId } from './battleMovePreview';
 import { computeReactiveDaisyCellIds, hexDistCells } from './battleFirePreview';
+import { resolveDotOccupantAtCellId, unitInDot } from './cellDot';
 
 export type BattlePendingOrderHover = {
   orderKey: string;
@@ -133,6 +134,14 @@ function hoverFromOrder(p: BattleOrderPayload, cells: Cell[], unitInstanceId: nu
   if (sapperHexOrderKey(key) && p.targetCellId != null && Number.isFinite(Number(p.targetCellId))) {
     return { orderKey: key, iconCellIds: [Number(p.targetCellId)], iconUnitInstanceIds };
   }
+  if (key === 'fireAdjustment' && p.targetUnitInstanceId != null && Number.isFinite(Number(p.targetUnitInstanceId))) {
+    const spotterId = Number(p.unitInstanceId);
+    const ids = [
+      Number.isFinite(spotterId) ? spotterId : unitInstanceId,
+      Number(p.targetUnitInstanceId),
+    ];
+    return { orderKey: key, iconUnitInstanceIds: ids };
+  }
   if (key === 'railLoading' && p.targetUnitInstanceId != null && Number.isFinite(Number(p.targetUnitInstanceId))) {
     return { orderKey: key, iconUnitInstanceIds: [...iconUnitInstanceIds, Number(p.targetUnitInstanceId)] };
   }
@@ -236,7 +245,7 @@ export function computeBattlePendingOrderHover(args: {
   if (orderPick && String(orderPick.orderKey || '').trim() === 'smoke') return null;
   if (battleUnitOrders) return null;
 
-  const tipUnit = battleUnitTip?.unit ?? null;
+  const tipUnit = battleUnitTip?.unit ?? resolveDotOccupantAtCellId(battleHoverCellId, cells);
   const medicalIds = medicalPatientIdsForHoveredMedic(cells, pendingOrders, tipUnit, myBattleFaction, unitIsMineOnMap);
   const withMedical = (hover: BattlePendingOrderHover | null): BattlePendingOrderHover | null => {
     if (!medicalIds.length) return hover;
@@ -263,11 +272,20 @@ export function computeBattlePendingOrderHover(args: {
     pendingOrders,
     hqRevealedOrders,
   });
-  if (!p) return withMedical(null);
+  const withDotIcon = (hover: BattlePendingOrderHover | null): BattlePendingOrderHover | null => {
+    if (!hover || !tipUnit || !unitInDot(tipUnit) || battleHoverCellId == null) return hover;
+    const dotId = Number(battleHoverCellId);
+    if (!Number.isFinite(dotId)) return hover;
+    const iconCellIds = [...new Set([...(hover.iconCellIds || []), dotId])];
+    return { ...hover, iconCellIds };
+  };
+  if (!p) return withDotIcon(withMedical(null));
   if (String(p.orderKey || '').trim() === 'smoke' && p.targetCellId != null && Number.isFinite(Number(p.targetCellId))) {
-    return withMedical({ orderKey: 'smoke', iconCellIds: [Number(p.targetCellId)], iconUnitInstanceIds: [iid] });
+    return withDotIcon(
+      withMedical({ orderKey: 'smoke', iconCellIds: [Number(p.targetCellId)], iconUnitInstanceIds: [iid] }),
+    );
   }
-  return withMedical(hoverFromOrder(p, cells, iid));
+  return withDotIcon(withMedical(hoverFromOrder(p, cells, iid)));
 }
 
 type MedicalTactical = {

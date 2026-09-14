@@ -148,6 +148,7 @@ export function inferOrderKey(o: { name: string; order_key?: string }): string |
   if (n.includes('подавлен')) return 'fireHard';
   const k = o.order_key?.trim();
   if (k) return k;
+  if (n.includes('корректир')) return 'fireAdjustment';
   if (n.includes('огонь')) return 'fire';
   if (n.includes('атака')) return 'attack';
   if (n.includes('боевое') && n.includes('полож')) return 'moveWar';

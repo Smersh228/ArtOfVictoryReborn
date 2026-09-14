@@ -17,7 +17,7 @@ const Button: React.FC<ButtonProps> = ({ name, size, onClick, className, disable
     <div
       title={title}
       onClick={disabled ? undefined : onClick}
-      style={{ width: size ? `${size}px` : 'auto' }}
+      style={size != null ? { width: `min(${size}px, 100%)` } : undefined}
       className={[styles.button, disabled ? styles.buttonDisabled : '', className].filter(Boolean).join(' ')}
     >
       {name}

@@ -1,5 +1,9 @@
+import { padCargoSlots } from './editorMapTransportCargo'
+
 export type EditorDeployPool = {
   unitIds: number[]
+  /** Груз каждого юнита пула (параллельно unitIds). */
+  unitCargo: number[][]
   structureIds: string[]
 }
 
@@ -51,7 +55,7 @@ export function catalogBuildingStructureId(dbId: number): string {
 }
 
 function emptyPool(): EditorDeployPool {
-  return { unitIds: [], structureIds: [] }
+  return { unitIds: [], unitCargo: [], structureIds: [] }
 }
 
 export const MAX_POOL_COPIES = 40
@@ -118,8 +122,10 @@ export function parseEditorDeployment(raw: unknown): EditorDeploymentState {
       const team = Math.floor(Number(k))
       if (!Number.isFinite(team) || team < 1) continue
       const row = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+      const unitIds = asIntCopies(row.unitIds)
       pools[String(team)] = {
-        unitIds: asIntCopies(row.unitIds),
+        unitIds,
+        unitCargo: padCargoSlots(row.unitCargo, unitIds.length),
         structureIds: asStringCopies(row.structureIds),
       }
     }
@@ -128,7 +134,11 @@ export function parseEditorDeployment(raw: unknown): EditorDeploymentState {
 }
 
 export function teamDeployPool(state: EditorDeploymentState, team: number): EditorDeployPool {
-  return state.pools[String(team)] ?? emptyPool()
+  const raw = state.pools[String(team)] ?? emptyPool()
+  return {
+    ...raw,
+    unitCargo: padCargoSlots(raw.unitCargo, raw.unitIds.length),
+  }
 }
 
 export function teamDeployZoneCount(state: EditorDeploymentState, team: number): number {
@@ -178,7 +188,11 @@ export function addPoolUnit(state: EditorDeploymentState, team: number, unitId: 
   const key = String(team)
   const prev = teamDeployPool(state, team)
   if (poolCopyCount(prev.unitIds, unitId) >= MAX_POOL_COPIES) return state
-  return { ...state, pools: { ...state.pools, [key]: { ...prev, unitIds: [...prev.unitIds, unitId] } } }
+  const unitCargo = padCargoSlots(prev.unitCargo, prev.unitIds.length)
+  return {
+    ...state,
+    pools: { ...state.pools, [key]: { ...prev, unitIds: [...prev.unitIds, unitId], unitCargo: [...unitCargo, []] } },
+  }
 }
 
 export function removePoolUnit(state: EditorDeploymentState, team: number, unitId: number): EditorDeploymentState {
@@ -188,7 +202,24 @@ export function removePoolUnit(state: EditorDeploymentState, team: number, unitI
   if (idx < 0) return state
   const unitIds = prev.unitIds.slice()
   unitIds.splice(idx, 1)
-  return { ...state, pools: { ...state.pools, [key]: { ...prev, unitIds } } }
+  const unitCargo = padCargoSlots(prev.unitCargo, prev.unitIds.length)
+  unitCargo.splice(idx, 1)
+  return { ...state, pools: { ...state.pools, [key]: { ...prev, unitIds, unitCargo } } }
+}
+
+export function setPoolUnitCargo(
+  state: EditorDeploymentState,
+  team: number,
+  slotIndex: number,
+  cargoIds: readonly number[],
+): EditorDeploymentState {
+  const key = String(team)
+  const prev = teamDeployPool(state, team)
+  const idx = Math.floor(Number(slotIndex))
+  if (!Number.isFinite(idx) || idx < 0 || idx >= prev.unitIds.length) return state
+  const unitCargo = padCargoSlots(prev.unitCargo, prev.unitIds.length)
+  unitCargo[idx] = Array.from(cargoIds).filter((n) => Number.isFinite(n) && n > 0)
+  return { ...state, pools: { ...state.pools, [key]: { ...prev, unitCargo } } }
 }
 
 export function addPoolStructure(

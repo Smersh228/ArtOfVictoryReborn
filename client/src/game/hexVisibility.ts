@@ -4,6 +4,7 @@ export {
   cubeDistance,
   cubeLineDraw,
   findCellByCube,
+  getCellCubeIndex,
   cellBlocksLineOfSight,
   isHexVisible,
   visibleCellIdsInRange,

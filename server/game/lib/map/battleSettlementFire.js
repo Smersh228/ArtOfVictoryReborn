@@ -39,6 +39,19 @@ function markSettlementDestroyed(cell) {
   const ex = ensureHexExtra(cell)
   ex.settlementDestroyed = true
   ex.isDestroyedSettlement = true
+  ex.defBonusByType = {}
+  ex.defBonusInf = 0
+  ex.defBonusTech = 0
+  ex.accuracyBonusByType = {}
+  ex.accuracyBonusMeleeByType = {}
+  ex.accuracyBonusRules = []
+  cell.defBonusInf = 0
+  cell.defBonusTech = 0
+  if (cell.defBonusByType && typeof cell.defBonusByType === 'object') cell.defBonusByType = {}
+  if (cell.baseDefend && typeof cell.baseDefend === 'object') {
+    cell.baseDefend.infantry = 0
+    cell.baseDefend.technics = 0
+  }
 }
 
 function settlementKind(cell) {
@@ -258,6 +271,65 @@ function cellHasEnemy(cell, faction) {
   return false
 }
 
+function cellCube(cell) {
+  const x = Number(cell && cell.coor && cell.coor.x)
+  const z = Number(cell && cell.coor && cell.coor.z)
+  return { x: Number.isFinite(x) ? x : 0, z: Number.isFinite(z) ? z : 0 }
+}
+
+function mapBounds(cells) {
+  let minX = Infinity
+  let maxX = -Infinity
+  let minZ = Infinity
+  let maxZ = -Infinity
+  for (const c of cells || []) {
+    if (!c || !c.coor) continue
+    const p = cellCube(c)
+    if (p.x < minX) minX = p.x
+    if (p.x > maxX) maxX = p.x
+    if (p.z < minZ) minZ = p.z
+    if (p.z > maxZ) maxZ = p.z
+  }
+  if (!Number.isFinite(minX)) return { minX: 0, maxX: 0, minZ: 0, maxZ: 0 }
+  return { minX, maxX, minZ, maxZ }
+}
+
+function factionCentroid(cells, faction, ignoreCellId) {
+  let sx = 0
+  let sz = 0
+  let n = 0
+  const skipId = Number(ignoreCellId)
+  for (const c of cells || []) {
+    if (Number(c.id) === skipId) continue
+    for (const u of liveUnitsOnCell(c)) {
+      if (unitFaction(u) !== faction) continue
+      const p = cellCube(c)
+      sx += p.x
+      sz += p.z
+      n++
+    }
+  }
+  if (!n) return null
+  return { x: sx / n, z: sz / n }
+}
+
+function ownEdgeScore(cell, bounds, centroid, faction) {
+  const p = cellCube(cell)
+  const midX = (bounds.minX + bounds.maxX) / 2
+  const midZ = (bounds.minZ + bounds.maxZ) / 2
+  let dx = 0
+  let dz = 0
+  if (centroid) {
+    dx = centroid.x - midX
+    dz = centroid.z - midZ
+  }
+  if (Math.abs(dx) < 1e-6 && Math.abs(dz) < 1e-6) {
+    dx = String(faction || '') === 'rkka' ? -1 : 1
+    dz = 0
+  }
+  return p.x * dx + p.z * dz
+}
+
 function nearestEnemyDist(cells, fromCell, faction) {
   let best = Infinity
   for (const c of cells) {
@@ -268,9 +340,11 @@ function nearestEnemyDist(cells, fromCell, faction) {
   return best
 }
 
-function nearestAllyDist(cells, fromCell, faction, selfId) {
+function nearestAllyDist(cells, fromCell, faction, selfId, ignoreCellId) {
   let best = Infinity
+  const skipId = Number(ignoreCellId)
   for (const c of cells) {
+    if (Number(c.id) === skipId) continue
     for (const u of liveUnitsOnCell(c)) {
       if (Number(u.instanceId) === Number(selfId)) continue
       if (unitFaction(u) !== faction) continue
@@ -281,76 +355,99 @@ function nearestAllyDist(cells, fromCell, faction, selfId) {
   return best
 }
 
-function edgeScore(cell, faction) {
-  const x = Number(cell && cell.coor && cell.coor.x)
-  if (!Number.isFinite(x)) return 0
-  const f = String(faction || '')
-  if (f === 'rkka') return -x
-  return x
+function isImpassableFleeHex(unit, toCell) {
+  const special = require('./battleSpecialTerrain')
+  const { unitHasPropKey: hasProp } = require('../../core/battleUnitType')
+  if (!special.canEnterElevation3(unit, toCell)) return true
+  if (special.isDestroyedBridgeHex(toCell) && !special.unitCanEnterDestroyedBridge(unit, toCell)) return true
+  const water =
+    special.isWaterUnitRiverHex(toCell) || special.isWaterObstacleHex(toCell)
+  if (water && !hasProp(unit, 'waterUnit') && !hasProp(unit, 'crossingAWaterObstacle')) return true
+  const { isRavine, unitCannotCrossRavine } = require('./battleElevation')
+  const ponton = require('./battlePonton')
+  if (isRavine(toCell) && unitCannotCrossRavine(unit) && !ponton.isPontonComplete(toCell && toCell.builds)) {
+    return true
+  }
+  return false
 }
 
-function canFleeTo(fromCell, toCell, unit, cells) {
+function canStepOffFire(fromCell, toCell, unit, cells) {
   if (!fromCell || !toCell || !unit) return false
-  if (hexDistCells(fromCell, toCell) !== 1) return false
+  if (Number(toCell.id) === Number(fromCell.id)) return false
   if (hasSettlementFire(toCell)) return false
-  if (smoke.hasSmokeOnCell(toCell.builds)) return false
-  const terrain = require('./battleTerrain')
-  if (terrain.terrainEntryCost(toCell, unit) === 0) return false
-  const special = require('./battleSpecialTerrain')
-  if (!special.canEnterElevation3(unit, toCell)) return false
-  if (!special.waterUnitCanEnterCell(unit, toCell)) return false
-  const structureHp = require('./battleStructureHp')
-  if (!structureHp.unitCanEnterDamagedStructure(unit, toCell)) return false
-  if (unitHasPropKey(unit, 'railwayDetachment')) {
-    const railway = require('./battleRailway')
-    if (!railway.cellAllowsRailwayDetachment(toCell) || !railway.cellAllowsRailwayDetachment(fromCell)) return false
-  }
-  const fac = unitFaction(unit)
-  if (cellHasEnemy(toCell, fac)) return false
-  const { hasDotOnCell, unitInDot } = require('./battleDot')
+  if (cellHasEnemy(toCell, unitFaction(unit))) return false
+  if (isImpassableFleeHex(unit, toCell)) return false
   let live = 0
-  for (const u of liveUnitsOnCell(toCell)) {
-    if (unitInDot(u)) continue
-    live++
+  for (const u of toCell.units || []) {
+    if (getStr(u) <= 0) continue
+    live += 1
   }
-  const cap = hasDotOnCell(toCell.builds) ? 2 : 3
-  if (live >= cap) return false
+  if (live >= 3) return false
+  void cells
   return true
 }
 
 function pickFleeCell(cells, fromCell, unit) {
+  const { isArtilleryDeployedForBattle } = require('../../core/battleUnitType')
+  const elevation = require('./battleElevation')
+  if (isArtilleryDeployedForBattle(unit)) return null
+  if (elevation.isBattleAirUnitType(unit)) return null
   const fac = unitFaction(unit)
+  const fromId = Number(fromCell.id)
   const cands = []
   for (let dir = 0; dir < 6; dir++) {
     const nb = neighborAtDir(cells, fromCell, dir)
     if (!nb) continue
-    if (!canFleeTo(fromCell, nb, unit, cells)) continue
+    if (!canStepOffFire(fromCell, nb, unit, cells)) continue
     cands.push(nb)
   }
   if (!cands.length) return null
+  const bounds = mapBounds(cells)
+  const centroid = factionCentroid(cells, fac, fromId)
   cands.sort((a, b) => {
-    const aFire = hasSettlementFire(a) ? 1 : 0
-    const bFire = hasSettlementFire(b) ? 1 : 0
-    if (aFire !== bFire) return aFire - bFire
     const aEn = nearestEnemyDist(cells, a, fac)
     const bEn = nearestEnemyDist(cells, b, fac)
     if (aEn !== bEn) return bEn - aEn
-    const aAl = nearestAllyDist(cells, a, fac, unit.instanceId)
-    const bAl = nearestAllyDist(cells, b, fac, unit.instanceId)
+    const aAl = nearestAllyDist(cells, a, fac, unit.instanceId, fromId)
+    const bAl = nearestAllyDist(cells, b, fac, unit.instanceId, fromId)
     if (aAl !== bAl) return aAl - bAl
-    return edgeScore(b, fac) - edgeScore(a, fac)
+    const aEd = ownEdgeScore(a, bounds, centroid, fac)
+    const bEd = ownEdgeScore(b, bounds, centroid, fac)
+    if (aEd !== bEd) return bEd - aEd
+    return Number(a.id) - Number(b.id)
   })
   return cands[0]
 }
 
 function tryFleeFromFire(cells, unit, fromCell, le, ph, deps) {
-  const { removeUnitFromCell, addUnitToCell, syncUnitCoor } = deps || {}
-  if (typeof removeUnitFromCell !== 'function') return false
+  const analog = require('../unit/battleMeleeAnalog')
+  const { findUnitOnField } = require('../unit/battleUnitField')
+  analog.breakMeleeLink(unit, cells, { findUnitOnField: (deps && deps.findUnitOnField) || findUnitOnField })
   const dest = pickFleeCell(cells, fromCell, unit)
   if (!dest) return false
-  removeUnitFromCell(fromCell, unit.instanceId)
-  addUnitToCell(dest, unit)
-  if (typeof syncUnitCoor === 'function') syncUnitCoor(unit, dest)
+  let remove = deps && deps.removeUnitFromCell
+  let add = deps && deps.addUnitToCell
+  let sync = deps && deps.syncUnitCoor
+  if (typeof remove !== 'function') {
+    remove = (cell, instanceId) => {
+      if (!cell.units) return
+      cell.units = cell.units.filter((u) => Number(u.instanceId) !== Number(instanceId))
+    }
+  }
+  if (typeof add !== 'function') {
+    add = (cell, u) => {
+      if (!cell.units) cell.units = []
+      cell.units.push(u)
+    }
+  }
+  if (typeof sync !== 'function') {
+    sync = (u, cell) => {
+      if (cell && cell.coor) u.coor = { ...cell.coor }
+    }
+  }
+  remove(fromCell, unit.instanceId)
+  add(dest, unit)
+  sync(unit, dest)
   if (unit.tactical) delete unit.tactical.onSettlementFire
   if (typeof le === 'function') {
     le(ph, `Пожар: юнит ${unit.instanceId} вышел с горящего гекса ${fromCell.id} → кл. ${dest.id}`)
@@ -358,47 +455,60 @@ function tryFleeFromFire(cells, unit, fromCell, le, ph, deps) {
   return true
 }
 
-function applyFireDamageAndFlee(cells, le, ph, deps) {
-  if (!Array.isArray(cells)) return
-  const {
-    logUnitDestroyed,
-    trySteadfastnessAfterOverwatchDamage,
-    getMoraleThresholdForSteadfastness,
-    roll2d6,
-    ensureTacticalBattle,
-  } = deps || {}
-  const burning = cells.filter((c) => hasSettlementFire(c))
-  for (const c of burning) {
-    const fire = settlementFireMeta(c)
-    const turn = fire ? Number(fire.turn) || 1 : 1
-    const victims = liveUnitsOnCell(c).slice()
-    for (const u of victims) {
-      if (!u.tactical) u.tactical = {}
-      u.tactical.onSettlementFire = true
-      const prev = getStr(u)
-      setStr(u, prev - 1)
-      if (typeof le === 'function') {
-        le(ph, `Пожар: юнит ${u.instanceId} на кл. ${c.id} −1 численности (без теста на потери)`)
-      }
-      if (getStr(u) <= 0) {
-        if (typeof logUnitDestroyed === 'function') {
-          logUnitDestroyed(le, ph, u, prev, 'пожар', c.id)
-        }
-        continue
-      }
-      if (typeof trySteadfastnessAfterOverwatchDamage === 'function') {
-        trySteadfastnessAfterOverwatchDamage(le, ph, u, 1)
-      }
-      if (turn <= 1) continue
-      const threshold =
-        typeof getMoraleThresholdForSteadfastness === 'function' ? getMoraleThresholdForSteadfastness(u) : 0
-      const roll = u.tactical && Number(u.tactical.steadfastnessUiRoll)
-      const passed = threshold <= 0 || (Number.isFinite(roll) && roll < threshold)
-      if (passed) tryFleeFromFire(cells, u, c, le, ph, deps)
+function sortFireLeavers(units) {
+  return units.slice().sort((a, b) => {
+    const aFlame = unitHasPropKey(a, 'attackMoral') ? 0 : 1
+    const bFlame = unitHasPropKey(b, 'attackMoral') ? 0 : 1
+    if (aFlame !== bFlame) return aFlame - bFlame
+    return Number(a.instanceId) - Number(b.instanceId)
+  })
+}
+
+function fleeEveryoneOnBurningCell(cells, cell, le, ph, deps) {
+  if (!cell || !hasSettlementFire(cell)) return
+  const elevation = require('./battleElevation')
+  const leavers = sortFireLeavers(liveUnitsOnCell(cell))
+  for (const u of leavers) {
+    if (elevation.isBattleAirUnitType(u)) continue
+    if (!u.tactical) u.tactical = {}
+    u.tactical.onSettlementFire = true
+    const left = tryFleeFromFire(cells, u, cell, le, ph, deps)
+    if (!left && typeof le === 'function') {
+      le(ph, `Пожар: юнит ${u.instanceId} остался на горящем гексе ${cell.id}`)
     }
   }
-  void roll2d6
-  void ensureTacticalBattle
+}
+
+function applyFireStrengthLoss(cell, units, le, ph, deps) {
+  const elevation = require('./battleElevation')
+  const { logUnitDestroyed, trySteadfastnessAfterOverwatchDamage } = deps || {}
+  for (const u of units) {
+    if (elevation.isBattleAirUnitType(u)) continue
+    const prev = getStr(u)
+    setStr(u, prev - 1)
+    if (typeof le === 'function') {
+      le(ph, `Пожар: юнит ${u.instanceId} на кл. ${cell.id} −1 численности`)
+    }
+    if (getStr(u) <= 0) {
+      if (typeof logUnitDestroyed === 'function') {
+        logUnitDestroyed(le, ph, u, prev, 'пожар', cell.id)
+      }
+      continue
+    }
+    if (typeof trySteadfastnessAfterOverwatchDamage === 'function') {
+      trySteadfastnessAfterOverwatchDamage(le, ph, u, 1)
+    }
+  }
+}
+
+function applyFireDamageAndFlee(cells, le, ph, deps) {
+  if (!Array.isArray(cells)) return
+  const burning = cells.filter((c) => hasSettlementFire(c))
+  for (const c of burning) {
+    const victims = liveUnitsOnCell(c).slice()
+    applyFireStrengthLoss(c, victims, le, ph, deps)
+    fleeEveryoneOnBurningCell(cells, c, le, ph, deps)
+  }
 }
 
 function maybeIgniteFromFlamethrower(unit, cell, cells, le, ph) {

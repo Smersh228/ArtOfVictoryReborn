@@ -1,10 +1,10 @@
 
 
 .battle {
-  width: min(1280px, 82vw);
-  max-width: 88%;
-  margin-left: auto;
-  margin-right: 8px;
+  width: auto;
+  max-width: none;
+  margin-left: 348px;
+  margin-right: 12px;
   margin-top: 12px;
   margin-bottom: 0;
   padding: 10px 12px 12px;
@@ -15,51 +15,115 @@
   flex-direction: column;
   overflow: hidden;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(70, 76, 84, 0.55);
   background: linear-gradient(
     160deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(200, 206, 214, 0.18) 50%,
-    rgba(255, 255, 255, 0.12) 100%
+    rgba(92, 98, 108, 0.96) 0%,
+    rgba(76, 82, 92, 0.97) 50%,
+    rgba(84, 90, 100, 0.95) 100%
   );
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
 }
 
 .toolbar {
   position: relative;
-  z-index: 6;
+  z-index: 20;
   flex-shrink: 0;
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  margin-bottom: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 4px 8px;
+  margin-bottom: 8px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.48);
-  background: rgba(255, 255, 255, 0.18);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
-  overflow-x: auto;
-  scrollbar-width: thin;
+  border: 1px solid rgba(58, 64, 72, 0.5);
+  background: rgba(82, 88, 98, 0.94);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  overflow: visible;
 }
 
 .toolbarRow {
   display: flex;
   flex-wrap: nowrap;
-  flex: 1 1 auto;
-  align-items: stretch;
-  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   min-width: 0;
   width: 100%;
-  padding: 6px 8px;
+  padding: 2px 4px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.38);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(40, 46, 54, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.toolbarMenuWrap {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 110px;
+}
+
+.toolbarLeftActions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toolbarLeftActions > .toolbarBtn {
+  flex: 1 1 0;
+  width: auto !important;
+  min-width: 110px;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.toolbarMenuWrap > div:first-child {
+  width: 100% !important;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.toolbarBtn {
+  margin: 2px !important;
+  padding-top: 5px !important;
+  padding-bottom: 5px !important;
+  font-size: 14px;
+}
+
+.toolbarChatBtn {
+  min-width: 128px;
+}
+
+.toolbarMenuTriggerOpen {
+  background: rgba(53, 49, 49, 0.5);
+  color: white;
+}
+
+.toolbarMenuPanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 260px;
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: rgba(248, 249, 252, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+}
+
+.toolbarMenuPanel > div {
+  width: 100% !important;
+  margin: 6px 0 !important;
+  box-sizing: border-box;
 }
 
 .toolbarActions {
@@ -73,8 +137,8 @@
 
 .toolbarBtnSlot {
   flex: 1 1 0;
-  min-width: 96px;
-  max-width: 200px;
+  min-width: 0;
+  max-width: none;
   display: flex;
   align-items: center;
 }
@@ -90,15 +154,17 @@
   flex-wrap: nowrap;
   align-items: center;
   gap: 10px;
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  justify-content: flex-end;
   margin: 0 !important;
   box-sizing: border-box;
+  min-width: 0;
 }
 
 .toolbarTurnGroup .toolbarBtnSlot {
-  flex: 0 1 200px;
-  min-width: 140px;
-  max-width: 220px;
+  flex: 1 1 240px;
+  min-width: 180px;
+  max-width: 360px;
 }
 
 .battleTurnCounter {
@@ -106,7 +172,7 @@
   white-space: nowrap;
   font-size: 18px;
   font-weight: 800;
-  color: rgba(28, 32, 40, 0.92);
+  color: rgba(236, 238, 242, 0.95);
   letter-spacing: 0.03em;
   padding-right: 4px;
 }
@@ -165,32 +231,36 @@
 }
 
 .leftMenuPanelStandard {
-  width: min(312px, calc(100vw - 40px));
-}
-
-.leftMenuPanelStandard .leftMenuTitle {
-  color: rgba(255, 255, 255, 0.96);
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-.leftMenuPanelStandard .leftMenuSubtitle {
-  color: rgba(255, 255, 255, 0.78);
-  font-weight: 500;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.leftMenuPanelStandard .leftMenuText {
-  color: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  width: min(380px, calc(100vw - 40px));
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
 }
 
 .leftMenuPanelStandard .leftMenuHeader {
-  border-bottom-color: rgba(255, 255, 255, 0.22);
+  border-bottom-color: rgba(0, 0, 0, 0.12);
 }
 
 .leftMenuPanelStandard .leftMenuFooter {
-  border-top-color: rgba(255, 255, 255, 0.22);
+  border-top-color: rgba(0, 0, 0, 0.12);
+}
+
+.leftMenuPanelStandard .leftMenuTitle {
+  color: #000;
+  font-weight: 800;
+  text-shadow: none;
+}
+
+.leftMenuPanelStandard .leftMenuSubtitle {
+  color: #000;
+  font-weight: 800;
+  text-shadow: none;
+}
+
+.leftMenuPanelStandard .leftMenuText {
+  color: #000;
+  font-weight: 800;
+  text-shadow: none;
 }
 
 .leftMenuPanelSurrenderModal .leftMenuHeader {
@@ -278,18 +348,18 @@
 .battleReportFilter {
   padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  background: rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(0, 0, 0, 0.22);
+  background: rgba(255, 255, 255, 0.45);
+  color: #111;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
 .battleReportFilterActive {
-  background: rgba(255, 255, 255, 0.32);
-  border-color: rgba(255, 255, 255, 0.5);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(0, 0, 0, 0.4);
+  color: #000;
 }
 
 .leftMenuPanelStandard .battleReportList {
@@ -305,10 +375,11 @@
   align-items: flex-start;
   gap: 6px;
   font-size: 13px;
+  font-weight: 800;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.88);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #000;
+  text-shadow: none;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   font-variant-numeric: tabular-nums;
 }
 
@@ -326,22 +397,24 @@
 }
 
 .leftMenuPanelStandard .battleReportOrderLabel {
-  font-weight: 600;
+  font-weight: 800;
   font-size: 12px;
-  color: rgba(255, 245, 200, 0.96);
+  color: #000;
   line-height: 1.3;
 }
 
 .leftMenuPanelStandard .battleReportUnitNames {
   font-size: 12px;
+  font-weight: 800;
   line-height: 1.35;
-  color: rgba(255, 255, 255, 0.84);
+  color: #000;
 }
 
 .leftMenuPanelStandard .battleReportStats {
   font-size: 11px;
+  font-weight: 800;
   line-height: 1.4;
-  color: rgba(220, 230, 255, 0.88);
+  color: #000;
   font-variant-numeric: tabular-nums;
 }
 
@@ -351,7 +424,8 @@
 }
 
 .leftMenuPanelStandard .battleReportLine:hover .battleReportWeatherDebuffs,
-.leftMenuPanelStandard .battleReportLine:focus-within .battleReportWeatherDebuffs {
+.leftMenuPanelStandard .battleReportLine:focus-within .battleReportWeatherDebuffs,
+.leftMenuPanelStandard .battleReportLinePinned .battleReportWeatherDebuffs {
   display: block;
 }
 
@@ -359,8 +433,9 @@
   cursor: default;
 }
 
-.leftMenuPanelStandard .battleReportLineInteractive:hover {
-  background: rgba(255, 255, 255, 0.07);
+.leftMenuPanelStandard .battleReportLineInteractive:hover,
+.leftMenuPanelStandard .battleReportLinePinned {
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .leftMenuPanelStandard .battleReportLine:last-child {
@@ -368,14 +443,14 @@
 }
 
 .leftMenuPanelStandard .battleReportLineMeta {
-  color: rgba(255, 255, 255, 0.92);
+  color: #000;
   font-weight: 600;
 }
 
 .leftMenuPanelStandard .battleReportLineTurn {
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  border-top: 1px solid rgba(0, 0, 0, 0.16);
   border-bottom: none;
   font-size: 14px;
   letter-spacing: 0.02em;
@@ -631,11 +706,9 @@
   min-height: 0;
   margin: 0 2px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  background: rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(58, 64, 72, 0.5);
+  background: rgba(78, 84, 94, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -652,6 +725,7 @@
   flex-direction: column;
   padding: 0;
   box-sizing: border-box;
+  overflow: hidden;
 }
 
 .battleMapResolvingOverlay {
@@ -780,6 +854,86 @@
   color: #111;
 }
 
+.battleDeployModalMapBtn {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: #111;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.battleDeployPanelPhone {
+  left: 50%;
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 24px));
+  max-width: min(420px, calc(100vw - 24px));
+  max-height: min(86dvh, 640px);
+  margin: 0;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.battleDeployPanelPhone .leftMenuHeader {
+  align-items: center;
+}
+
+.battleDeployPhoneDock {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  bottom: max(8px, env(safe-area-inset-bottom, 0px));
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  box-sizing: border-box;
+}
+
+.battleDeployPhoneDockText {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: #111;
+  line-height: 1.3;
+}
+
+.battleDeployPhoneDockBtn {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.16);
+  background: #111;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.battleDeployPhoneDockReady {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  color: #111;
+}
+
 .battleDeployTabs {
   display: flex;
   gap: 6px;
@@ -853,6 +1007,17 @@
   font-weight: 600;
   color: #111;
   line-height: 1.35;
+}
+
+.battleDeployPicked {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #111;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.3;
 }
 
 .battleDeployMembers {
@@ -953,25 +1118,32 @@
 }
 
 .battleCellsRoot {
-  flex: 1;
-  width: 100%;
-  min-height: 0;
+  flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 .battleCellsRoot canvas {
   display: block;
-  width: 100%;
-  height: 100%;
+  width: auto;
+  height: auto;
   max-width: none;
   max-height: none;
-  object-fit: contain;
+  object-fit: none;
   border-radius: 8px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08);
   cursor: url("../../img/cursors/cursorPointer.cur"), default;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .mapPlaceholder {
@@ -1043,10 +1215,10 @@
 
 .leftMenuPanelStandard .battleTasksFactionTitle {
   margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.96);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  font-size: 15px;
+  font-weight: 800;
+  color: #000;
+  text-shadow: none;
 }
 
 .leftMenuPanelStandard .battleTasksFactionTitleSecond {
@@ -1055,19 +1227,21 @@
 
 .leftMenuPanelStandard .battleTasksBody {
   margin: 0;
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 800;
   line-height: 1.5;
   white-space: pre-wrap;
-  color: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  color: #000;
+  text-shadow: none;
 }
 
 .leftMenuPanelStandard .battleTasksEmpty {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 800;
   line-height: 1.45;
-  color: rgba(255, 255, 255, 0.72);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  color: #000;
+  text-shadow: none;
 }
 
 /* Меню приказов по ЛКМ */
@@ -1295,10 +1469,16 @@
 
 .battleModalLabel {
   display: block;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   font-size: 14px;
   font-weight: 800;
   color: #000;
+}
+
+.battleModalLabel .battleModalMetaMuted {
+  display: block;
+  margin: 2px 0 0;
+  font-weight: 600;
 }
 
 .battleModalLabel strong {
@@ -1428,12 +1608,92 @@
   justify-content: flex-end;
 }
 
+@media (max-width: 1440px), (max-height: 900px) {
+  .battle {
+    width: auto;
+    max-width: none;
+    height: calc(100dvh - 12px);
+    max-height: calc(100dvh - 12px);
+    margin: 6px 12px 0 328px;
+    padding: 8px 10px 10px;
+  }
+
+  .toolbar {
+    padding: 3px 6px;
+    margin-bottom: 6px;
+  }
+
+  .toolbarTurnGroup .toolbarBtnSlot {
+    flex: 1 1 220px;
+    min-width: 160px;
+    max-width: 320px;
+  }
+
+  .toolbarChatBtn {
+    min-width: 110px;
+  }
+
+  .battleTurnCounter {
+    font-size: 16px;
+  }
+
+  .leftMenuPanel {
+    left: 10px;
+    max-height: min(480px, calc(100dvh - 24px));
+  }
+
+  .leftMenuPanelStandard {
+    width: min(360px, calc(100vw - 32px));
+  }
+
+  .leftMenuPanelSurrenderModal {
+    left: 50%;
+    right: auto;
+    transform: translate(-50%, -50%);
+    width: min(360px, calc(100vw - 48px));
+  }
+}
+
+@media (max-height: 768px) {
+  .battle {
+    height: calc(100dvh - 8px);
+    max-height: calc(100dvh - 8px);
+    margin-top: 4px;
+    padding: 4px 6px 6px;
+  }
+
+  .toolbarBtn {
+    font-size: 13px;
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+  }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+  .battle {
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0 auto;
+    padding: 4px;
+    border-radius: 0;
+  }
+
+  .toolbar {
+    padding: 2px 4px;
+    margin-bottom: 4px;
+  }
+}
+
 @media (max-width: 900px) {
   .battle {
     width: calc(100% - 16px);
     max-width: none;
     margin-left: 8px;
     margin-right: 8px;
+  }
+
+  .toolbarChatBtn {
+    min-width: 0;
   }
 }
 
@@ -1443,50 +1703,95 @@
     height: 100dvh;
     max-height: 100dvh;
     margin: 0;
-    padding: 8px;
+    padding: 6px 6px max(6px, env(safe-area-inset-bottom, 0px));
     border-radius: 0;
   }
 
   .toolbar {
-    padding: 8px;
-    margin-bottom: 8px;
+    padding: 4px;
+    margin-bottom: 6px;
     border-radius: 10px;
+    overflow: visible;
   }
 
   .toolbarRow {
     flex-wrap: wrap;
     gap: 6px;
-    padding: 6px;
+    padding: 4px;
   }
 
+  .toolbarLeftActions,
   .toolbarActions {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     flex: 1 1 100%;
-    gap: 6px;
+    gap: 4px;
+    width: 100%;
+  }
+
+  .toolbarBtn,
+  .toolbarLeftActions > .toolbarBtn,
+  .toolbarMenuWrap {
+    flex: 1 1 0;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .toolbarBtn {
+    width: auto !important;
+    margin: 2px !important;
+    font-size: 13px;
+    padding-top: 7px !important;
+    padding-bottom: 7px !important;
+    white-space: nowrap;
+  }
+
+  .toolbarChatBtn {
+    min-width: 0;
+  }
+
+  .toolbarMenuWrap > div:first-child {
+    width: 100% !important;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .toolbarMenuPanel {
+    left: 0;
+    right: auto;
+    min-width: 0;
+    width: min(calc(100vw - 24px), 280px);
   }
 
   .toolbarBtnSlot {
-    flex: 1 1 calc(50% - 6px);
+    flex: 1 1 auto;
     max-width: none;
-    min-width: min(140px, 46%);
+    min-width: 0;
   }
 
   .toolbarTurnGroup {
     width: 100%;
     flex: 1 1 100%;
-    gap: 8px;
+    flex-wrap: nowrap;
+    gap: 6px;
     justify-content: space-between;
+    align-items: center;
   }
 
   .toolbarTurnGroup .toolbarBtnSlot {
-    flex: 1 1 auto;
-    min-width: 120px;
+    flex: 1 1 140px;
+    min-width: 0;
     max-width: none;
   }
 
   .battleTurnCounter {
-    font-size: 16px;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+    font-size: 13px;
     font-weight: 800;
+    line-height: 1.3;
+    text-align: right;
+    padding: 0 4px;
   }
 
   .battleMap {
@@ -1495,11 +1800,30 @@
   }
 
   .battleCellIdCorner {
+    left: auto;
     right: 8px;
     bottom: 8px;
     padding: 6px 9px;
     font-size: 12px;
     border-radius: 8px;
+    max-width: min(70vw, 240px);
+    width: max-content;
+    white-space: normal;
+  }
+
+  .battleDeploying .battleCellIdCorner {
+    bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .mapCanvasWrap {
+    overflow: hidden;
+  }
+
+  .battleCellsRoot {
+    overflow-x: auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .battleHudOrderLine {
@@ -1509,51 +1833,197 @@
   }
 
   .leftMenuPanel {
-    left: 8px;
-    right: 8px;
-    top: auto;
-    bottom: 8px;
-    transform: none;
+    left: 10px;
+    right: 10px;
+    top: 50%;
+    bottom: auto;
+    transform: translateY(-50%);
     width: auto;
-    max-height: min(70dvh, 520px);
+    max-width: min(520px, calc(100vw - 20px));
+    max-height: min(86dvh, 640px);
+    margin: 0 auto;
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
   }
 
   .leftMenuPanelStandard {
     width: auto;
+    background: #fff;
   }
 
   .leftMenuPanelSurrenderModal {
-    left: 8px;
-    right: 8px;
+    left: 50%;
+    right: auto;
     top: 50%;
     bottom: auto;
-    width: auto;
-    transform: translateY(-50%);
+    width: min(360px, calc(100vw - 24px));
+    transform: translate(-50%, -50%);
     max-height: min(82dvh, 480px);
+  }
+
+  .leftMenuPanel.battleDeployPanelPhone {
+    left: 50%;
+    right: auto;
+    top: 50%;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    width: min(420px, calc(100vw - 24px));
+    max-width: min(420px, calc(100vw - 24px));
+    max-height: min(86dvh, 640px);
+  }
+
+  .battleDeployPanel .leftMenuHeader {
+    padding: 8px 12px 6px;
+  }
+
+  .battleDeployPanel .leftMenuSubtitle {
+    font-size: 11px;
+    margin-top: 4px;
+  }
+
+  .battleDeployPanel .leftMenuBody {
+    padding: 8px 12px 10px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .battleDeployPanel .leftMenuFooter {
+    padding: 8px 12px max(10px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .battleDeployPanel .leftMenuFooter > div,
+  .battleDeployReadyBtn {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  .battleDeployTabs {
+    margin-bottom: 8px;
+  }
+
+  .battleDeployTab {
+    padding: 8px 10px;
+    font-size: 13px;
+    min-height: 40px;
+  }
+
+  .battleDeployGrid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow-x: hidden;
+    overflow-y: auto;
+    gap: 8px;
+    padding: 2px;
+    max-height: min(38dvh, 280px);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .battleDeployCard {
+    width: auto;
+    min-height: 96px;
+    padding: 10px 6px;
+  }
+
+  .battleDeployCard img {
+    width: 44px;
+    height: 44px;
+    object-fit: contain;
+  }
+
+  .battleDeployCardName {
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .battleDeployHint {
+    margin-top: 6px;
+    font-size: 12px;
+  }
+
+  .battleDeployMembers {
+    max-height: 72px;
+    overflow-y: auto;
+  }
+
+  .battleDeployPicked {
+    margin: 0 0 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: #111;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.3;
+  }
+
+  .battleUnitOrders {
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: min(58dvh, 440px);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .battleUnitOrdersBody {
+    max-height: none;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .battleUnitTip {
+    left: 8px !important;
+    right: 8px !important;
+    top: auto !important;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+    max-width: none;
+    min-width: 0;
+    max-height: min(46dvh, 320px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .battleModalBackdrop {
+    padding: 8px;
+    align-items: flex-end;
   }
 }
 
 @media (max-width: 480px) {
   .battle {
-    padding: 6px;
+    padding: 4px 4px max(4px, env(safe-area-inset-bottom, 0px));
   }
 
   .toolbar {
-    padding: 6px;
-    margin-bottom: 6px;
+    padding: 3px;
+    margin-bottom: 4px;
+    overflow: visible;
   }
 
   .toolbarRow {
-    padding: 5px;
-    gap: 5px;
+    padding: 3px;
+    gap: 4px;
   }
 
   .toolbarActions {
-    gap: 5px;
+    gap: 4px;
+  }
+
+  .toolbarBtn {
+    font-size: 12px;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
   }
 
   .toolbarBtnSlot {
-    flex: 1 1 100%;
+    flex: 1 1 auto;
     max-width: none;
     min-width: 0;
   }
@@ -1563,7 +2033,7 @@
   }
 
   .battleTurnCounter {
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 800;
   }
 
@@ -1580,15 +2050,26 @@
   }
 
   .battleModalBackdrop {
-    padding: 10px;
+    padding: 8px;
   }
 
   .battleModalPanel {
-    padding: 16px 14px;
+    padding: 14px 12px;
   }
 
   .battleModalTitle,
   .battleModalTitleRow {
     font-size: 15px;
+  }
+
+  .battleUnitOrderBtn {
+    padding: 8px 8px;
+    font-size: 13px;
+  }
+
+  .leftMenuPanelStandard .battleReportLineInteractive {
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
   }
 }

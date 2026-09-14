@@ -111,25 +111,46 @@ function parseAmmoCapacityMax(u) {
 
 const DEFAULT_UNIT_AMMO_CAP = 10
 const DEFAULT_TRUCK_AMMO_CAP = 40
+const DEFAULT_TRUCK_SPECIAL_CAP = 10
+const DEFAULT_UNIT_MINES_CAP = 4
+const DEFAULT_UNIT_EXPLOSIVES_CAP = 2
 
-function isTruckUnitLocal(u) {
-  const t = String(u?.type || '').toLowerCase()
-  if (t !== 'tech') return false
-  if (/грузовик|truck|lkw/i.test(String(u.name || ''))) return true
-  const orders = u.orders
-  if (!Array.isArray(orders)) return false
-  return orders.some((o) => {
-    const k = String((o && (o.order_key || o.key)) || '')
-      .trim()
-      .toLowerCase()
-    return k === 'getsup' || k === 'loadingsup' || k === 'loading' || k === 'tow' || k === 'unloading'
-  })
+function readStoredCap(u, key) {
+  const n = Number(u && u[key])
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null
+}
+
+function getSpecialCapacityMax(u, have, capKey, unitDefault, receiveOrderKeys) {
+  const stored = readStoredCap(u, capKey)
+  const { isTruckUnit, unitHasOrderKey } = require('../../core/battleUnitType')
+  if (isTruckUnit(u)) return Math.max(DEFAULT_TRUCK_SPECIAL_CAP, stored ?? 0, have)
+  if (stored != null) return Math.max(stored, have)
+  let canReceive = have > 0
+  if (!canReceive && Array.isArray(receiveOrderKeys)) {
+    for (const k of receiveOrderKeys) {
+      if (unitHasOrderKey(u, k)) {
+        canReceive = true
+        break
+      }
+    }
+  }
+  if (canReceive) return Math.max(unitDefault, have)
+  return 0
+}
+
+function getMinesCapacityMax(u) {
+  return getSpecialCapacityMax(u, getMines(u), 'minesMax', DEFAULT_UNIT_MINES_CAP, ['mining', 'explomost'])
+}
+
+function getExplosivesCapacityMax(u) {
+  return getSpecialCapacityMax(u, getExplosives(u), 'explosivesMax', DEFAULT_UNIT_EXPLOSIVES_CAP, ['explomost'])
 }
 
 function getAmmoCapacityMax(u) {
   const c = parseAmmoCapacityMax(u)
   if (c != null && Number.isFinite(c) && c >= 0) return c
-  if (isTruckUnitLocal(u)) {
+  const { isTruckUnit } = require('../../core/battleUnitType')
+  if (isTruckUnit(u)) {
     const have =
       typeof u.ammoCount === 'number' && Number.isFinite(u.ammoCount) ? u.ammoCount : 0
     return Math.max(DEFAULT_TRUCK_AMMO_CAP, have)
@@ -148,4 +169,7 @@ module.exports = {
   getMovePoint,
   setMovePoint,
   getAmmoCapacityMax,
+  getMinesCapacityMax,
+  getExplosivesCapacityMax,
+  DEFAULT_TRUCK_SPECIAL_CAP,
 }

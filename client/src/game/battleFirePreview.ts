@@ -1,8 +1,7 @@
 import type { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { findReachableCells, findBattleUnitByInstanceId, findUnitCellByInstanceId, type BattleMovePreviewUnit } from './battleMovePreview';
 import { rangeArrayForShooterOnCell, terrainAccuracyBonusFromCell } from './battleTerrain';
-import { isCellVisibleToAnyFriendly } from './battleFireAdjustment';
-import { isHexVisible } from './hexVisibility';
+import { isHexVisible, visibleCellIdsInRange } from './hexVisibility';
 import {
   canDesantHalfCombatShootTarget,
   effectiveFireDistanceForAccuracy,
@@ -18,12 +17,14 @@ import {
   computeOccupiedDotFireSectorCellIds,
   dotIntensityForTarget,
   dotRangeArrayForUnit,
+  hasDotOnCell,
   isDotFireShooter,
   unitFiresFromDot,
+  unitInDot,
 } from './cellDot';
 import { applyAccuracyRangeShift, applyIntensityPenalty } from './battleEnvironment';
 import { canSpotHiddenTargetClient, isHiddenConcealedClient } from './battleHiddenState';
-import { isShootableStructureCell, unitHasBuildFire } from './cellStructureHp';
+import { isBuildFireTargetCell, unitHasBuildFire, unitCanRangedBuildFire } from './cellStructureHp';
 
 export { isArmoredVehicleTarget } from './battleDesantCombat';
 
@@ -69,10 +70,30 @@ function getIntensityDiceForTarget(
 function isFireRowMeleeOnlyForTarget(
   attacker: Record<string, unknown>,
   target: Record<string, unknown>,
+  useReactiveFire?: boolean,
 ): boolean {
   const key = targetTypeToFireKey(target.type);
-  const opts = attacker.fireRowOptions as Record<string, { melee?: boolean } | undefined> | undefined;
+  const raw = useReactiveFire ? attacker.fireRowOptionsReactive : attacker.fireRowOptions;
+  const opts =
+    raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? (raw as Record<string, { melee?: boolean } | undefined>)
+      : undefined;
   return Boolean(opts?.[key]?.melee);
+}
+
+function rawFireRowHasPositiveIntensity(
+  attacker: Record<string, unknown>,
+  target: Record<string, unknown>,
+  useReactiveFire?: boolean,
+): boolean {
+  const key = targetTypeToFireKey(target.type);
+  const src = useReactiveFire
+    ? ((attacker.fireReactive as Record<string, unknown> | undefined) ?? null)
+    : ((attacker._fireRaw as Record<string, unknown> | undefined) ??
+      (attacker.fire as Record<string, unknown> | undefined) ??
+      rawFireFromUnit(attacker, false));
+  if (!src || typeof src !== 'object') return false;
+  return splitNums(src[key]).some((n) => n > 0);
 }
 
 function isMeleeLinkedOpponent(
@@ -96,8 +117,17 @@ export function canRangedFireAtTarget(
   useReactiveFire?: boolean,
 ): boolean {
   if (orderKey !== 'fire' && orderKey !== 'fireHard') return true;
-  if (isInfantryUnitType(attacker) && isArmoredVehicleTarget(target)) return false;
-  if (isFireRowMeleeOnlyForTarget(attacker, target)) return false;
+  if (unitInDot(target) && unitCanRangedBuildFire(attacker, useReactiveFire)) return false;
+  if (isInfantryUnitType(attacker) && isArmoredVehicleTarget(target)) {
+    const dotInt = dotIntensityForTarget(attacker, target.type);
+    if (dotInt != null) {
+      if (dotInt <= 0) return false;
+    } else {
+      if (isFireRowMeleeOnlyForTarget(attacker, target, useReactiveFire)) return false;
+      if (!rawFireRowHasPositiveIntensity(attacker, target, useReactiveFire)) return false;
+    }
+  }
+  if (isFireRowMeleeOnlyForTarget(attacker, target, useReactiveFire)) return false;
   if (getIntensityDiceForTarget(attacker, target, useReactiveFire) <= 0) return false;
   if (isMeleeLinkedOpponent(attacker, target)) {
     if (!canDesantHalfCombatShootTarget(attacker, target, distanceHex)) return false;
@@ -536,22 +566,18 @@ function losAllowsShot(
   targetCell: Cell,
   cells: Cell[],
   concealedTargetOk: boolean,
-  options: BattleFireHighlightOptions | undefined,
-  orderKey: 'fire' | 'fireHard' | 'attack' | 'hardMove' | 'fireMove',
-  isArt: boolean,
+  shooterLos?: Set<number> | null,
 ): boolean {
-  if (isHexVisible(attackerCell, targetCell, cells)) return true;
+  const targetId = Number(targetCell.id);
+  if (shooterLos ? shooterLos.has(targetId) : isHexVisible(attackerCell, targetCell, cells)) return true;
   if (concealedTargetOk) return true;
-  if (
-    options?.useFireAdjustment &&
-    orderKey === 'fire' &&
-    isArt &&
-    options.viewerFaction &&
-    isCellVisibleToAnyFriendly(cells, options.viewerFaction, targetCell)
-  ) {
-    return true;
-  }
   return false;
+}
+
+function cellsByNumericId(cells: Cell[]): Map<number, Cell> {
+  const m = new Map<number, Cell>();
+  for (const c of cells) m.set(Number(c.id), c);
+  return m;
 }
 
 function fogHas(fogRevealedCellIds: FogVisibleCellIds, cellId: number): boolean {
@@ -569,20 +595,17 @@ function collectStructureFireCellIds(
   options?: BattleFireHighlightOptions,
 ): Set<number> {
   const out = new Set<number>();
-  if (!unitHasBuildFire(attackerUnit, options?.useReactiveFire)) return out;
+  const fromDot = isDotFireShooter(attackerUnit, attackerCell, cells) || unitFiresFromDot(attackerUnit);
+  if (!unitCanRangedBuildFire(attackerUnit, options?.useReactiveFire) && !fromDot) return out;
   const maxD = maxShootRangeStepsForUnit(attackerUnit, attackerCell, options?.useReactiveFire);
   if (maxD < 1) return out;
-  const isArt =
-    String(attackerUnit.type || '').toLowerCase() === 'artillery' ||
-    battleUnitHasPropKey(attackerUnit, 'areaFire') ||
-    battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
   const concealedTargetOk = battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
-  const fromDot = isDotFireShooter(attackerUnit, attackerCell, cells) || unitFiresFromDot(attackerUnit);
   const artSec = getArtillerySectorCellIdSet(attackerUnit, attackerCell, cells);
-  const dotSec = fromDot ? new Set(computeOccupiedDotFireSectorCellIds(attackerCell, cells)) : null;
+  const dotSec = fromDot ? new Set(computeOccupiedDotFireSectorCellIds(attackerCell, cells, { forFire: true })) : null;
+  const shooterLos = visibleCellIdsInRange(attackerCell, maxD, cells);
   for (const cell of cells) {
     if (Number(cell.id) === Number(attackerCell.id)) continue;
-    if (!isShootableStructureCell(cell)) continue;
+    if (!isBuildFireTargetCell(cell)) continue;
     if (!fogHas(fogRevealedCellIds, cell.id)) continue;
     const d = hexDistCells(attackerCell, cell);
     if (d < 1 || d > maxD) continue;
@@ -592,18 +615,7 @@ function collectStructureFireCellIds(
     if (artilleryFireRestrictedToSector(attackerUnit) && !fromDot) {
       if (artSec && !artSec.has(Number(cell.id))) continue;
     }
-    if (
-      !fromDot &&
-      !losAllowsShot(
-        attackerCell,
-        cell,
-        cells,
-        concealedTargetOk,
-        options,
-        orderKey,
-        isArt,
-      )
-    ) {
+    if (!losAllowsShot(attackerCell, cell, cells, concealedTargetOk, shooterLos)) {
       continue;
     }
     out.add(Number(cell.id));
@@ -729,10 +741,6 @@ export function computeBattleFireHighlights(
     return { instanceIds: new Set(), areaCellIds: null };
   }
 
-  const isArt =
-    String(attackerUnit.type || '').toLowerCase() === 'artillery' ||
-    battleUnitHasPropKey(attackerUnit, 'areaFire') ||
-    battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
   const useReactiveFire = !!options?.useReactiveFire;
   if (isDotFireShooter(attackerUnit, attackerCell, cells)) {
     const dotH = computeDotFireHighlights(attackerUnit, attackerCell, cells, fogRevealedCellIds);
@@ -778,21 +786,25 @@ export function computeBattleFireHighlights(
       return { instanceIds: new Set(), areaCellIds: null };
     }
     const concealedTargetOk = battleUnitHasPropKey(attackerUnit, 'concealedTargetFire');
-    set = new Set(
-      [...set].filter((id) => {
-        const c = cells.find((x) => x.id === id);
-        if (!c) return false;
-        const d = hexDistCells(attackerCell, c);
-        if (tableAccuracyAtDistance(attackerUnit, attackerCell, d, useReactiveFire) <= 0) return false;
-        if (!useReactiveFire) {
-          if (!cellHasShootableHostileAtDistance(attackerUnit, attackerCell, c, d, false, useReactiveFire)) {
-            return false;
-          }
-          return losAllowsShot(attackerCell, c, cells, concealedTargetOk, options, orderKey, isArt);
+    const byId = cellsByNumericId(cells);
+    const shooterLos = useReactiveFire ? null : visibleCellIdsInRange(attackerCell, maxD, cells);
+    const next = new Set<number>();
+    for (const id of set) {
+      const c = byId.get(Number(id));
+      if (!c) continue;
+      const d = hexDistCells(attackerCell, c);
+      if (tableAccuracyAtDistance(attackerUnit, attackerCell, d, useReactiveFire) <= 0) continue;
+      if (!useReactiveFire) {
+        if (!cellHasShootableHostileAtDistance(attackerUnit, attackerCell, c, d, false, useReactiveFire)) {
+          continue;
         }
-        return true;
-      }),
-    );
+        if (!losAllowsShot(attackerCell, c, cells, concealedTargetOk, shooterLos)) {
+          continue;
+        }
+      }
+      next.add(id);
+    }
+    set = next;
     return withStructureFireCells(
       { instanceIds: new Set(), areaCellIds: set.size > 0 ? set : null },
       attackerUnit,
@@ -822,15 +834,7 @@ export function computeBattleFireHighlights(
     ) {
       continue;
     }
-    const losOk = losAllowsShot(
-      attackerCell,
-      live.cell,
-      cells,
-      concealedTargetOk,
-      options,
-      orderKey,
-      isArt,
-    );
+    const losOk = losAllowsShot(attackerCell, live.cell, cells, concealedTargetOk);
     if (!losOk && !concealedTargetOk) continue;
     if (artilleryFireRestrictedToSector(attackerUnit) && !fromDot) {
       if (!isCellInArtillerySector(attackerUnit, attackerCell, cells, live.cell.id)) continue;
@@ -864,7 +868,7 @@ export function computeSmokeTargetCellIds(
 
   let sector: Set<number> | null = null;
   if (fromDot) {
-    sector = new Set(computeOccupiedDotFireSectorCellIds(shooterCell, cells));
+    sector = new Set(computeOccupiedDotFireSectorCellIds(shooterCell, cells, { forFire: true }));
   } else if (artilleryFireRestrictedToSector(shooter)) {
     const sec = getArtillerySectorCellIdSet(shooter, shooterCell, cells);
     if (!sec || sec.size === 0) return new Set();

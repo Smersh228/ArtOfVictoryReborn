@@ -3,11 +3,13 @@ import { findBattleUnitByInstanceId, findMovementPath } from "../game/battleMove
 import { EDITOR_BATTLE_ORDER_DEFS } from "../game/battleOrderIcons";
 import { isAirUnitInboundInSkyForTurn, readFlightPathCellIdsFromUnit } from "../game/battleAirSupport";
 import { formatEnvironmentReport } from "../game/battleEnvironment";
+import { unitFiresFromDot } from "../game/cellDot";
 import {
   buildReconReplayFromLogEntry,
   buildAirCombatReplayFromLogEntry,
   buildAirReturnReplayFromLogEntry,
   buildDesantParatrooperReplayFromLogEntry,
+  buildReinforcementReplayFromLogEntry,
 } from "./battleReportReplay";
 export function battleOrderLabel(orderKey) {
   const k = String(orderKey || "").trim();
@@ -690,6 +692,15 @@ function isFireReportPhase(ph) {
   return ph === 2 || ph === 3 || ph === 4;
 }
 function fireReportOrderKey(ph, fl, aml) {
+  if (fl?.fireMove === true) return "fireMove";
+  if (
+    fl?.defendOverwatch === true ||
+    fl?.defendReturnFire === true ||
+    fl?.defendSectorIdle === true ||
+    fl?.dotSectorAuto === true
+  ) {
+    return fl?.isAmbush === true ? "ambush" : "defend";
+  }
   if (ph === 2) return "fireHard";
   if (ph === 3) return "fire";
   const missionKey = String(aml?.orderKey ?? "").trim();
@@ -709,7 +720,40 @@ export function battleUnitDisplayName(unit) {
   const id = unit.instanceId;
   return id != null ? `Юнит ${id}` : "—";
 }
+function fireLineMarksShooterFromDot(fireLine, unit, fallbackId) {
+  const sid = Number(unit?.instanceId ?? fallbackId);
+  const ids = fireLine?.fromDotShooterIds;
+  if (Array.isArray(ids) && ids.length) {
+    return ids.some((x) => Number(x) === sid);
+  }
+  if (fireLine?.fromDot === true) {
+    const aid = Number(fireLine.attackerId);
+    if (!Number.isFinite(aid) || !Number.isFinite(sid) || aid === sid) return true;
+  }
+  return unitFiresFromDot(unit);
+}
+function formatFireShooterLabel(unit, fallbackId, fireLine) {
+  const name = unit ? battleUnitDisplayName(unit) : `Юнит ${fallbackId ?? "?"}`;
+  if (fireLineMarksShooterFromDot(fireLine, unit, fallbackId)) return `ДОТ (${name})`;
+  return name;
+}
+function fireOrderLabel(ok, unit, fireLine, fallbackId) {
+  const base = battleOrderLabel(ok);
+  const parts = [base];
+  if (fireLineMarksShooterFromDot(fireLine, unit, fallbackId)) parts.push('ДОТ');
+  if (fireLine?.fireAdjustment === true) parts.push('корректировка огня');
+  return parts.join(' · ');
+}
 export function parseLogisticsMetaFromText(text) {
+  const gsNew = text.match(/^Передача припасов: грузовик (\d+) → (\d+), (.+)$/);
+  if (gsNew) {
+    return {
+      orderKey: "getSup",
+      fromInstanceId: Number(gsNew[1]),
+      toInstanceId: Number(gsNew[2]),
+      amountText: String(gsNew[3] || "").trim()
+    };
+  }
   const gs = text.match(/^Передача БК: грузовик (\d+) → (\d+), \+(\d+)/);
   if (gs) {
     return {
@@ -717,6 +761,15 @@ export function parseLogisticsMetaFromText(text) {
       fromInstanceId: Number(gs[1]),
       toInstanceId: Number(gs[2]),
       amount: Number(gs[3])
+    };
+  }
+  const lsNew = text.match(/^Загрузка со склада: грузовик (\d+) ← кл\. (\d+), (.+)$/);
+  if (lsNew) {
+    return {
+      orderKey: "loadingSup",
+      fromInstanceId: Number(lsNew[1]),
+      toCellId: Number(lsNew[2]),
+      amountText: String(lsNew[3] || "").trim()
     };
   }
   const ls = text.match(/^Загрузка со склада: грузовик (\d+) ← кл\. (\d+), \+(\d+)/);
@@ -881,6 +934,20 @@ export function parseAttackStatsFromLogText(text) {
   return formatRollStatsLine({ damages: Number(m[1]), rollResults: rolls });
 }
 export function formatAttackReportStats(attackLine, text) {
+  if (attackLine?.meleeMutual === true) {
+    const rollsA = Array.isArray(attackLine.rollResults)
+      ? attackLine.rollResults.map((x) => Number(x)).filter((n) => Number.isFinite(n))
+      : [];
+    const rollsB = Array.isArray(attackLine.rollResultsB)
+      ? attackLine.rollResultsB.map((x) => Number(x)).filter((n) => Number.isFinite(n))
+      : [];
+    const dmgA = Number(attackLine.damages) || 0;
+    const dmgB = Number(attackLine.damagesTaken) || 0;
+    const parts = [`урон ${dmgA}/${dmgB}`];
+    if (rollsA.length) parts.push(`1-й: выпало ${rollsA.join(", ")}`);
+    if (rollsB.length) parts.push(`2-й: выпало ${rollsB.join(", ")}`);
+    return parts.join(" · ");
+  }
   const rolls = Array.isArray(attackLine?.rollResults)
     ? attackLine.rollResults.map((x) => Number(x)).filter((n) => Number.isFinite(n))
     : [];
@@ -908,9 +975,11 @@ function isFriendlyToViewerForReport(unit, viewerFaction) {
 }
 function formatFireLineRedactedIfNeeded(entry, cells, viewerFaction, fogRevealedCellIds) {
   const ph = entry.phase ?? 0;
-  if (!isFireReportPhase(ph)) return null;
+  if (!isFireReportPhase(ph) && ph !== 8) return null;
   const fl = entry.meta?.fireLine;
   if (!fl || fl.attackerId == null) return null;
+  const ok = fireReportOrderKey(ph, fl, entry.meta?.airMissionLine);
+  if (ph === 4 || ok === "attackAir" || ok === "bombardment") return null;
   const aLive = findBattleUnitByInstanceId(cells, Number(fl.attackerId));
   if (!aLive) return null;
   if (!reportFactionsOpposed(reportViewerFaction(aLive.unit), viewerFaction)) return null;
@@ -929,7 +998,6 @@ function formatFireLineRedactedIfNeeded(entry, cells, viewerFaction, fogRevealed
   }
   const uniqueNames = names.filter((name, idx) => names.indexOf(name) === idx);
   if (!uniqueNames.length) return null;
-  const ok = fireReportOrderKey(ph, fl);
   const text = String(entry.text ?? "");
   const stats = formatFireReportStats(fl, text);
   return {
@@ -1086,7 +1154,44 @@ export function battleReportEntryShouldOmit(entry, cells, viewerFaction, fogReve
       if (!targetFriendly) return true;
     }
   }
+  if (ph !== 1 && ph !== 5 && ph !== 6 && ph !== 7 && ph !== 8 && !isFireReportPhase(ph)) {
+    const actorIds = collectHiddenOrderActorIds(entry);
+    if (actorIds.length > 0 && actorIds.every((id) => hiddenEnemyById(id))) return true;
+  }
   return false;
+}
+
+function collectHiddenOrderActorIds(entry) {
+  const ids = [];
+  const add = (raw) => {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0 && !ids.includes(n)) ids.push(n);
+  };
+  const m = entry?.meta || {};
+  add(m.unitInstanceId);
+  add(m.fireLine?.attackerId);
+  add(m.attackLine?.attackerId);
+  add(m.reconLine?.unitInstanceId);
+  add(m.airSortieLine?.unitInstanceId);
+  add(m.airMissionLine?.unitInstanceId);
+  add(m.airCombatLine?.unitInstanceId);
+  add(m.airStrikeLine?.unitInstanceId);
+  add(m.logisticsLine?.fromInstanceId);
+  add(m.medicalLine?.medicInstanceId);
+  add(m.medicalLine?.targetUnitInstanceId);
+  const text = String(entry?.text ?? "");
+  const patterns = [
+    /юнит (\d+)/gi,
+    /артиллерия (\d+)/gi,
+    /(?:занял ДОТ|вышел из ДОТ|занимает ДОТ|покинул ДОТ|выходит из ДОТ)[^\d]*(\d+)/gi,
+    /Юнит (\d+) (?:занял|вышел|уничтожен)/g,
+  ];
+  for (const re of patterns) {
+    re.lastIndex = 0;
+    let hit;
+    while ((hit = re.exec(text))) add(hit[1]);
+  }
+  return ids;
 }
 function airSectorShotKindLabel(kind) {
   const k = String(kind || "").trim();
@@ -1127,7 +1232,7 @@ function formatArtilleryAirSectorReportLines(entry, cells, text, m) {
 
   const shooter = shooterId != null ? findBattleUnitByInstanceId(cells, Number(shooterId)) : null;
   const target = targetId != null ? findBattleUnitByInstanceId(cells, Number(targetId)) : null;
-  const shooterLabel = shooter ? battleUnitDisplayName(shooter.unit) : `Юнит ${shooterId ?? "?"}`;
+  const shooterLabel = formatFireShooterLabel(shooter?.unit, shooterId, fl);
   const targetLabel = target ? battleUnitDisplayName(target.unit) : `Авиация ${targetId ?? "?"}`;
   const cellPart =
     cellId != null && Number.isFinite(Number(cellId)) ? ` · кл. ${Number(cellId)}` : "";
@@ -1217,6 +1322,78 @@ function formatTrenchReportLines(entry, cells, text, m) {
   return null;
 }
 
+function formatDotMoveReportLines(entry, cells, text, m) {
+  const uidMeta = Number(m?.unitInstanceId);
+  const toMeta = Number(m?.toCellId);
+  const unitLabel = (uid) => {
+    const u = Number.isFinite(uid) ? findBattleUnitByInstanceId(cells, uid) : null;
+    return u ? battleUnitDisplayName(u.unit) : `Юнит ${uid}`;
+  };
+  if (m?.dotExitDone === true || /^Юнит \d+ покинул ДОТ/.test(text)) {
+    const left = text.match(/^Юнит (\d+) покинул ДОТ(?: → кл\. (\d+))?/);
+    const uid = Number.isFinite(uidMeta) && uidMeta > 0 ? uidMeta : Number(left?.[1]);
+    const dest = Number.isFinite(toMeta) && toMeta > 0 ? toMeta : Number(left?.[2]);
+    return {
+      order: "Покинуть ДОТ",
+      detail: unitLabel(uid),
+      stats: Number.isFinite(dest) ? `выход: кл. ${dest}` : undefined,
+    };
+  }
+  const startExit = text.match(/^Юнит (\d+) выходит из ДОТ на кл\. (\d+)(?: \((\d+) ход\.\))?/);
+  if (startExit) {
+    const uid = Number.isFinite(uidMeta) && uidMeta > 0 ? uidMeta : Number(startExit[1]);
+    const dest = Number.isFinite(toMeta) && toMeta > 0 ? toMeta : Number(startExit[2]);
+    const turns = startExit[3];
+    return {
+      order: "Покинуть ДОТ",
+      detail: unitLabel(uid),
+      stats: [Number.isFinite(dest) ? `выход: кл. ${dest}` : null, turns ? `${turns} ход.` : null]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  }
+  const progressExit = text.match(/^Юнит (\d+) выходит из ДОТ \(осталось (\d+) ход\.\)(?: → кл\. (\d+))?/);
+  if (progressExit || (m?.dotExit === true && /выходит из ДОТ/.test(text))) {
+    const uid = Number.isFinite(uidMeta) && uidMeta > 0 ? uidMeta : Number(progressExit?.[1]);
+    const left = progressExit?.[2];
+    const dest = Number.isFinite(toMeta) && toMeta > 0 ? toMeta : Number(progressExit?.[3]);
+    return {
+      order: "Покинуть ДОТ",
+      detail: unitLabel(uid),
+      stats: [Number.isFinite(dest) ? `выход: кл. ${dest}` : null, left ? `осталось ${left} ход.` : null]
+        .filter(Boolean)
+        .join(" · "),
+    };
+  }
+  const occupied = text.match(/^Юнит (\d+) занял ДОТ на кл\. (\d+)/);
+  if (occupied || (m?.dotEnter === true && /занял ДОТ/.test(text))) {
+    const uid = Number.isFinite(uidMeta) && uidMeta > 0 ? uidMeta : Number(occupied?.[1]);
+    const cellId = Number.isFinite(toMeta) && toMeta > 0 ? toMeta : Number(occupied?.[2]);
+    return {
+      order: "Занять ДОТ",
+      detail: unitLabel(uid),
+      stats: Number.isFinite(cellId) ? `кл. ${cellId}` : undefined,
+    };
+  }
+  const startEnter = text.match(/^Юнит (\d+) начинает занимать ДОТ на кл\. (\d+)/);
+  if (startEnter) {
+    return {
+      order: "Занять ДОТ",
+      detail: unitLabel(Number(startEnter[1])),
+      stats: `кл. ${startEnter[2]} · войдёт на следующем ходу`,
+    };
+  }
+  const progressEnter = text.match(/^Юнит (\d+) занимает ДОТ \(осталось (\d+) ход\.\)/);
+  if (progressEnter) {
+    return {
+      order: "Занять ДОТ",
+      detail: unitLabel(Number(progressEnter[1])),
+      stats: `осталось ${progressEnter[2]} ход.`,
+    };
+  }
+  return null;
+}
+
 function sapperJobOrderLabel(key: unknown): string {
   const k = String(key || "");
   if (k === "buildPonton") return "Наведение переправы";
@@ -1283,14 +1460,60 @@ function formatSapperReportLines(entry, cells, text, m) {
   }
   if (m?.structureHp) {
     const cellId = Number(m.structureCellId ?? m.settlementFireCellId);
+    const kind = String(m.structureKind || "").trim();
+    const kindLabel =
+      kind === "dot" ? "ДОТ" :
+      kind === "storage" ? "склад" :
+      kind === "city" ? "город" :
+      kind === "village" ? "деревня" :
+      kind === "station" ? "станция" :
+      kind === "bridge" ? "мост" :
+      kind === "railBridge" ? "ж/д мост" :
+      kind || "";
     const bits = [Number.isFinite(cellId) ? `кл. ${cellId}` : ""];
-    if (m.structureKind) bits.push(String(m.structureKind));
+    if (kindLabel) bits.push(kindLabel);
     if (m.structureDef != null) bits.push(`защита ${m.structureDef}`);
     if (m.structureStr != null) bits.push(`прочность ${m.structureStr}`);
+    const fl = m.fireLine;
+    const aid = Number(fl?.attackerId);
+    const shooter = Number.isFinite(aid) ? findBattleUnitByInstanceId(cells, aid) : null;
+    if (shooter) bits.unshift(battleUnitDisplayName(shooter.unit));
+    const destroyed = m.structureDestroyed === true || m.settlementDestroyed === true;
+    let order = "Огонь по сооружению";
+    if (destroyed) {
+      order = kind === "dot" ? "ДОТ уничтожен" : kind === "storage" ? "Склад уничтожен" : "Сооружение разрушено";
+    } else if (kind === "dot") {
+      order = "Огонь по ДОТ";
+    } else if (kind === "storage") {
+      order = "Огонь по складу";
+    }
     return {
-      order: m.structureDestroyed || m.settlementDestroyed ? "Сооружение разрушено" : "Огонь по сооружению",
+      order,
       detail: bits.filter(Boolean).join(" · ") || String(text || ""),
+      stats: formatFireReportStats(fl, text),
     };
+  }
+  const dotGone = String(text || "").match(/^ДОТ на кл\. (\d+) уничтожен/);
+  if (dotGone) {
+    return { order: "ДОТ уничтожен", detail: `кл. ${dotGone[1]}`, stats: formatFireReportStats(m?.fireLine, text) };
+  }
+  const dotHit = String(text || "").match(/^Огонь по ДОТ: юнит (\d+) → кл\. (\d+)/) ||
+    String(text || "").match(/^ДОТ кл\. (\d+): защита/) ||
+    String(text || "").match(/^Огонь по ДОТ кл\. (\d+)/);
+  if (dotHit) {
+    const uid = Number(dotHit[1]);
+    const cellFromUnit = Number.isFinite(uid) && dotHit[2] != null ? Number(dotHit[2]) : Number(dotHit[1]);
+    const u = Number.isFinite(uid) && dotHit[2] != null ? findBattleUnitByInstanceId(cells, uid) : null;
+    const bits = [u ? battleUnitDisplayName(u.unit) : "", Number.isFinite(cellFromUnit) ? `кл. ${cellFromUnit}` : ""];
+    return {
+      order: "Огонь по ДОТ",
+      detail: bits.filter(Boolean).join(" · ") || String(text || ""),
+      stats: formatFireReportStats(m?.fireLine, text),
+    };
+  }
+  const storageGone = String(text || "").match(/^Склад на кл\. (\d+) уничтожен/);
+  if (storageGone) {
+    return { order: "Склад уничтожен", detail: `кл. ${storageGone[1]}` };
   }
   return null;
 }
@@ -1336,10 +1559,40 @@ function formatWireReportLines(entry, cells, text, m) {
   return null;
 }
 
+function formatReinforcementReportLines(entry, text, m) {
+  const rl = m?.reinforcementLine;
+  if (!rl && !/^Подкрепление:/.test(String(text || ""))) return null;
+  const team = Number(rl?.team) || Number(String(text).match(/команда (\d+)/)?.[1]);
+  const fromMeta = Array.isArray(rl?.cellIds)
+    ? rl.cellIds.map((x) => Number(x)).filter((n) => Number.isFinite(n) && n > 0)
+    : [];
+  const fromText = String(text).match(/кл\.\s*([\d,\s]+)/);
+  const cellIds = fromMeta.length
+    ? fromMeta
+    : fromText
+      ? fromText[1]
+          .split(",")
+          .map((s) => Number(s.trim()))
+          .filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+  const count =
+    (Array.isArray(rl?.instanceIds) && rl.instanceIds.length) ||
+    Number(String(text).match(/— (\d+) отр/)?.[1]) ||
+    cellIds.length;
+  const teamLabel = Number.isFinite(team) && team > 0 ? `Команда ${team}` : "Команда";
+  const hexLabel = cellIds.length ? ` · кл. ${cellIds.join(", ")}` : "";
+  return {
+    order: "Подкрепление",
+    detail: `${teamLabel} · ${count} отр.${hexLabel}`,
+  };
+}
+
 export function formatBattleReportLines(entry, cells, reportCtx) {
   const ph = entry.phase ?? 0;
   const text = String(entry.text ?? "");
   const m = entry.meta;
+  const reinforcementFormatted = formatReinforcementReportLines(entry, text, m);
+  if (reinforcementFormatted) return reinforcementFormatted;
   const desantFormatted = formatDesantMissionReportLines(entry, cells, text, m);
   if (desantFormatted) return desantFormatted;
   const flightProgressFormatted = formatAirFlightProgressReportLines(entry, cells, text, m);
@@ -1351,6 +1604,8 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
   if (mineFormatted) return mineFormatted;
   const trenchFormatted = formatTrenchReportLines(entry, cells, text, m);
   if (trenchFormatted) return trenchFormatted;
+  const dotMoveFormatted = formatDotMoveReportLines(entry, cells, text, m);
+  if (dotMoveFormatted) return dotMoveFormatted;
   const sapperFormatted = formatSapperReportLines(entry, cells, text, m);
   if (sapperFormatted) return sapperFormatted;
   const wireFormatted = formatWireReportLines(entry, cells, text, m);
@@ -1407,7 +1662,7 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
   if (ph === 8) {
     const uidRaw = m?.unitInstanceId ?? (text.match(/юнит (\d+)/)?.[1] ? Number(text.match(/юнит (\d+)/)?.[1]) : NaN);
     const mk = String(m?.moveOrderKey || "move").trim();
-    const moveKey = mk === "moveWar" ? "moveWar" : "move";
+    const moveKey = mk === "moveWar" ? "moveWar" : mk === "fireMove" ? "fireMove" : "move";
     if (text.includes("недостижима")) {
       const id = text.match(/Ход: (\d+)/)?.[1];
       const u = id != null ? findBattleUnitByInstanceId(cells, Number(id)) : null;
@@ -1424,7 +1679,15 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
       };
     }
   }
-  if (isFireReportPhase(ph)) {
+  if (
+    isFireReportPhase(ph) ||
+    m?.fireLine?.fireMove === true ||
+    m?.fireLine?.defendOverwatch === true ||
+    m?.fireLine?.defendReturnFire === true ||
+    m?.fireLine?.defendSectorIdle === true ||
+    m?.fireLine?.dotSectorAuto === true ||
+    text.startsWith("Стрельба в движении:")
+  ) {
     const missionKey = String(m?.airMissionLine?.orderKey ?? "").trim();
     if (missionKey === "airReturn") return null;
     if (m?.airCombatLine || m?.fireLine?.patrolIntercept || m?.fireLine?.patrolInterceptReturn) return null;
@@ -1448,6 +1711,11 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
         a = findBattleUnitByInstanceId(cells, Number(fm[1]));
         b = findBattleUnitByInstanceId(cells, Number(fm[2]));
       }
+      const fmMove = text.match(/^Стрельба в движении: (\d+) с кл\. (\d+) → (\d+)/);
+      if ((!a || !b) && fmMove) {
+        a = findBattleUnitByInstanceId(cells, Number(fmMove[1]));
+        b = findBattleUnitByInstanceId(cells, Number(fmMove[3]));
+      }
     }
     let areaCellId = tcell != null && Number.isFinite(Number(tcell)) ? Number(tcell) : null;
     if (areaCellId == null && a && !b) {
@@ -1456,6 +1724,7 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
     }
     const stats = formatFireReportStats(fl, text);
     const areaTargets = fl?.areaTargets;
+    const fireOrder = fireOrderLabel(ok, a?.unit, fl, aid);
     const targetDestroyedByFire = (targetId, damage) => {
       const tidNum = Number(targetId);
       if (!Number.isFinite(tidNum) || Number(damage) <= 0) return false;
@@ -1495,8 +1764,8 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
       const cellPart =
         areaCellId != null && Number.isFinite(areaCellId) ? ` · кл. ${areaCellId}` : "";
       return {
-        order: battleOrderLabel(ok),
-        detail: `Стрелок: ${battleUnitDisplayName(a.unit)}${cellPart} · Повреждены: ${under}`,
+        order: fireOrder,
+        detail: `Стрелок: ${formatFireShooterLabel(a.unit, aid, fl)}${cellPart} · Повреждены: ${under}`,
         stats: statsArea
       };
     }
@@ -1536,8 +1805,8 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
         const cellPart2 =
           cid2 != null && Number.isFinite(cid2) ? ` · кл. ${cid2}` : "";
         return {
-          order: battleOrderLabel(ok),
-          detail: `Стрелок: ${battleUnitDisplayName(a.unit)}${cellPart2} · Повреждены: ${under2}`,
+          order: fireOrder,
+          detail: `Стрелок: ${formatFireShooterLabel(a.unit, aid, fl)}${cellPart2} · Повреждены: ${under2}`,
           stats: statsArea2
         };
       }
@@ -1545,9 +1814,9 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
     if (a && !b && areaCellId != null && Number.isFinite(areaCellId)) {
       const cellLabel = cells.find((c) => Number(c.id) === areaCellId);
       const detail = cellLabel
-        ? `Стрелок: ${battleUnitDisplayName(a.unit)} · Клетка ${areaCellId}`
-        : `Стрелок: ${battleUnitDisplayName(a.unit)} · кл. ${areaCellId}`;
-      return { order: battleOrderLabel(ok), detail, stats };
+        ? `Стрелок: ${formatFireShooterLabel(a.unit, aid, fl)} · Клетка ${areaCellId}`
+        : `Стрелок: ${formatFireShooterLabel(a.unit, aid, fl)} · кл. ${areaCellId}`;
+      return { order: fireOrder, detail, stats };
     }
     if (a && b) {
       const shooterIds = Array.isArray(fl?.shooterIds)
@@ -1558,28 +1827,51 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
           ? shooterIds
               .map((sid) => findBattleUnitByInstanceId(cells, sid))
               .filter(Boolean)
-              .map((rec) => battleUnitDisplayName(rec.unit))
+              .map((rec) => formatFireShooterLabel(rec.unit, rec.unit?.instanceId, fl))
           : [];
       const uniqueShooters = shooters.length > 1 ? [...new Set(shooters)] : [];
-      const shooterLabel = uniqueShooters.length > 1 ? uniqueShooters.join(', ') : battleUnitDisplayName(a.unit);
+      const shooterLabel = uniqueShooters.length > 1 ? uniqueShooters.join(', ') : formatFireShooterLabel(a.unit, aid, fl);
       return {
-        order: battleOrderLabel(ok),
+        order: fireOrder,
         detail: `Стрелок: ${shooterLabel} · Под обстрелом: ${battleUnitDisplayName(b.unit)}`,
         stats
       };
     }
     if (a && tid != null && Number.isFinite(Number(tid)) && targetDestroyedByFire(tid, fl?.damages)) {
       return {
-        order: battleOrderLabel(ok),
-        detail: `Стрелок: ${battleUnitDisplayName(a.unit)} · Цель: Юнит ${Number(tid)} · уничтожен`,
+        order: fireOrder,
+        detail: `Стрелок: ${formatFireShooterLabel(a.unit, aid, fl)} · Цель: Юнит ${Number(tid)} · уничтожен`,
         stats
       };
     }
     if (ph === 4) return null;
-    return { order: battleOrderLabel(ok), detail: "—", stats };
+    return { order: fireOrder, detail: "—", stats };
   }
   if (ph === 5) {
     const al = m?.attackLine;
+    const textMelee = text.startsWith("Ближний бой:");
+    if (textMelee || al?.meleeMutual === true) {
+      const mm = text.match(/^Ближний бой: (\d+)↔(\d+), (.+)$/);
+      const idA = Number(al?.attackerId ?? mm?.[1]);
+      const idB = Number(al?.targetId ?? mm?.[2]);
+      const a = Number.isFinite(idA) ? findBattleUnitByInstanceId(cells, idA) : null;
+      const b = Number.isFinite(idB) ? findBattleUnitByInstanceId(cells, idB) : null;
+      const an = a ? battleUnitDisplayName(a.unit) : Number.isFinite(idA) ? `Юнит ${idA}` : "—";
+      const bn = b ? battleUnitDisplayName(b.unit) : Number.isFinite(idB) ? `Юнит ${idB}` : "—";
+      const dmgA = Number(al?.damages);
+      const dmgB = Number(al?.damagesTaken);
+      const dmgTxt =
+        Number.isFinite(dmgA) && Number.isFinite(dmgB)
+          ? `урон ${an}→${bn} ${dmgA}, ${bn}→${an} ${dmgB}`
+          : mm
+            ? mm[3].trim()
+            : "";
+      return {
+        order: "Ближний бой",
+        detail: `${an} ↔ ${bn}${dmgTxt ? ` · ${dmgTxt}` : ""}`,
+        stats: formatAttackReportStats(al, text),
+      };
+    }
     const attackStats = formatAttackReportStats(al, text);
     if (al) {
       const a = findBattleUnitByInstanceId(cells, al.attackerId);
@@ -1689,24 +1981,52 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
         };
       }
     }
+    const medicalMeta = m?.medicalLine;
+    if (medicalMeta || text.startsWith("Лечение:")) {
+      const medicId = Number(medicalMeta?.medicInstanceId ?? text.match(/юнит (\d+)/)?.[1]);
+      const targetId = Number(medicalMeta?.targetUnitInstanceId ?? text.match(/отряду (\d+)/)?.[1]);
+      const medic = Number.isFinite(medicId) ? findBattleUnitByInstanceId(cells, medicId) : null;
+      const tgt = Number.isFinite(targetId) ? findBattleUnitByInstanceId(cells, targetId) : null;
+      const medicName = medic ? battleUnitDisplayName(medic.unit) : Number.isFinite(medicId) ? `Юнит ${medicId}` : "—";
+      const tgtName = tgt ? battleUnitDisplayName(tgt.unit) : Number.isFinite(targetId) ? `Юнит ${targetId}` : "";
+      const tail = text.replace(/^Лечение:\s*/, "").trim();
+      return {
+        order: battleOrderLabel("medical"),
+        detail: tgtName ? `${medicName} → ${tgtName}` : (tail || medicName)
+      };
+    }
     const ll = m?.logisticsLine ?? parseLogisticsMetaFromText(text);
     if (!ll) return null;
     if (ll.orderKey === "getSup") {
       const truck = ll.fromInstanceId != null ? findBattleUnitByInstanceId(cells, ll.fromInstanceId) : null;
       const recv = findBattleUnitByInstanceId(cells, ll.toInstanceId);
-      const amt = "amount" in ll && ll.amount != null ? String(ll.amount) : text.match(/\+\s*(\d+)/)?.[1] ?? "";
+      const amt =
+        "amountText" in ll && ll.amountText
+          ? String(ll.amountText)
+          : "amount" in ll && ll.amount != null
+            ? `+${ll.amount} БК`
+            : text.match(/\+\s*(\d+)/)?.[1]
+              ? `+${text.match(/\+\s*(\d+)/)?.[1]} БК`
+              : "";
       return {
         order: battleOrderLabel("getSup"),
-        detail: `${truck ? battleUnitDisplayName(truck.unit) : "—"} → ${recv ? battleUnitDisplayName(recv.unit) : "—"}${amt ? ` · +${amt} БК` : ""}`
+        detail: `${truck ? battleUnitDisplayName(truck.unit) : "—"} → ${recv ? battleUnitDisplayName(recv.unit) : "—"}${amt ? ` · ${amt}` : ""}`
       };
     }
     if (ll.orderKey === "loadingSup") {
       const truck = ll.fromInstanceId != null ? findBattleUnitByInstanceId(cells, ll.fromInstanceId) : null;
-      const amt = "amount" in ll && ll.amount != null ? String(ll.amount) : text.match(/\+\s*(\d+)/)?.[1] ?? "";
+      const amt =
+        "amountText" in ll && ll.amountText
+          ? String(ll.amountText)
+          : "amount" in ll && ll.amount != null
+            ? `+${ll.amount} БК`
+            : text.match(/\+\s*(\d+)/)?.[1]
+              ? `+${text.match(/\+\s*(\d+)/)?.[1]} БК`
+              : "";
       const cellLabel = ll.toCellId != null ? String(ll.toCellId) : "—";
       return {
         order: battleOrderLabel("loadingSup"),
-        detail: `${truck ? battleUnitDisplayName(truck.unit) : "—"} ← склад кл. ${cellLabel}${amt ? ` · +${amt} БК` : ""}`
+        detail: `${truck ? battleUnitDisplayName(truck.unit) : "—"} ← склад кл. ${cellLabel}${amt ? ` · ${amt}` : ""}`
       };
     }
     if (ll.orderKey === "loading") {
@@ -1784,15 +2104,32 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
       };
     }
   }
+  if (text.startsWith("Ответ по стрелявшему")) {
+    const rm = text.match(/^Ответ по стрелявшему \((оборона|засада)\):\s*(\d+)\s*→\s*(\d+)/);
+    if (rm) {
+      const a = findBattleUnitByInstanceId(cells, Number(rm[2]));
+      const b = findBattleUnitByInstanceId(cells, Number(rm[3]));
+      const an = formatFireShooterLabel(a?.unit, rm[2], m?.fireLine);
+      const bn = b ? battleUnitDisplayName(b.unit) : `Юнит ${rm[3]}`;
+      const fromDot = fireLineMarksShooterFromDot(m?.fireLine, a?.unit, rm[2]);
+      const orderBase = rm[1] === "засада" ? "Ответ с засады" : "Ответ с обороны";
+      return {
+        order: fromDot ? `${orderBase} · ДОТ` : orderBase,
+        detail: `Стрелок: ${an} · Под обстрелом: ${bn}`,
+        stats: formatFireReportStats(m?.fireLine, text),
+      };
+    }
+  }
   if (text.startsWith("Ответ с обороны:") || text.startsWith("Ответ с засады:")) {
     const rm = text.match(/^(Ответ с (?:обороны|засады)):\s*(\d+)\s*→\s*(\d+)(.*)$/);
     if (rm) {
       const a = findBattleUnitByInstanceId(cells, Number(rm[2]));
       const b = findBattleUnitByInstanceId(cells, Number(rm[3]));
-      const an = a ? battleUnitDisplayName(a.unit) : `Юнит ${rm[2]}`;
+      const an = formatFireShooterLabel(a?.unit, rm[2], m?.fireLine);
       const bn = b ? battleUnitDisplayName(b.unit) : '';
+      const fromDot = fireLineMarksShooterFromDot(m?.fireLine, a?.unit, rm[2]);
       return {
-        order: rm[1],
+        order: fromDot ? `${rm[1]} · ДОТ` : rm[1],
         detail:
           bn
             ? `${an} → ${bn}${String(rm[4] || '').trim() ? rm[4] : ''}`
@@ -1805,12 +2142,27 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
     if (rm) {
       const a = findBattleUnitByInstanceId(cells, Number(rm[2]));
       const b = findBattleUnitByInstanceId(cells, Number(rm[3]));
-      const an = a ? battleUnitDisplayName(a.unit) : `Юнит ${rm[2]}`;
+      const an = formatFireShooterLabel(a?.unit, rm[2], m?.fireLine);
       const bn = b ? battleUnitDisplayName(b.unit) : `Юнит ${rm[3]}`;
+      const fromDot = fireLineMarksShooterFromDot(m?.fireLine, a?.unit, rm[2]);
+      const orderBase = rm[1] === "засады" ? "Огонь с засады" : "Огонь с обороны";
       return {
-        order: rm[1] === "засады" ? "Огонь с засады" : "Огонь с обороны",
+        order: fromDot ? `${orderBase} · ДОТ` : orderBase,
         detail: `Стрелок: ${an} · Под обстрелом: ${bn}`,
         stats: String(rm[4] || '').trim()
+      };
+    }
+  }
+  if (text.startsWith("Скрытый отряд обнаружен:")) {
+    const hm = text.match(/^Скрытый отряд обнаружен: юнит (\d+)\s*(.*)$/);
+    if (hm) {
+      const id = Number(hm[1]);
+      const u = findBattleUnitByInstanceId(cells, id);
+      const unitLabel = u ? battleUnitDisplayName(u.unit) : `Юнит ${hm[1]}`;
+      const tail = String(hm[2] || "").trim();
+      return {
+        order: "Скрытый отряд обнаружен",
+        detail: tail ? `${unitLabel} ${tail}` : unitLabel
       };
     }
   }
@@ -1833,7 +2185,7 @@ export function formatBattleReportLines(entry, cells, reportCtx) {
       const u = findBattleUnitByInstanceId(cells, Number(hm[1]));
       const un = u ? battleUnitDisplayName(u.unit) : `Юнит ${hm[1]}`;
       return {
-        order: "Ход",
+        order: battleOrderLabel("move"),
         detail: `${un} ${hm[2].trim()}`
       };
     }
@@ -1907,6 +2259,45 @@ function findAirCombatCellForUnitInTurn(visibleLog, turn, unitId) {
   }
   return null;
 }
+function parseDotMoveReplayFromLogEntry(entry) {
+  const m = entry?.meta || {};
+  const text = String(entry?.text ?? "");
+  const isExit =
+    m.dotExit === true ||
+    m.dotExitDone === true ||
+    /^Юнит \d+ (?:выходит из ДОТ|покинул ДОТ)/.test(text);
+  const isEnter =
+    m.dotEnter === true ||
+    /^Юнит \d+ (?:занял ДОТ|занимает ДОТ|начинает занимать ДОТ)/.test(text);
+  if (!isExit && !isEnter) return null;
+  let uid = Number(m.unitInstanceId);
+  let fromId = Number(m.fromCellId);
+  let toId = Number(m.toCellId);
+  const startExit = text.match(/^Юнит (\d+) выходит из ДОТ на кл\. (\d+)/);
+  const progressExit = text.match(/^Юнит (\d+) выходит из ДОТ \(осталось \d+ ход\.\)(?: → кл\. (\d+))?/);
+  const left = text.match(/^Юнит (\d+) покинул ДОТ(?: → кл\. (\d+))?/);
+  const occupied = text.match(/^Юнит (\d+) занял ДОТ на кл\. (\d+)/);
+  const startEnter = text.match(/^Юнит (\d+) начинает занимать ДОТ на кл\. (\d+)/);
+  const progressEnter = text.match(/^Юнит (\d+) занимает ДОТ/);
+  const hit = startExit || progressExit || left || occupied || startEnter || progressEnter;
+  if (!Number.isFinite(uid) || uid <= 0) uid = Number(hit?.[1]);
+  if (!Number.isFinite(toId) || toId <= 0) {
+    const rawDest = startExit?.[2] || progressExit?.[2] || left?.[2] || occupied?.[2] || startEnter?.[2];
+    toId = Number(rawDest);
+  }
+  if (!Number.isFinite(fromId) || fromId <= 0) fromId = NaN;
+  if (!Number.isFinite(uid) || uid <= 0) return null;
+  const spawn = [];
+  if (isExit && Number.isFinite(toId) && toId > 0) spawn.push(toId);
+  if (isEnter && Number.isFinite(toId) && toId > 0) spawn.push(toId);
+  return {
+    kind: "unitGlow",
+    instanceIds: [uid],
+    spawnCellIds: spawn.length ? spawn : undefined,
+    fromCellId: Number.isFinite(fromId) ? fromId : undefined,
+  };
+}
+
 export function battleLogEntryToReplay(entry, cells, visibleLog) {
   const ph = entry.phase;
   const m = entry.meta;
@@ -1917,6 +2308,10 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
     ph ?? 0
   );
   if (fromMeta) return fromMeta;
+  const dotMoveReplay = parseDotMoveReplayFromLogEntry(entry);
+  if (dotMoveReplay) return dotMoveReplay;
+  const reinforcementReplay = buildReinforcementReplayFromLogEntry(entry, cells);
+  if (reinforcementReplay) return reinforcementReplay;
   const airReturnReplay = buildAirReturnReplayFromLogEntry(entry, cells);
   if (airReturnReplay) return airReturnReplay;
   const reconReplay = buildReconReplayFromLogEntry(entry, cells);
@@ -1981,7 +2376,15 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
       lossCellId
     };
   }
-  if (isFireReportPhase(ph) && m?.fireLine) {
+  if (
+    m?.fireLine &&
+    (isFireReportPhase(ph) ||
+      m.fireLine.defendOverwatch === true ||
+      m.fireLine.defendReturnFire === true ||
+      m.fireLine.defendSectorIdle === true ||
+      m.fireLine.fireMove === true ||
+      m.fireLine.dotSectorAuto === true)
+  ) {
     const fl = m.fireLine;
     if (fl.artilleryAirSector === true) {
       return {
@@ -2004,6 +2407,11 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
       shooterInstanceIds: shooterIds && shooterIds.length ? shooterIds : void 0,
       targetInstanceId: fl.targetId ?? void 0,
       targetCellId: fl.targetCellId ?? void 0,
+      fromCellId: fl.fromCellId ?? void 0,
+      fromDot: fl.fromDot === true,
+      fromDotCellIds: Array.isArray(fl.fromDotCellIds)
+        ? fl.fromDotCellIds.map((x) => Number(x)).filter((id) => Number.isFinite(id))
+        : void 0,
       orderKey: fireReportOrderKey(ph, fl, m?.airMissionLine),
       areaTargetInstanceIds: areaIds && areaIds.length ? areaIds : void 0
     };
@@ -2031,6 +2439,21 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
     }
   }
   if (ph === 7) {
+    const med = m?.medicalLine;
+    if (med || text.startsWith("Лечение:")) {
+      const ids = [];
+      const addId = (raw) => {
+        const n = Number(raw);
+        if (Number.isFinite(n) && n > 0 && !ids.includes(n)) ids.push(n);
+      };
+      addId(med?.medicInstanceId);
+      addId(med?.targetUnitInstanceId);
+      const tm = text.match(/юнит (\d+)/);
+      const tt = text.match(/отряду (\d+)/) || text.match(/отряд (\d+)/);
+      if (tm) addId(tm[1]);
+      if (tt) addId(tt[1]);
+      if (ids.length) return { kind: "unitGlow", instanceIds: ids };
+    }
     const legacyLogistics = parseLogisticsMetaFromText(text);
     if (legacyLogistics) {
       if (legacyLogistics.orderKey === "unloading") {
@@ -2134,6 +2557,16 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
       };
     }
   }
+  const fireMoveLine = text.match(/^Стрельба в движении: (\d+) с кл\. (\d+) → (\d+)/);
+  if (fireMoveLine) {
+    return {
+      kind: "fire",
+      shooterInstanceId: Number(fireMoveLine[1]),
+      targetInstanceId: Number(fireMoveLine[3]),
+      fromCellId: Number(fireMoveLine[2]),
+      orderKey: "fireMove"
+    };
+  }
   const responseLine = text.match(/^Ответ с (?:обороны|засады): (\d+) → (\d+) \(кл\. (\d+)/);
   if (responseLine) {
     return {
@@ -2141,7 +2574,7 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
       shooterInstanceId: Number(responseLine[1]),
       targetInstanceId: Number(responseLine[2]),
       targetCellId: Number(responseLine[3]),
-      orderKey: "fire"
+      orderKey: fl.isAmbush === true ? "ambush" : "defend"
     };
   }
   const sectorFireLine = text.match(/^Огонь с (?:обороны|засады)(?: \([^)]*\))?: (\d+) → (\d+)(?: \(кл\. (\d+))?/);
@@ -2154,18 +2587,29 @@ export function battleLogEntryToReplay(entry, cells, visibleLog) {
         sectorFireLine[3] != null && Number.isFinite(Number(sectorFireLine[3]))
           ? Number(sectorFireLine[3])
           : undefined,
-      orderKey: "fire"
+      orderKey: /засады/.test(text) ? "ambush" : "defend"
     };
   }
   return null;
 }
 export function battleLogEntryLooseUnitGlow(entry) {
   const t = String(entry.text ?? "");
-  if (/^Танкобоязнь/.test(t) || t.startsWith("Стойкость:")) {
-    const a = t.match(/юнит (\d+)/);
+  if (/^Танкобоязнь/.test(t) || t.startsWith("Стойкость:") || /ДОТ/.test(t)) {
+    const a = t.match(/юнит (\d+)/i) || t.match(/^Юнит (\d+)/);
     if (a) {
       const id = Number(a[1]);
-      if (Number.isFinite(id)) return { kind: "unitGlow", instanceIds: [id] };
+      if (Number.isFinite(id)) {
+        const dest =
+          t.match(/покинул ДОТ → кл\. (\d+)/)?.[1] ||
+          t.match(/выходит из ДОТ на кл\. (\d+)/)?.[1] ||
+          t.match(/выходит из ДОТ \(осталось \d+ ход\.\) → кл\. (\d+)/)?.[1];
+        const destId = Number(dest);
+        return {
+          kind: "unitGlow",
+          instanceIds: [id],
+          spawnCellIds: Number.isFinite(destId) && destId > 0 ? [destId] : undefined,
+        };
+      }
     }
   }
   const ph = entry.phase ?? 0;

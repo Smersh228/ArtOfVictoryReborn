@@ -11,10 +11,32 @@ import EditorMapExportModal from '../components/editorMap/EditorMapExportModal'
 import EditorMapObjectPalette from '../components/editorMap/EditorMapObjectPalette'
 import EditorMapDeploymentBar from '../components/editorMap/EditorMapDeploymentBar'
 import EditorMapDeploymentModal from '../components/editorMap/EditorMapDeploymentModal'
-import { ConditionsPanel, ScenarioPanel, UnitsFilters, type ScenarioPhotoSlot, DEFAULT_MAP_ENVIRONMENT, type MapEnvironmentFlags, parseEnvironmentFromPayload, environmentToPayload } from '../components/editorMap/EditorMapSidePanels'
+import { ConditionsPanel, ScenarioPanel, UnitsFilters, BotsPanel, ReinforcementsPanel, type ScenarioPhotoSlot } from '../components/editorMap/EditorMapSidePanels'
+import {
+  DEFAULT_MAP_ENVIRONMENT,
+  environmentToPayload,
+  parseEnvironmentFromPayload,
+  type MapEnvironmentFlags,
+} from '../game/editorMapEnvironment'
+import {
+  DEFAULT_MAP_BOTS,
+  botsSlotsForLimit,
+  botsToPayload,
+  parseBotsFromPayload,
+  type MapBotsState,
+} from '../game/editorMapBots'
+import {
+  DEFAULT_MAP_REINFORCEMENTS,
+  clampReinforcementsToTeamLimit,
+  collectReinforcementMarks,
+  parseReinforcementsFromPayload,
+  reinforcementsToPayload,
+  toggleReinforcementHex,
+  type MapReinforcementsState,
+} from '../game/editorMapReinforcements'
 import { Cell } from './../../../server/src/game/gameLogic/cells/cell'
 import { generateEmptyGrid, computeEdgeCellIds } from '../game/hexGrid'
-import { computeBattleCellSize, computeHexMapCanvasSize } from '../game/battleMapFit'
+import { computeHexMapCanvasSize } from '../game/battleMapFit'
 import { getCellCenter } from '../components/map/cellsInteraction'
 import {
   edgeIndexFromPoint,
@@ -46,6 +68,7 @@ import {
   MAX_POOL_COPIES,
   removePoolStructure,
   removePoolUnit,
+  setPoolUnitCargo,
   teamDeployPool,
   toggleDeployZoneCell,
 } from '../game/editorMapDeployment'
@@ -65,7 +88,7 @@ import {
   type SavedMapListItem,
 } from '../api/maps'
 
-type EditorTabId = 'units' | 'hexes' | 'buildings' | 'conditions' | 'scenario' | 'deployment'
+type EditorTabId = 'units' | 'hexes' | 'buildings' | 'conditions' | 'scenario' | 'deployment' | 'bots' | 'reinforcements'
 
 type FactionId = 'all' | 'germany' | 'ussr'
 
@@ -81,6 +104,12 @@ type UnitTypeId =
   | 'lightAir'
   | 'heavyAir'
 
+type BattleUnitOrderRef = {
+  id: number
+  name: string
+  order_key?: string
+}
+
 type CatalogUnit = {
   id: number
   name: string
@@ -88,6 +117,9 @@ type CatalogUnit = {
   faction: Exclude<FactionId, 'all'>
   imagePath: string
   properties?: Array<{ prop_key?: string; name?: string }>
+  orders?: BattleUnitOrderRef[]
+  heavyTech?: boolean
+  heavyArtillery?: boolean
 }
 
 type CatalogHex = {
@@ -130,13 +162,6 @@ type PlacedUnit = CatalogUnit & {
   orderEditorMeta?: import('../game/editorMapUnitOrderMeta').EditorMapUnitOrderEditorMeta
 }
 
-
-type BattleUnitOrderRef = {
-  id: number
-  name: string
-  order_key?: string
-}
-
 type UnitCombatStatsFromDb = {
   str: number
   def: number
@@ -147,6 +172,8 @@ type UnitCombatStatsFromDb = {
   ammoSupply: string
   orders: BattleUnitOrderRef[]
   properties: Array<{ prop_key?: string; name?: string }>
+  heavyTech: boolean
+  heavyArtillery: boolean
 }
 
 function parseOrdersFromUnitsEditorRow(r: Record<string, unknown>): BattleUnitOrderRef[] {
@@ -187,8 +214,10 @@ const EDITOR_TABS: { id: EditorTabId; label: string }[] = [
   { id: 'hexes', label: 'Гексы' },
   { id: 'buildings', label: 'Сооружения' },
   { id: 'deployment', label: 'Расстановка' },
+  { id: 'reinforcements', label: 'Подкрепления' },
   { id: 'conditions', label: 'Условия игры' },
   { id: 'scenario', label: 'Сценарий' },
+  { id: 'bots', label: 'Боты' },
 ]
 
 const MAX_UNITS_PER_CELL = 3
@@ -196,13 +225,11 @@ const MAX_UNITS_PER_CELL = 3
 
 const MAP_BASE_WIDTH = 1400
 const MAP_BASE_HEIGHT = 835
-const MAP_BASE_CELL = 42
-const EDITOR_MIN_CELL = 22
-const EDITOR_CELL_EXTRA = 2
+const EDITOR_CELL_SIZE = 30
 const EDITOR_MAP_PAD = 16
 const EDITOR_GRID_MIN = 5
-const EDITOR_GRID_MAX_WIDTH = 25
-const EDITOR_GRID_MAX_HEIGHT = 15
+const EDITOR_GRID_MAX_WIDTH = 30
+const EDITOR_GRID_MAX_HEIGHT = 25
 
 type PaletteItem = CatalogUnit | CatalogHex | CatalogBuilding | CatalogFortification
 
@@ -340,6 +367,8 @@ const EditorMap: React.FC = () => {
             ammoSupply,
             orders: parseOrdersFromUnitsEditorRow(r),
             properties,
+            heavyTech: r.heavyTech === true || r.heavy_tech === true,
+            heavyArtillery: r.heavyArtillery === true || r.heavy_artillery === true,
           })
         }
         setUnitCombatStatsByCatalogId(combatMap)
@@ -350,9 +379,16 @@ const EditorMap: React.FC = () => {
   const catalogUnits = useMemo(() => {
     return apiUnits.map((u) => {
       const st = unitCombatStatsByCatalogId.get(u.id)
-      if (!st?.properties.length) return u
-      if (Array.isArray(u.properties) && u.properties.length) return u
-      return { ...u, properties: st.properties }
+      if (!st) return u
+      return {
+        ...u,
+        heavyTech: st.heavyTech,
+        heavyArtillery: st.heavyArtillery,
+        ...(st.properties.length && !(Array.isArray(u.properties) && u.properties.length)
+          ? { properties: st.properties }
+          : {}),
+        ...(st.orders.length && !(Array.isArray(u.orders) && u.orders.length) ? { orders: st.orders } : {}),
+      }
     })
   }, [apiUnits, unitCombatStatsByCatalogId])
 
@@ -383,6 +419,9 @@ const EditorMap: React.FC = () => {
   const [deployment, setDeployment] = useState(EMPTY_EDITOR_DEPLOYMENT)
   const [showDeployPoolModal, setShowDeployPoolModal] = useState(false)
   const [scenarioPhotos, setScenarioPhotos] = useState<readonly [string, string]>(['', ''])
+  const [bots, setBots] = useState<MapBotsState>(DEFAULT_MAP_BOTS)
+  const [reinforcements, setReinforcements] = useState<MapReinforcementsState>(DEFAULT_MAP_REINFORCEMENTS)
+  const [pickingReinforcementWaveId, setPickingReinforcementWaveId] = useState<string | null>(null)
 
   useEffect(() => {
     const next = normalizeUnitTeam(selectedTeam, teamLimit)
@@ -394,6 +433,30 @@ const EditorMap: React.FC = () => {
     const next = normalizeUnitTeam(deployBrushTeam, teamLimit)
     if (next !== deployBrushTeam) setDeployBrushTeam(next)
   }, [teamLimit, deployBrushTeam])
+  useEffect(() => {
+    setBots((prev) => {
+      const slots = botsSlotsForLimit(teamLimit, prev.slots)
+      if (
+        slots.length === prev.slots.length &&
+        slots.every((s, i) => s.team === prev.slots[i]?.team && s.kind === prev.slots[i]?.kind)
+      ) {
+        return prev
+      }
+      return { ...prev, slots }
+    })
+  }, [teamLimit])
+  useEffect(() => {
+    setReinforcements((prev) => clampReinforcementsToTeamLimit(prev, teamLimit))
+  }, [teamLimit])
+  useEffect(() => {
+    if (!pickingReinforcementWaveId) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setPickingReinforcementWaveId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pickingReinforcementWaveId])
   const placementMode = activeTab === 'deployment'
 
   const mapHostRef = useRef<HTMLDivElement>(null)
@@ -402,10 +465,9 @@ const EditorMap: React.FC = () => {
     const hostW = Math.max(160, mapHostSize.w)
     const hostH = Math.max(160, mapHostSize.h)
     if (!cells.length) {
-      return { width: hostW, height: hostH, cellSize: MAP_BASE_CELL + EDITOR_CELL_EXTRA }
+      return { width: hostW, height: hostH, cellSize: EDITOR_CELL_SIZE }
     }
-    const fit = computeBattleCellSize(cells, hostW, hostH, EDITOR_MAP_PAD)
-    const cellSize = Math.max(EDITOR_MIN_CELL, Math.min(MAP_BASE_CELL, fit)) + EDITOR_CELL_EXTRA
+    const cellSize = EDITOR_CELL_SIZE
     const needed = computeHexMapCanvasSize(cells, cellSize, EDITOR_MAP_PAD)
     return {
       width: Math.max(hostW, needed.width),
@@ -415,10 +477,13 @@ const EditorMap: React.FC = () => {
   }, [cells, mapHostSize])
 
   const editorMapEdgeCellIds = useMemo(() => computeEdgeCellIds(cells), [cells])
-  const editorDeployZones = useMemo(
-    () => (placementMode ? collectDeployZoneMarks(deployment, teamLimit) : null),
-    [placementMode, deployment, teamLimit],
-  )
+  const editorDeployZones = useMemo(() => {
+    if (placementMode) return collectDeployZoneMarks(deployment, teamLimit)
+    if (activeTab === 'reinforcements' && reinforcements.enabled) {
+      return collectReinforcementMarks(reinforcements)
+    }
+    return null
+  }, [placementMode, deployment, teamLimit, activeTab, reinforcements])
 
   const editorFacingPickCellIds = useMemo(() => {
     const centerId = artilleryFacingPick?.unitCellId ?? dotFacingPick?.cellId
@@ -560,6 +625,15 @@ const EditorMap: React.FC = () => {
     _unitId?: number,
     click?: { canvasX: number; canvasY: number },
   ) {
+    if (activeTab === 'reinforcements' && reinforcements.enabled) {
+      const waveId =
+        pickingReinforcementWaveId || reinforcements.waves[reinforcements.waves.length - 1]?.id
+      if (waveId) {
+        setReinforcements((prev) => toggleReinforcementHex(prev, waveId, cell.id))
+        if (!pickingReinforcementWaveId) setPickingReinforcementWaveId(waveId)
+        return
+      }
+    }
     if (placementMode && !selectedItem) {
       setDeployment((prev) => toggleDeployZoneCell(prev, deployBrushTeam, cell.id))
       return
@@ -903,12 +977,14 @@ const EditorMap: React.FC = () => {
     })
   }
 
-  function buildMapPayload() {
+  function buildMapPayload(mapName = missionBrief) {
     const attached = scenarioPhotos.filter((p) => p.trim() !== '')
     return {
       cells: JSON.parse(JSON.stringify(cells)) as unknown[],
       conditions: { axisCapture, axisElimination, struggleFaction, allyTasks, axisTasks, maxTurns, environment: environmentToPayload(environment) },
-      scenario: { missionBrief, historyText, photos: attached, teamLimit },
+      scenario: { missionBrief: mapName, historyText, photos: attached, teamLimit },
+      bots: botsToPayload(bots, teamLimit),
+      reinforcements: reinforcementsToPayload(reinforcements, teamLimit),
       deployment,
     }
   }
@@ -1007,6 +1083,9 @@ const EditorMap: React.FC = () => {
     }
     setScenarioPhotos([p0, p1])
     setDeployment(parseEditorDeployment(p.deployment))
+    setBots(parseBotsFromPayload(p.bots, loadedTeamLimit))
+    setReinforcements(parseReinforcementsFromPayload(p.reinforcements, loadedTeamLimit))
+    setPickingReinforcementWaveId(null)
 
     setCells(loadedCells)
     const { width, height } = inferGridSizeFromCells(loadedCells)
@@ -1081,15 +1160,20 @@ const EditorMap: React.FC = () => {
     setShowSaveMapConfirmModal(true)
   }
 
-  async function confirmSaveMapToServer() {
-    const title = missionBrief.trim()
+  async function confirmSaveMapToServer(nameFromModal?: string) {
+    const title = (nameFromModal ?? missionBrief).trim()
     if (!title) {
-      window.alert('Укажите «Название миссии» во вкладке «Сценарий» справа — оно будет именем карты в списке при создании сервера.')
+      window.alert('Укажите название карты')
       return
     }
+    if (!Array.isArray(cells) || cells.length === 0) {
+      window.alert('Сначала создайте сетку карты')
+      return
+    }
+    if (title !== missionBrief) setMissionBrief(title)
     setSaveMapBusy(true)
     try {
-      const { map } = await saveEditorMapToDb({ name: title, payload: buildMapPayload() })
+      const { map } = await saveEditorMapToDb({ name: title, payload: buildMapPayload(title) })
       window.alert(`Карта сохранена на сервере: «${map.name}» (id ${map.id}). После проверки она появится в общем списке.`)
       setShowSaveMapConfirmModal(false)
       try {
@@ -1110,9 +1194,11 @@ const EditorMap: React.FC = () => {
     if (tab === 'deployment') {
       setArtilleryFacingPick(null)
       setDotFacingPick(null)
+      setPickingReinforcementWaveId(null)
       setSelectedTeam(normalizeUnitTeam(deployBrushTeam, teamLimit))
       setSelectedFaction(factionForTeam(deployBrushTeam))
     }
+    if (tab !== 'reinforcements') setPickingReinforcementWaveId(null)
   }
 
   const showObjectPalette =
@@ -1120,14 +1206,6 @@ const EditorMap: React.FC = () => {
 
   return (
     <div className={styles.editorMap}>
-      <EditorMapToolbar
-        onGoMain={() => navigate('/main')}
-        onSaveMap={openSaveMapFlow}
-        onGenerateGrid={() => setShowGridModal(true)}
-        onLoadMap={() => setShowExportModal(true)}
-        onShowGuide={() => setShowGuideModal(true)}
-      />
-
       {dotFacingPick ? (
         <div className={styles.selectionToast} role="status">
           <span>Выберите соседний гекс — направление сектора стрельбы ДОТ (Esc — отмена)</span>
@@ -1135,6 +1213,10 @@ const EditorMap: React.FC = () => {
       ) : artilleryFacingPick ? (
         <div className={styles.selectionToast} role="status">
           <span>Выберите соседний гекс — направление орудия (Esc — отмена)</span>
+        </div>
+      ) : activeTab === 'reinforcements' && reinforcements.enabled && reinforcements.waves.length > 0 ? (
+        <div className={styles.selectionToast} role="status">
+          <span>Клик по гексу — точка появления подкрепления (повторный клик снимает)</span>
         </div>
       ) : placementMode && !selectedItem ? (
         <div className={styles.selectionToast} role="status">
@@ -1163,8 +1245,16 @@ const EditorMap: React.FC = () => {
       ) : null}
 
       <div className={styles.layoutRow}>
-        <div className={styles.editorMainMap} ref={mapHostRef}>
-          <Cells
+        <div className={styles.mapStage}>
+          <EditorMapToolbar
+            onGoMain={() => navigate('/main')}
+            onSaveMap={openSaveMapFlow}
+            onGenerateGrid={() => setShowGridModal(true)}
+            onLoadMap={() => setShowExportModal(true)}
+            onShowGuide={() => setShowGuideModal(true)}
+          />
+          <div className={styles.editorMainMap} ref={mapHostRef}>
+            <Cells
             mode="editor"
             cells={cells}
             width={mapLayout.width}
@@ -1174,14 +1264,25 @@ const EditorMap: React.FC = () => {
             onUnitDelete={handleUnitDelete}
             hideEditorCellHexMenu={
               placementMode ||
+              (activeTab === 'reinforcements' && reinforcements.enabled) ||
               (selectedItem != null &&
                 !(isCatalogFortification(selectedItem) && selectedItem.buildKey === 'mine'))
             }
-            ignoreUnitClicks={placementMode}
+            ignoreUnitClicks={
+              placementMode || (activeTab === 'reinforcements' && reinforcements.enabled)
+            }
             editorAviationEdgeHighlight={editorAviationPlacementActive}
             editorAviationEdgeCellIds={editorMapEdgeCellIds}
             editorDeployZones={editorDeployZones}
-            editorDeployBrushTeam={placementMode ? deployBrushTeam : null}
+            editorDeployBrushTeam={
+              placementMode
+                ? deployBrushTeam
+                : activeTab === 'reinforcements'
+                  ? reinforcements.waves.find((w) => w.id === pickingReinforcementWaveId)?.team ??
+                    reinforcements.waves[reinforcements.waves.length - 1]?.team ??
+                    null
+                  : null
+            }
             editorCatalogUnits={catalogUnits}
             onEditorUnitPatch={handleEditorUnitPatch}
             editorFacingPickCellIds={editorFacingPickCellIds}
@@ -1211,6 +1312,7 @@ const EditorMap: React.FC = () => {
             }
             editorTeamLimit={teamLimit}
           />
+          </div>
         </div>
 
         <EditorMapToolPanel
@@ -1258,6 +1360,16 @@ const EditorMap: React.FC = () => {
                   }}
                 />
               )}
+              {activeTab === 'reinforcements' && (
+                <ReinforcementsPanel
+                  reinforcements={reinforcements}
+                  setReinforcements={setReinforcements}
+                  teamLimit={teamLimit}
+                  catalogUnits={catalogUnits}
+                  pickingWaveId={pickingReinforcementWaveId}
+                  onPickWaveHexes={setPickingReinforcementWaveId}
+                />
+              )}
               {activeTab === 'conditions' && (
                 <ConditionsPanel
                   axisCapture={axisCapture}
@@ -1288,6 +1400,9 @@ const EditorMap: React.FC = () => {
                   onScenarioPhotoUpload={handleScenarioPhotoUpload}
                   onScenarioPhotoClear={handleScenarioPhotoClear}
                 />
+              )}
+              {activeTab === 'bots' && (
+                <BotsPanel bots={bots} setBots={setBots} teamLimit={teamLimit} />
               )}
             </>
           }
@@ -1332,6 +1447,9 @@ const EditorMap: React.FC = () => {
         catalogBuildings={catalogBuildings}
         onAddUnit={(unitId) => setDeployment((prev) => addPoolUnit(prev, deployBrushTeam, unitId))}
         onRemoveUnit={(unitId) => setDeployment((prev) => removePoolUnit(prev, deployBrushTeam, unitId))}
+        onSetUnitCargo={(slotIndex, cargoIds) =>
+          setDeployment((prev) => setPoolUnitCargo(prev, deployBrushTeam, slotIndex, cargoIds))
+        }
         onAddStructure={(structureId) =>
           setDeployment((prev) => addPoolStructure(prev, deployBrushTeam, structureId))
         }
@@ -1345,8 +1463,9 @@ const EditorMap: React.FC = () => {
       <EditorMapSaveConfirmModal
         isOpen={showSaveMapConfirmModal}
         saveMapBusy={saveMapBusy}
+        defaultName={missionBrief}
         onClose={() => !saveMapBusy && setShowSaveMapConfirmModal(false)}
-        onConfirm={() => void confirmSaveMapToServer()}
+        onConfirm={(name) => void confirmSaveMapToServer(name)}
       />
 
       <EditorMapExportModal

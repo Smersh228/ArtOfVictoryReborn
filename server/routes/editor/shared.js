@@ -42,7 +42,7 @@ const DEFAULT_BATTLE_ORDERS = [
   ['Погрузка на ЖД', 'railLoading'],
   ['Выгрузка на ЖД', 'railUnloading'],
   ['Поджёг', 'arson'],
-  ['Подрыв', 'demolition'],
+  ['Корректировка огня артиллерии', 'fireAdjustment'],
   ['Вырубка просеки', 'cutGlade'],
   ['Ремонт ЖД путей', 'repairRailway'],
 ]
@@ -60,7 +60,6 @@ const DEFAULT_UNIT_PROPERTIES = [
   ['Десант', 'desant'],
   ['Снаряжение', 'equipment'],
   ['Подрыв колючего заграждения', 'destructionOfBarbedWire'],
-  ['Корректировка огня', 'fireAdjustment'],
   ['Скрытый отряд', 'hiddenState'],
   ['Обнаружение мин', 'mineDetection'],
   ['Преодоление болота', 'movementThroughTheSwamp'],
@@ -105,6 +104,12 @@ async function ensureUnitCatalogColumns() {
   await pool.query(
     'ALTER TABLE rule ADD COLUMN IF NOT EXISTS map_editor_public BOOLEAN NOT NULL DEFAULT true',
   )
+  await pool.query(
+    'ALTER TABLE unit ADD COLUMN IF NOT EXISTS heavy_tech BOOLEAN NOT NULL DEFAULT false',
+  )
+  await pool.query(
+    'ALTER TABLE unit ADD COLUMN IF NOT EXISTS heavy_artillery BOOLEAN NOT NULL DEFAULT false',
+  )
   mapEditorPublicColumnsReady = true
 }
 
@@ -116,6 +121,10 @@ function normalizeMapEditorPublic(raw) {
   if (raw === false || raw === 0 || raw === '0' || raw === 'false') return false
   if (raw === true || raw === 1 || raw === '1' || raw === 'true') return true
   return true
+}
+
+function normalizeHeavyFlag(raw) {
+  return raw === true || raw === 1 || raw === '1' || raw === 'true'
 }
 
 async function ensureDefaultBattleOrders() {
@@ -142,11 +151,49 @@ async function ensureDefaultBattleOrders() {
     await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'accompaniment'`, [
       'Сопровождение дружественной авиации',
     ])
-    await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'intelligenceAir'`, [
-      'Авиационная разведка',
+    await pool.query(`UPDATE orders SET name = $1 WHERE TRIM(order_key) = 'fireAdjustment'`, [
+      'Корректировка огня артиллерии',
     ])
   } catch (e) {
     console.error('ensureDefaultBattleOrders rename orders', e.message)
+  }
+  try {
+    await pool.query(
+      `INSERT INTO unit_order (id_unit, id_orders)
+       SELECT up.id_unit, o.id_orders
+       FROM unit_property up
+       JOIN property p ON p.id_property = up.id_property AND TRIM(p.prop_key) = 'fireAdjustment'
+       JOIN orders o ON TRIM(o.order_key) = 'fireAdjustment'
+       WHERE NOT EXISTS (
+         SELECT 1 FROM unit_order x WHERE x.id_unit = up.id_unit AND x.id_orders = o.id_orders
+       )`,
+    )
+    await pool.query(
+      `DELETE FROM unit_property up
+       USING property p
+       WHERE up.id_property = p.id_property AND TRIM(p.prop_key) = 'fireAdjustment'`,
+    )
+  } catch (e) {
+    console.error('ensureDefaultBattleOrders migrate fireAdjustment', e.message)
+  }
+  try {
+    await pool.query(
+      `INSERT INTO unit_order (id_unit, id_orders)
+       SELECT uo.id_unit, expl.id_orders
+       FROM unit_order uo
+       JOIN orders d ON d.id_orders = uo.id_orders AND TRIM(d.order_key) = 'demolition'
+       JOIN orders expl ON TRIM(expl.order_key) = 'explomost'
+       WHERE NOT EXISTS (
+         SELECT 1 FROM unit_order x WHERE x.id_unit = uo.id_unit AND x.id_orders = expl.id_orders
+       )`,
+    )
+    await pool.query(
+      `DELETE FROM unit_order uo
+       USING orders o
+       WHERE uo.id_orders = o.id_orders AND TRIM(o.order_key) = 'demolition'`,
+    )
+  } catch (e) {
+    console.error('ensureDefaultBattleOrders migrate demolition', e.message)
   }
 }
 
@@ -402,6 +449,8 @@ function mapUnitClientRow(u) {
         ? joinCsv(u.svzy_range)
         : '1,2,3',
     mapEditorPublic: u.map_editor_public !== false,
+    heavyTech: normalizeHeavyFlag(u.heavy_tech),
+    heavyArtillery: normalizeHeavyFlag(u.heavy_artillery),
   }
 }
 
@@ -414,6 +463,9 @@ function mapUnitCatalog(u) {
     faction: m.faction,
     imagePath: m.imagePath,
     properties: m.properties,
+    orders: m.orders,
+    heavyTech: m.heavyTech,
+    heavyArtillery: m.heavyArtillery,
   }
 }
 
@@ -582,6 +634,7 @@ module.exports = {
   ensureDefaultBattleOrders,
   ensureUnitCatalogColumns,
   normalizeMapEditorPublic,
+  normalizeHeavyFlag,
   isMapEditorPublicRow,
   replaceUnitOrders,
   replaceUnitProperties,

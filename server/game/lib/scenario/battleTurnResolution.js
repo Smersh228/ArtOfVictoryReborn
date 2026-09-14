@@ -57,7 +57,7 @@ function buildMergedOrders(room, needAck) {
   return merged
 }
 
-function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrderLine, room }) {
+async function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrderLine, room }) {
   const displayTurn = turnIdx + 1
   const log = []
   log.push(makeLogMeta(turnIdx, `—— Ход ${displayTurn} ——`))
@@ -81,7 +81,7 @@ function buildTurnResolutionLog(cells, merged, turnIdx, { makeLogMeta, formatOrd
   const aliveBefore = new Set(aliveBeforeInfo.keys())
 
   try {
-    resolveTurn(cells, merged, log, turnIdx)
+    await resolveTurn(cells, merged, log, turnIdx)
   } catch (err) {
     console.error('resolveTurn', err)
     log.push(

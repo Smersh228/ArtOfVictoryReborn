@@ -15,8 +15,12 @@ export type BattlePlayerId = 'a' | 'b';
 
 export type ScenarioBattleOutcome = {
   winnerFaction: 'rkka' | 'wehrmacht';
-  reason: 'objective' | 'timeout';
+  reason: 'objective' | 'timeout' | 'wipe';
 };
+
+function isScenarioBattleReason(raw: unknown): raw is ScenarioBattleOutcome['reason'] {
+  return raw === 'objective' || raw === 'timeout' || raw === 'wipe';
+}
 
 export type ConfirmTurnResult = { ok: boolean; hqRewrite?: BattleHqRewriteState | null };
 
@@ -68,6 +72,8 @@ export function useBattleSync(
   const lastScenarioEndSeqRef = useRef<number | null>(null);
   const lastBattleFieldRevisionRef = useRef<number | null>(null);
 
+  const lastDetailRef = useRef<RoomDetailResponse | null>(null);
+
   const commitTurnAdvance = useCallback(() => {
     readyTabsRef.current.clear();
     const next = turnRef.current + 1;
@@ -96,12 +102,23 @@ export function useBattleSync(
   useEffect(() => {
     if (apiRoomId == null || !Number.isFinite(apiRoomId)) return;
     let cancelled = false;
+    lastDetailRef.current = null;
+    lastBattleFieldRevisionRef.current = null;
 
     const tick = async () => {
       try {
         const tabVisible = typeof document === 'undefined' || document.visibilityState === 'visible';
-        const data = await fetchRoomDetail(apiRoomId, { battleTabVisible: tabVisible });
+        const data = await fetchRoomDetail(apiRoomId, {
+          battleTabVisible: tabVisible,
+          knownFieldRevision: lastBattleFieldRevisionRef.current,
+        });
         if (cancelled) return;
+        const prev = lastDetailRef.current;
+        if (data.battleCellsUnchanged && prev) {
+          data.battleCells = prev.battleCells;
+          if (data.battleReconByFaction == null) data.battleReconByFaction = prev.battleReconByFaction;
+        }
+        lastDetailRef.current = data;
         setRoomDetail(data);
         const selfMem = data.members.find((m) => m.isYou);
         const selfKey = selfMem?.key ?? null;
@@ -149,7 +166,7 @@ export function useBattleSync(
           if (
             scSeq > 0 &&
             (winFac === 'rkka' || winFac === 'wehrmacht') &&
-            (scReason === 'objective' || scReason === 'timeout')
+            isScenarioBattleReason(scReason)
           ) {
             setScenarioBattleOutcome({ winnerFaction: winFac, reason: scReason });
           }
@@ -158,7 +175,7 @@ export function useBattleSync(
           if (
             scSeq > 0 &&
             (winFac === 'rkka' || winFac === 'wehrmacht') &&
-            (scReason === 'objective' || scReason === 'timeout')
+            isScenarioBattleReason(scReason)
           ) {
             setScenarioBattleOutcome({ winnerFaction: winFac, reason: scReason });
           }
@@ -264,8 +281,17 @@ export function useBattleSync(
         }
         return { ok: true };
       } catch (err) {
-        setWaitingNextTurn(false);
         const msg = err instanceof Error ? err.message : 'Не удалось отправить приказы';
+        if (
+          msg.includes('считает ход') ||
+          msg.includes('Рассинхрон хода') ||
+          msg.includes('504') ||
+          msg.includes('502') ||
+          msg.includes('страницу ошибки')
+        ) {
+          return { ok: false };
+        }
+        setWaitingNextTurn(false);
         window.alert(msg);
         return { ok: false };
       }

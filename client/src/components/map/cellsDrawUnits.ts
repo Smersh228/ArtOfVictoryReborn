@@ -128,8 +128,8 @@ export function drawUnitsOnCell(
     viewerBattleTeam?: number | null
     hoveredUnit: { cell: Cell; unit: any; index: number } | null
     hoverCell?: Cell | null
-    battleFireTargetInstanceIds: number[] | null
-    battleLogisticsPickInstanceIds: number[] | null
+    battleFireTargetInstanceIds: ReadonlySet<number> | readonly number[] | null
+    battleLogisticsPickInstanceIds: ReadonlySet<number> | readonly number[] | null
     battlePendingLogisticsPreview: any
     battleReportReplayHighlight: any
     battlePendingShootPreview: any

@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Button from '../Button';
 import styles from '../../pages/styleModules/battle.module.css';
 import { teamSideLabel } from '../../game/editorMapTeam';
 import { formatEnvironmentReport, parseEnvironmentLabelList } from '../../game/battleEnvironment';
 import type { BattleReportRow } from '../../pages/hooks/useBattleReportRows';
+import { useBattleTouchUi } from '../../pages/hooks/useBattleTouchUi';
 
 type ReportGroup = 'general' | 'ally' | 'enemy' | 'weather';
 
@@ -47,6 +48,7 @@ interface BattleSidePanelProps {
     wehrmacht: string[];
   };
   onHoverReportRow: (replay: any | null) => void;
+  onPickReportReplay?: (replay: any | null) => void;
   onCloseLeftMenu: () => void;
   myBattleFaction: BattleFaction;
   allyTasksBattle: string;
@@ -65,12 +67,15 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
   weatherRows = [],
   destroyedSummary,
   onHoverReportRow,
+  onPickReportReplay,
   onCloseLeftMenu,
   myBattleFaction,
   allyTasksBattle,
   axisTasksBattle,
   environmentLabels = [],
 }) => {
+  const touchUi = useBattleTouchUi();
+  const [pinnedReportKey, setPinnedReportKey] = useState<string | null>(null);
   const [reportGroup, setReportGroup] = useState<ReportGroup>('general');
   const [reportTeam, setReportTeam] = useState<number | 'all'>('all');
   const spectator = myBattleFaction === 'none';
@@ -101,6 +106,33 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
     if (reportGroup === 'general' || reportGroup === 'weather' || reportTeam === 'all') return groupRows;
     return groupRows.filter((row) => row.actorTeam === reportTeam);
   }, [groupRows, reportGroup, reportTeam]);
+
+  useEffect(() => {
+    setPinnedReportKey(null);
+  }, [reportGroup, reportTeam, leftMenu]);
+
+  const pinReportRow = (key: string, replay: unknown) => {
+    if (pinnedReportKey === key) {
+      setPinnedReportKey(null);
+      onHoverReportRow(null);
+      return;
+    }
+    setPinnedReportKey(key);
+    onHoverReportRow(replay ?? null);
+  };
+
+  const pickReportRow = (key: string, replay: unknown) => {
+    if (touchUi && onPickReportReplay && replay != null) {
+      onPickReportReplay(replay);
+      return;
+    }
+    pinReportRow(key, replay);
+  };
+
+  const onReportRowClick = (key: string, replay: unknown) => {
+    if (!touchUi) return;
+    pickReportRow(key, replay);
+  };
 
   if (!leftMenu) return null;
   return (
@@ -193,14 +225,18 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                 {reportGroup === 'weather' ? (
                   <>
                     {environmentLabels.length ? (
-                      <li className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineInteractive}`}>
+                      <li
+                        className={`${styles.battleReportLine} ${styles.battleReportLineMeta} ${styles.battleReportLineInteractive} ${pinnedReportKey === 'env-now' ? styles.battleReportLinePinned : ''}`}
+                        onClick={() => onReportRowClick('env-now', null)}
+                      >
                         <WeatherReportContent labels={environmentLabels} prefix="Сейчас:" />
                       </li>
                     ) : null}
                     {visibleRows.map((row) => (
                       <li
                         key={row.key}
-                        className={`${styles.battleReportLine} ${row.isMeta ? styles.battleReportLineMeta : ''} ${row.isTurnHeader ? styles.battleReportLineTurn : ''} ${row.formatted ? styles.battleReportLineInteractive : ''}`}
+                        className={`${styles.battleReportLine} ${row.isMeta ? styles.battleReportLineMeta : ''} ${row.isTurnHeader ? styles.battleReportLineTurn : ''} ${row.formatted ? styles.battleReportLineInteractive : ''} ${pinnedReportKey === row.key ? styles.battleReportLinePinned : ''}`}
+                        onClick={() => onReportRowClick(row.key, null)}
                       >
                         {row.formatted ? (
                           <WeatherReportContent labels={parseEnvironmentLabelList(row.formatted.detail || '')} />
@@ -235,12 +271,20 @@ const BattleSidePanel: React.FC<BattleSidePanelProps> = ({
                 {visibleRows.map((row) => (
                   <li
                     key={row.key}
-                    className={`${styles.battleReportLine} ${row.isMeta ? styles.battleReportLineMeta : ''} ${row.isTurnHeader ? styles.battleReportLineTurn : ''} ${row.interactive ? styles.battleReportLineInteractive : ''}`}
+                    className={`${styles.battleReportLine} ${row.isMeta ? styles.battleReportLineMeta : ''} ${row.isTurnHeader ? styles.battleReportLineTurn : ''} ${row.interactive ? styles.battleReportLineInteractive : ''} ${pinnedReportKey === row.key ? styles.battleReportLinePinned : ''}`}
+                    onClick={() => {
+                      if (!row.interactive && !row.replay && !row.logEntry) return;
+                      onReportRowClick(row.key, row.replay ?? row.logEntry ?? null);
+                    }}
                     onMouseEnter={() => {
+                      if (touchUi) return;
                       if (row.replay) onHoverReportRow(row.replay);
                       else if (row.logEntry) onHoverReportRow(row.logEntry);
                     }}
-                    onMouseLeave={() => onHoverReportRow(null)}
+                    onMouseLeave={() => {
+                      if (touchUi) return;
+                      onHoverReportRow(null);
+                    }}
                   >
                     {row.formatted ? (
                       <div className={styles.battleReportLineCol}>

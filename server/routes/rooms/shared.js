@@ -51,15 +51,38 @@ function formatSubmittedOrderLine(unitInstanceId, spec) {
       ? `Юнит ${id}: лечение → юнит ${tid}`
       : `Юнит ${id}: лечение`
   }
+  if (k === 'fireAdjustment') {
+    return tid != null && Number.isFinite(Number(tid))
+      ? `Юнит ${id}: корректировка огня артиллерии → юнит ${tid}`
+      : `Юнит ${id}: корректировка огня артиллерии`
+  }
   if (k === 'move') return `Юнит ${id}: походное положение → клетка ${cid}`
   if (k === 'moveWar') return `Юнит ${id}: боевое положение → клетка ${cid}`
   if (k === 'getSup') {
-    const r = spec.transferAmmo
-    return `Юнит ${id}: загрузка припасов (передача БК) → юнит ${tid}, до ${r} шт.`
+    const parts = []
+    const a = Math.floor(Number(spec.transferAmmo))
+    const m = Math.floor(Number(spec.transferMines))
+    const e = Math.floor(Number(spec.transferExplosives))
+    const s = Math.floor(Number(spec.transferSmoke))
+    if (Number.isFinite(a) && a > 0) parts.push(`${a} БК`)
+    if (Number.isFinite(m) && m > 0) parts.push(`${m} мин`)
+    if (Number.isFinite(e) && e > 0) parts.push(`${e} взр.`)
+    if (Number.isFinite(s) && s > 0) parts.push(`${s} дым`)
+    const r = parts.length ? parts.join(', ') : 'припасы'
+    return `Юнит ${id}: загрузка припасов (передача) → юнит ${tid}, ${r}`
   }
   if (k === 'loadingSup') {
-    const r = spec.transferAmmo
-    return `Юнит ${id}: загрузка припасов со склада → кл. ${cid}, до ${r} шт.`
+    const parts = []
+    const a = Math.floor(Number(spec.transferAmmo))
+    const m = Math.floor(Number(spec.transferMines))
+    const e = Math.floor(Number(spec.transferExplosives))
+    const s = Math.floor(Number(spec.transferSmoke))
+    if (Number.isFinite(a) && a > 0) parts.push(`${a} БК`)
+    if (Number.isFinite(m) && m > 0) parts.push(`${m} мин`)
+    if (Number.isFinite(e) && e > 0) parts.push(`${e} взр.`)
+    if (Number.isFinite(s) && s > 0) parts.push(`${s} дым`)
+    const r = parts.length ? parts.join(', ') : 'припасы'
+    return `Юнит ${id}: загрузка припасов со склада → кл. ${cid}, ${r}`
   }
   if (k === 'loading') return `Юнит ${id}: погрузка пехоты → юнит ${tid}`
   if (k === 'unloading') return `Юнит ${id}: выгрузка юнит ${tid} → клетка ${cid}`
@@ -137,6 +160,8 @@ function ensureMemberSlots(room) {
   for (const m of room.members) {
     if (!FACTIONS.includes(m.faction)) m.faction = 'none'
     if (typeof m.ready !== 'boolean') m.ready = false
+    if (String(m.key || '').startsWith('bot:')) m.isBot = true
+    if (m.isBot) m.ready = true
   }
   if (!room.hostKey && room.members[0]) room.hostKey = room.members[0].key
   syncHostReady(room)
@@ -182,6 +207,97 @@ function getBattlePresenceTimeoutMs() {
 }
 
 const BATTLE_PRESENCE_TIMEOUT_MS = getBattlePresenceTimeoutMs()
+const LOBBY_PRESENCE_TIMEOUT_MS = 3 * 60 * 1000
+
+function isBotMem(m) {
+  return Boolean(m && (m.isBot || String(m.key || '').startsWith('bot:')))
+}
+
+function touchLobbyPresenceFromPoll(room, selfKey) {
+  if (!room || room.battleStartedAt != null || !selfKey) return
+  const mem = (room.members || []).find((m) => m.key === selfKey)
+  if (!mem || isBotMem(mem)) return
+  mem.lobbyLastSeenAt = Date.now()
+}
+
+function dropWaitingLobbyMember(room, key) {
+  const { rooms } = require('./state')
+  if (!room || room.battleStartedAt != null) return 'skip'
+  if (!rooms.has(room.id)) return 'closed'
+  if (key === room.hostKey) {
+    rooms.delete(room.id)
+    return 'closed'
+  }
+  room.members = (room.members || []).filter((m) => m.key !== key)
+  const humans = room.members.filter((m) => !isBotMem(m))
+  if (humans.length === 0) {
+    rooms.delete(room.id)
+    return 'closed'
+  }
+  return 'left'
+}
+
+function sweepStaleLobbyMembers(room) {
+  if (!room || room.battleStartedAt != null) return
+  const now = Date.now()
+  const stale = []
+  for (const m of room.members || []) {
+    if (isBotMem(m)) continue
+    const last = Number(m.lobbyLastSeenAt) || Number(room.createdAt) || 0
+    if (!last || now - last > LOBBY_PRESENCE_TIMEOUT_MS) stale.push(m.key)
+  }
+  if (!stale.length) return
+  if (stale.includes(room.hostKey)) {
+    dropWaitingLobbyMember(room, room.hostKey)
+    return
+  }
+  for (const key of stale) dropWaitingLobbyMember(room, key)
+}
+
+function sweepAllWaitingLobbies() {
+  const { rooms } = require('./state')
+  for (const room of Array.from(rooms.values())) {
+    sweepStaleLobbyMembers(room)
+  }
+}
+
+const SOLO_BATTLE_PRESENCE_TIMEOUT_MS = 2 * 60 * 1000
+
+function closeHostSoloRooms(hostKey, exceptId) {
+  if (!hostKey) return
+  const { rooms } = require('./state')
+  for (const room of Array.from(rooms.values())) {
+    if (!room.solo) continue
+    if (exceptId != null && Number(room.id) === Number(exceptId)) continue
+    if (room.hostKey === hostKey) rooms.delete(room.id)
+  }
+}
+
+function closeAbandonedSoloRoom(room) {
+  if (!room || !room.solo) return false
+  const { rooms } = require('./state')
+  const humans = (room.members || []).filter((m) => !isBotMem(m))
+  if (!humans.length) {
+    rooms.delete(room.id)
+    return true
+  }
+  if (room.battleStartedAt == null) return false
+  const now = Date.now()
+  for (const m of humans) {
+    const last = Number(m.battleLastSeenAt) || Number(room.createdAt) || 0
+    if (now - last <= SOLO_BATTLE_PRESENCE_TIMEOUT_MS) return false
+  }
+  rooms.delete(room.id)
+  return true
+}
+
+function sweepAbandonedBattles() {
+  const { rooms } = require('./state')
+  for (const room of Array.from(rooms.values())) {
+    if (closeAbandonedSoloRoom(room)) continue
+    maybeForfeitDisconnectedBattleFighter(room)
+  }
+}
 
 function isBattleRequestTabActive(req) {
   if (!req || !req.headers) return true
@@ -196,7 +312,7 @@ function touchBattlePresenceFromPoll(room, selfKey, req) {
   const mem = room.members.find((m) => m.key === selfKey)
   if (!mem) return
   if (mem.faction !== 'rkka' && mem.faction !== 'wehrmacht') return
-  if (req && !isBattleRequestTabActive(req)) return
+  if (req && !isBattleRequestTabActive(req) && !room.solo) return
   mem.battleLastSeenAt = Date.now()
 }
 
@@ -211,11 +327,21 @@ function maybeForfeitDisconnectedBattleFighter(room) {
   if (room.battleStartedAt == null) return
   if ((room.battleSurrenderSeq ?? 0) > 0) return
   if ((room.battleScenarioEndSeq ?? 0) > 0) return
-  const fighters = room.members.filter((m) => m.faction === 'rkka' || m.faction === 'wehrmacht')
-  if (fighters.length < 2) return
+  const humans = []
+  let botFighters = 0
+  for (const m of room.members || []) {
+    if (m.faction !== 'rkka' && m.faction !== 'wehrmacht') continue
+    if (m.isBot || String(m.key || '').startsWith('bot:')) {
+      botFighters += 1
+      continue
+    }
+    humans.push(m)
+  }
+  if (!humans.length) return
+  if (humans.length + botFighters < 2) return
   const now = Date.now()
   let staleKey = null
-  for (const m of fighters) {
+  for (const m of humans) {
     const last = m.battleLastSeenAt
     if (last == null) continue
     if (now - last > BATTLE_PRESENCE_TIMEOUT_MS) {
@@ -270,6 +396,7 @@ function roomToPublic(r) {
     maxPlayers: r.maxPlayers,
     players: r.members.length,
     battleStartedAt: r.battleStartedAt != null ? r.battleStartedAt : null,
+    solo: Boolean(r.solo),
   }
 }
 
@@ -296,11 +423,11 @@ function assignMemberTeam(room, mem, faction) {
   }
   const taken = new Set(
     (room.members || [])
-      .filter((m) => m.key !== mem.key && m.faction === faction)
+      .filter((m) => m.key !== mem.key)
       .map((m) => Number(m.team))
       .filter((n) => Number.isFinite(n) && n > 0),
   )
-  mem.team = slots.find((t) => !taken.has(t)) || slots[0] || null
+  mem.team = slots.find((t) => !taken.has(t)) || null
   if (faction === 'none') mem.team = null
 }
 
@@ -360,6 +487,7 @@ const SUBMITTABLE_ORDER_KEYS = new Set([
   'railUnloading',
   'repairRailway',
   'arson',
+  'fireAdjustment',
   'demolition',
 ])
 
@@ -386,6 +514,10 @@ async function resolveMemberLabels(keys) {
   }
   let guestN = 0
   return keys.map((k) => {
+    if (String(k || '').startsWith('bot:')) {
+      const team = Number(String(k).slice(4))
+      return Number.isFinite(team) && team > 0 ? `Бот ${team}` : 'Бот'
+    }
     if (k.startsWith('u:')) {
       const id = Number(k.slice(2))
       return idToName.get(id) || `Игрок #${id}`
@@ -519,7 +651,7 @@ async function addRoomChatMessage(room, mem, memKey, rawText, rawChannel) {
   return { ok: true, message: msg }
 }
 
-async function roomDetailPayload(room, selfKey) {
+async function roomDetailPayload(room, selfKey, opts) {
   ensureMemberSlots(room)
   const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
   return withBattleEnv(room, async () => {
@@ -535,6 +667,7 @@ async function roomDetailPayload(room, selfKey) {
     ready: m.key === hk ? true : m.ready,
     isYou: Boolean(selfKey && m.key === selfKey),
     isHost: m.key === hk,
+    isBot: Boolean(m.isBot || String(m.key || '').startsWith('bot:')),
   }))
   if (
     room.battleStartedAt != null &&
@@ -545,6 +678,7 @@ async function roomDetailPayload(room, selfKey) {
     syncBattleReconByFaction(room, room.battleCells)
   }
   const selfMem = room.members.find((m) => selfKey && m.key === selfKey) || null
+  const omitBattleCells = Boolean(opts && opts.omitBattleCells)
   return {
     room: roomToPublic(room),
     members,
@@ -559,17 +693,22 @@ async function roomDetailPayload(room, selfKey) {
     battleFieldRevision: room.battleFieldRevision ?? 0,
     battleTurnAckCount: ackCount,
     battleTurnAckNeed: needAck.length,
+    battleCellsUnchanged: omitBattleCells || undefined,
     battleCells:
-      room.battleStartedAt != null && Array.isArray(room.battleCells)
-        ? require('../../game/lib/map/battleMines').maskUnrevealedMines(
-            room.battleCells,
-            selfMem && selfMem.faction,
-          )
-        : undefined,
+      omitBattleCells
+        ? undefined
+        : room.battleStartedAt != null && Array.isArray(room.battleCells)
+          ? require('../../game/lib/map/battleMines').maskUnrevealedMines(
+              room.battleCells,
+              selfMem && selfMem.faction,
+            )
+          : undefined,
     battleReconByFaction:
-      room.battleStartedAt != null && room.battleReconByFaction && typeof room.battleReconByFaction === 'object'
-        ? room.battleReconByFaction
-        : undefined,
+      omitBattleCells
+        ? undefined
+        : room.battleStartedAt != null && room.battleReconByFaction && typeof room.battleReconByFaction === 'object'
+          ? room.battleReconByFaction
+          : undefined,
     battleLog: room.battleStartedAt != null && Array.isArray(room.battleLog) ? room.battleLog.slice(-120) : undefined,
     lobbyChat: publicRoomChat(
       room,
@@ -581,12 +720,17 @@ async function roomDetailPayload(room, selfKey) {
         : undefined,
     battleHqRewrite: publicHqRewritePayload(room, selfKey),
     battleDeploy: require('../../game/lib/map/battleDeployPhase').publicBattleDeploy(room, selfKey),
+    battleTurnBusy: Boolean(room.battleTurnBusy),
   }
   })
 }
 
-async function sendRoomDetailOr500(res, room, selfKey) {
+async function sendRoomDetailOr500(res, room, selfKey, req) {
   try {
+    if (room.battleTurnBusy) {
+      res.json(await roomDetailPayload(room, selfKey, { omitBattleCells: true }))
+      return
+    }
     if (room.battleStartedAt != null && Array.isArray(room.battleCells) && !room.battleHexCatalogSynced) {
       try {
         const { pool } = require('../../db')
@@ -597,7 +741,11 @@ async function sendRoomDetailOr500(res, room, selfKey) {
         console.error('enrichBattleHexExtras on detail:', e.message)
       }
     }
-    res.json(await roomDetailPayload(room, selfKey))
+    const knownRev = Number(req && (req.query && req.query.fieldRev))
+    const curRev = room.battleFieldRevision ?? 0
+    const omitBattleCells =
+      room.battleStartedAt != null && Number.isFinite(knownRev) && knownRev === curRev
+    res.json(await roomDetailPayload(room, selfKey, { omitBattleCells }))
   } catch (err) {
     console.error('rooms roomDetailPayload:', err)
     if (!res.headersSent) {
@@ -615,6 +763,12 @@ module.exports = {
   touchBattlePresenceFromPoll,
   initBattlePresenceForFighters,
   maybeForfeitDisconnectedBattleFighter,
+  touchLobbyPresenceFromPoll,
+  dropWaitingLobbyMember,
+  sweepStaleLobbyMembers,
+  sweepAllWaitingLobbies,
+  closeHostSoloRooms,
+  sweepAbandonedBattles,
   ensureMemberSlots,
   validateBattleStart,
   roomToPublic,

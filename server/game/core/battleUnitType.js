@@ -1,13 +1,15 @@
 'use strict'
 
-function isTruckUnit(u) {
-  if (String(u && u.type ? u.type : '').toLowerCase() === 'tech' && unitHasPropKey(u, 'railwayDetachment')) {
-    return false
-  }
-  const t = String(u.type || '').toLowerCase()
-  if (t !== 'tech') return false
-  if (/грузовик|truck|lkw/i.test(String(u.name || ''))) return true
-  const orders = u.orders
+function unitTypeKey(u) {
+  return String(u && u.type ? u.type : '').toLowerCase()
+}
+
+function isTruthyFlag(v) {
+  return v === true || v === 1 || v === '1' || v === 'true'
+}
+
+function unitHasLogisticsOrder(u) {
+  const orders = u && u.orders
   if (!Array.isArray(orders)) return false
   return orders.some((o) => {
     const k = String((o && (o.order_key || o.key)) || '')
@@ -15,6 +17,35 @@ function isTruckUnit(u) {
       .toLowerCase()
     return k === 'getsup' || k === 'loadingsup' || k === 'loading' || k === 'tow' || k === 'unloading'
   })
+}
+
+/** Грузовик / бронетранспортёр: техника или бронетехника, не поезд. */
+function isTransportChassisType(u) {
+  const t = unitTypeKey(u)
+  return t === 'tech' || t === 'armor'
+}
+
+function isTruckUnit(u) {
+  if (!u) return false
+  if (unitHasPropKey(u, 'railwayDetachment')) return false
+  if (!isTransportChassisType(u)) return false
+  if (/грузовик|truck|lkw/i.test(String(u.name || ''))) return true
+  return unitHasLogisticsOrder(u)
+}
+
+function isHeavyTechUnit(u) {
+  return isTruthyFlag(u && (u.heavyTech ?? u.heavy_tech))
+}
+
+function isHeavyArtilleryUnit(u) {
+  return isTruthyFlag(u && (u.heavyArtillery ?? u.heavy_artillery))
+}
+
+/** Лёгкая техника буксирует только лёгкую артиллерию; тяжёлая — любую. */
+function canTechTowArtillery(truck, artillery) {
+  if (!isArtilleryUnit(artillery)) return false
+  if (isHeavyTechUnit(truck)) return true
+  return !isHeavyArtilleryUnit(artillery)
 }
 
 function isInfantryUnit(u) {
@@ -76,6 +107,23 @@ const PROP_KEY_NAME_ALIASES = {
   movementThroughTheSwamp: ['преодоление болота'],
 }
 
+function unitHasOrderKey(u, key) {
+  const orders = u && u.orders
+  if (!Array.isArray(orders)) return false
+  const want = String(key || '')
+    .trim()
+    .toLowerCase()
+  if (!want) return false
+  for (let i = 0; i < orders.length; i++) {
+    const o = orders[i]
+    const k = String((o && (o.order_key || o.key)) || '')
+      .trim()
+      .toLowerCase()
+    if (k === want) return true
+  }
+  return false
+}
+
 function unitHasPropKey(u, key) {
   const props = u && u.properties
   if (!Array.isArray(props)) return false
@@ -114,6 +162,10 @@ function isArtilleryCollapsedForTow(u) {
 
 module.exports = {
   isTruckUnit,
+  isTransportChassisType,
+  isHeavyTechUnit,
+  isHeavyArtilleryUnit,
+  canTechTowArtillery,
   isInfantryUnit,
   isArmoredVehicleTarget,
   isArtilleryUnit,
@@ -125,6 +177,7 @@ module.exports = {
   isArtilleryFireTargetCellAllowed,
   clearArtillerySectorGeometry,
   unitHasPropKey,
+  unitHasOrderKey,
   artilleryAreaClosedIgnoresTerrainLos,
   unitOrderUsesAreaHexFire,
   isArtilleryCollapsedForTow,

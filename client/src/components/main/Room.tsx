@@ -16,12 +16,15 @@ const Room: React.FC<RoomProps> = ({ server, onJoin, onSpectate, joining }) => {
   const full = server.players >= server.maxPlayers
   const inBattle = server.battleStartedAt != null
   const dimmed = full && !inBattle
-  let meta = `Карта: ${server.map}  Игроки: ${server.players}/${server.maxPlayers}`
+  let meta = server.solo
+    ? `Одиночная игра · Карта: ${server.map}`
+    : `Карта: ${server.map}  Игроки: ${server.players}/${server.maxPlayers}`
   if (inBattle) meta += ' Идёт бой'
   else if (full) meta += ' Комната заполнена'
-  const cantJoin = full || inBattle || joining
+  const cantJoin = full || inBattle || joining || Boolean(server.solo)
   let title: string | undefined
   if (inBattle) title = 'В этой комнате уже идёт бой'
+  else if (server.solo) title = 'Одиночную игру нельзя занять как игрок'
   else if (full) title = 'Комната заполнена'
   return (
     <div className={`${styles.roomMain} ${dimmed ? styles.roomMainDimmed : ''}`}>

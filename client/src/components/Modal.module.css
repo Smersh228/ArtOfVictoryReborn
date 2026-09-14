@@ -26,10 +26,9 @@
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.52);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.16);
 }
 
 .dialogWide {
@@ -40,6 +39,16 @@
   max-width: min(740px, 96vw);
 }
 
+.dialogFull {
+  max-width: min(1180px, 96vw);
+  height: min(90vh, 920px);
+  max-height: 92vh;
+}
+
+.bodyFlush {
+  padding: 0;
+}
+
 .header {
   display: flex;
   align-items: flex-start;
@@ -47,7 +56,7 @@
   gap: 12px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  background: rgba(255, 255, 255, 0.35);
+  background: #fff;
 }
 
 .titleBlock {
@@ -57,16 +66,16 @@
 .title {
   margin: 0;
   font-size: 18px;
-  font-weight: 700;
-  color: rgba(25, 25, 25, 0.92);
+  font-weight: 800;
+  color: #000;
   line-height: 1.3;
 }
 
 .subtitle {
   margin: 6px 0 0;
   font-size: 13px;
-  font-weight: 500;
-  color: rgba(70, 70, 70, 0.75);
+  font-weight: 800;
+  color: #000;
   line-height: 1.4;
 }
 
@@ -102,10 +111,11 @@
   overflow-y: auto;
   flex: 1;
   min-height: 0;
-  color: rgba(45, 45, 45, 0.88);
+  color: #000;
   font-size: 14px;
+  font-weight: 800;
   line-height: 1.5;
-  background: rgba(255, 255, 255, 0.22);
+  background: #fff;
 }
 
 .body::-webkit-scrollbar {
@@ -120,9 +130,7 @@
 .footer {
   padding: 14px 20px 18px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
-  background: rgba(255, 255, 255, 0.32);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: #fff;
 }
 
 .footer > * {
@@ -155,5 +163,30 @@
 
   .footer {
     padding: 10px 16px 14px;
+  }
+}
+
+@media (max-width: 700px) {
+  .backdrop {
+    padding: 8px;
+    align-items: flex-end;
+  }
+
+  .dialog {
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 14px 14px 10px 10px;
+  }
+
+  .header {
+    padding: 12px 14px 8px;
+  }
+
+  .body {
+    padding: 12px 14px;
+  }
+
+  .footer {
+    padding: 8px 14px 12px;
   }
 }

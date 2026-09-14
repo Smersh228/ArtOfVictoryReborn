@@ -7,11 +7,9 @@ import {
   buildAccompanimentOrderPayload,
   listAccompanimentEscortCandidates,
   type AccompanimentEscortCandidate,
+  airLaunchOrderBlockedReason,
 } from '../../game/battleAirSupport';
-import {
-  canOfferFireAdjustment,
-  canArtilleryUseFireAdjustment,
-} from '../../game/battleFireAdjustment';
+import { computeFireAdjustmentTargetInstanceIds } from '../../game/battleFireAdjustment';
 import {
   MELEE_ONLY_FIRE_ORDER_BLOCK_TITLE,
   unitHasMeleeOnlyFireRowOptions,
@@ -20,6 +18,7 @@ import { findGroundBattleUnitByInstanceId, findUnitCellByInstanceId } from '../.
 import {
   canTruckAcceptLoading,
   canTruckAcceptTow,
+  computeGetSupTargetInstanceIds,
   computeLoadingSupTargetCellIds,
 } from '../../game/battleLogisticsUi';
 import {
@@ -48,9 +47,9 @@ import { cellBlocksSapperPlacement } from '../../game/cellTrenchEdges';
 import { cellsEligibleForCutEj } from '../../game/cellAntiTankEdges';
 import { cellsEligibleForDemining, hasMineOnCell } from '../../game/editorMapFortifications';
 import { computeMedicalTargetInstanceIds } from '../../game/battleMedical';
-import { unitHasPropKey } from '../../game/battleTerrain';
+import { unitHasPropKey, isAmbushAllowedOnCell } from '../../game/battleTerrain';
 import { unitHasReactiveFireTable } from '../../game/battleFirePreview';
-import { isStubBattleOrder } from '../../game/battleOrderIcons';
+import { isStubBattleOrder, isNonActionBattleOrder } from '../../game/battleOrderIcons';
 import { unitUsesGunDeploy } from '../../game/battleDefendSector';
 
 export interface BattleUnitOrdersInnerUnit {
@@ -178,6 +177,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
   setAccompanimentPickModal,
   setMiningPickModal,
 }) => {
+  const firePickGenRef = React.useRef(0);
   const toId = (value: unknown): number => parseInt(`${value ?? ''}`, 10);
   const bodyClass =
     layout === 'airEmbedded'
@@ -188,6 +188,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
     <div className={bodyClass}>
       {readBattleUnitOrdersFromPayload(unit).map((o) => {
         const key = inferOrderKey(o);
+        if (isNonActionBattleOrder(key)) return null;
         const iidOrd = toId(unit.instanceId);
         const liveGroundOrd =
           isFinite(iidOrd) ? findGroundBattleUnitByInstanceId(cells, iidOrd) : null;
@@ -196,8 +197,11 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
             ? (liveGroundOrd.unit as BattleUnitOrdersInnerUnit)
             : unit;
         let can = Boolean(key) && apiRoomId != null && battleStarted;
+        let truckTypeBlockTitle = '';
         if (can && (key === 'getSup' || key === 'loadingSup' || key === 'loading' || key === 'tow') && !isTruckUnitBattle(uOrd)) {
           can = false;
+          truckTypeBlockTitle =
+            'Погрузка и буксир — у техники или бронетехники с приказами Погрузка / Буксир';
         }
         if (can && (key === 'railLoading' || key === 'railUnloading') && !isRailwayUnitBattle(uOrd)) {
           can = false;
@@ -217,10 +221,19 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
               : canTruckAcceptTow(cells, uOrd, truckCell);
           if (!hasRoom) {
             can = false;
-            truckLogisticsTitle =
-              key === 'loading'
-                ? 'Кузов заполнен или рядом нет пехоты для погрузки'
-                : 'Кузов заполнен или рядом нет свёрнутого орудия для буксира';
+              truckLogisticsTitle =
+                key === 'loading'
+                  ? 'Кузов заполнен или рядом нет пехоты для погрузки'
+                  : 'Кузов заполнен, орудие не свёрнуто, или лёгкая техника не берёт тяжёлую артиллерию';
+          }
+        }
+        if (can && key === 'getSup' && isTruckUnitBattle(uOrd)) {
+          const liveTruck = findUnitCellByInstanceId(cells, Number(uOrd.instanceId));
+          const truckUnit = liveTruck?.unit ?? uOrd;
+          const truckCell = liveTruck?.cell ?? resolveBattleCellOnField(cell, cells) ?? cell;
+          if (computeGetSupTargetInstanceIds(cells, truckUnit, truckCell).size === 0) {
+            can = false;
+            truckLogisticsTitle = 'Нет припасов для передачи или рядом нет союзника с местом под них';
           }
         }
         if (can && key === 'loadingSup' && isTruckUnitBattle(uOrd)) {
@@ -229,7 +242,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           const truckCell = liveTruck?.cell ?? resolveBattleCellOnField(cell, cells) ?? cell;
           if (computeLoadingSupTargetCellIds(cells, truckUnit, truckCell).size === 0) {
             can = false;
-            truckLogisticsTitle = 'Рядом нет склада с БК или боезапас грузовика полный';
+            truckLogisticsTitle = 'Рядом нет склада с припасами или кузов грузовика полный';
           }
         }
         if (can && key === 'railLoading' && isRailwayUnitBattle(uOrd)) {
@@ -269,6 +282,13 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
             truckLogisticsTitle = 'Нужен гекс города, деревни или станции без пожара';
           }
         }
+        if (can && key === 'fireAdjustment') {
+          const adjIds = computeFireAdjustmentTargetInstanceIds(cells, uOrd as Record<string, unknown>);
+          if (adjIds.size === 0) {
+            can = false;
+            truckLogisticsTitle = 'Нет союзной артиллерии для корректировки';
+          }
+        }
         let desantOrderTitle = '';
         if (can && key === 'desant') {
           if (getCarriedUnitsFromTruck(uOrd).length === 0) {
@@ -277,9 +297,13 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           }
         }
         const cellForAmbush = resolveBattleCellOnField(cell, cells) ?? cell;
-        const ambushBlocked =
+        const ambushHexForbidden =
+          key === 'ambush' && !isAmbushAllowedOnCell(cellForAmbush, uOrd as { type?: unknown });
+        const ambushVisionBlocked =
           key === 'ambush' &&
+          !ambushHexForbidden &&
           !canPlaceAmbushFromEnemyVision(uOrd as Parameters<typeof canPlaceAmbushFromEnemyVision>[0], cellForAmbush, cells);
+        const ambushBlocked = ambushHexForbidden || ambushVisionBlocked;
         const tacOrd = uOrd.tactical;
         let desantOrderBlocked = false;
         let desantOrderBlockTitle = '';
@@ -404,6 +428,9 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           } else if (!canEnterDotUnitType(uOrd)) {
             can = false;
             dotOrderTitle = 'Занять ДОТ могут только пехота и артиллерия';
+          } else if ((uOrd.tactical as { artilleryDeployed?: boolean } | undefined)?.artilleryDeployed === true) {
+            can = false;
+            dotOrderTitle = 'Развёрнутое орудие не может занять ДОТ — сначала «Свёртывание»';
           } else if (inDotOrd) {
             can = false;
             dotOrderTitle = 'Юнит уже в ДОТ';
@@ -481,9 +508,12 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           } else if (usesGunDeploy && key === 'defend' && !artDeployedOrd) {
             artOrderBlocked = true;
             artOrderTitle = 'Сектор обстрела только после «Развёртывание»';
-          } else if ((key === 'move' || key === 'moveWar' || key === 'fireMove') && artDeployedOrd) {
+          } else if ((key === 'move' || key === 'moveWar' || key === 'fireMove' || key === 'enterDot') && artDeployedOrd) {
             artOrderBlocked = true;
-            artOrderTitle = 'Развёрнутое орудие не двигается — «Свёртывание»';
+            artOrderTitle =
+              key === 'enterDot'
+                ? 'Развёрнутое орудие не может занять ДОТ — сначала «Свёртывание»'
+                : 'Развёрнутое орудие не двигается — «Свёртывание»';
           } else if (key === 'deploy' && artDeployedOrd) {
             artOrderBlocked = true;
             artOrderTitle = 'Орудие уже развёрнуто';
@@ -498,6 +528,8 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
         const orderIcon = key ? getBattleOrderIconUrl(key) : null;
         const stubOrder = Boolean(key && isStubBattleOrder(key));
         const stubOrderTitle = stubOrder ? 'Заглушка: приказ пока не действует в бою' : '';
+        const rainLaunchTitle = key ? airLaunchOrderBlockedReason(key) : null;
+        const rainLaunchBlocked = Boolean(rainLaunchTitle);
         const sapperHighlight =
           Boolean(key) &&
           can &&
@@ -506,6 +538,7 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
           !desantOrderBlocked &&
           !dotOrderBlocked &&
           !stubOrder &&
+          !rainLaunchBlocked &&
           (key === 'cutWire' ||
             key === 'cutEj' ||
             key === 'repairRailway' ||
@@ -526,24 +559,32 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
             ]
               .filter(Boolean)
               .join(' ')}
-            disabled={!can || ambushBlocked || artOrderBlocked || desantOrderBlocked || meleeOnlyFire || meleeLockedOrder || dotOrderBlocked || stubOrder}
+            disabled={!can || ambushBlocked || artOrderBlocked || desantOrderBlocked || meleeOnlyFire || meleeLockedOrder || dotOrderBlocked || stubOrder || rainLaunchBlocked}
             title={
               stubOrderTitle ||
+              rainLaunchTitle ||
               meleeLockedTitle ||
               dotOrderTitle ||
               artOrderTitle ||
               desantOrderTitle ||
               desantOrderBlockTitle ||
               truckLogisticsTitle ||
+              truckTypeBlockTitle ||
               (meleeOnlyFire ? MELEE_ONLY_FIRE_ORDER_BLOCK_TITLE : '') ||
               (ambushBlocked
-                ? 'Засада: ваш гекс должен быть вне обзора всех юнитов противника (туман, рельеф, дистанция).'
+                ? ambushHexForbidden
+                  ? 'Засада на этом гексе запрещена для данного типа юнита.'
+                  : 'Засада: ваш гекс должен быть вне обзора всех юнитов противника (туман, рельеф, дистанция).'
                 : !can
                   ? 'Нужен бой по сети и стабильный ключ приказа (order_key в БД или узнаваемое имя)'
                   : 'Назначить приказ — затем укажите цель на карте')
             }
             onClick={() => {
               if (!key) return;
+              if (rainLaunchTitle) {
+                window.alert(rainLaunchTitle);
+                return;
+              }
               if (isStubBattleOrder(key)) {
                 window.alert('Заглушка: приказ пока не действует в бою.');
                 return;
@@ -585,7 +626,6 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                 setBattleUnitOrders(null);
                 return;
               }
-              let pickUseFireAdjustment = false;
               if ((key === 'getSup' || key === 'loadingSup' || key === 'loading' || key === 'tow') && !isTruckUnitBattle(uOrd)) return;
               if (key === 'unloading') {
                 if (!isTruckUnitBattle(uOrd)) return;
@@ -650,6 +690,10 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                   }
                 }
                 const cellAmbush = resolveBattleCellOnField(cell, cells) ?? cell;
+                if (key === 'ambush' && !isAmbushAllowedOnCell(cellAmbush, uOrd as { type?: unknown })) {
+                  window.alert('Засада на этом гексе запрещена для данного типа юнита.');
+                  return;
+                }
                 if (
                   key === 'ambush' &&
                   !canPlaceAmbushFromEnemyVision(
@@ -694,6 +738,21 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                   unit,
                   cell: liveCell,
                   orderKey: 'medical',
+                  orderLabel: o.name,
+                });
+                setBattleUnitOrders(null);
+                return;
+              }
+              if (key === 'fireAdjustment') {
+                const adjIds = computeFireAdjustmentTargetInstanceIds(cells, uOrd as Record<string, unknown>);
+                if (adjIds.size === 0) {
+                  window.alert('Нет союзной артиллерии для корректировки огня.');
+                  return;
+                }
+                setOrderPick({
+                  unit,
+                  cell: resolveBattleCellOnField(cell, cells) ?? cell,
+                  orderKey: 'fireAdjustment',
                   orderLabel: o.name,
                 });
                 setBattleUnitOrders(null);
@@ -894,15 +953,6 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                   setBattleUnitOrders(null);
                   return;
                 }
-                const findUnitById = (id: number) => {
-                  const live = findGroundBattleUnitByInstanceId(cells, id);
-                  if (!live || live.inCargo) return null;
-                  return (live.unit as BattleUnitOrdersInnerUnit | undefined) ?? null;
-                };
-                const offerAdj =
-                  key === 'fire' &&
-                  canArtilleryUseFireAdjustment(liveUnit, key) &&
-                  canOfferFireAdjustment(cells, myBattleFaction, pendingOrders, findUnitById);
                 if ((key === 'fire' || key === 'fireHard') && unitHasReactiveFireTable(liveUnit as Record<string, unknown>)) {
                   setOrderPick({
                     unit: { ...(liveUnit as Record<string, unknown>), instanceId: iid },
@@ -915,62 +965,52 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                   return;
                 }
                 const highlightOpts = { viewerFaction: myBattleFaction };
-                let useFireAdj = false;
-                let fh = computeBattleFireHighlights(
-                  liveUnit,
-                  liveForFire.cell,
-                  cells,
-                  key,
-                  battleFogRevealedCellIds,
-                  { ...highlightOpts, useFireAdjustment: false },
-                );
-                const countHighlights = (h: typeof fh) => {
-                  const areaCount =
-                    h.areaCellIds instanceof Set
-                      ? h.areaCellIds.size
-                      : Array.isArray(h.areaCellIds)
-                        ? h.areaCellIds.length
-                        : 0;
-                  const targetCount =
-                    h.instanceIds instanceof Set
-                      ? h.instanceIds.size
-                      : Array.isArray(h.instanceIds)
-                        ? h.instanceIds.length
-                        : 0;
-                  return areaCount > 0 || targetCount > 0;
-                };
-                if (!countHighlights(fh) && offerAdj) {
-                  fh = computeBattleFireHighlights(
+                setBattleUnitOrders(null);
+                const gen = ++firePickGenRef.current;
+                window.requestAnimationFrame(() => {
+                  if (gen !== firePickGenRef.current) return;
+                  const fh = computeBattleFireHighlights(
                     liveUnit,
                     liveForFire.cell,
                     cells,
                     key,
                     battleFogRevealedCellIds,
-                    { ...highlightOpts, useFireAdjustment: true },
+                    highlightOpts,
                   );
-                  if (countHighlights(fh)) useFireAdj = true;
-                }
-                pickUseFireAdjustment = useFireAdj;
-                if (!countHighlights(fh)) {
-                  window.alert(
-                    explainNoFireTargets(
-                      liveUnit,
-                      liveForFire.cell,
-                      cells,
-                      key === 'fireHard' ? 'fireHard' : 'fire',
-                      battleFogRevealedCellIds,
-                    ),
-                  );
-                  return;
-                }
-                setOrderPick({
-                  unit: { ...(liveUnit as Record<string, unknown>), instanceId: iid },
-                  cell: liveForFire.cell,
-                  orderKey: key,
-                  orderLabel: o.name,
-                  ...(key === 'fire' && pickUseFireAdjustment ? { useFireAdjustment: true } : {}),
+                  const countHighlights = (h: typeof fh) => {
+                    const areaCount =
+                      h.areaCellIds instanceof Set
+                        ? h.areaCellIds.size
+                        : Array.isArray(h.areaCellIds)
+                          ? h.areaCellIds.length
+                          : 0;
+                    const targetCount =
+                      h.instanceIds instanceof Set
+                        ? h.instanceIds.size
+                        : Array.isArray(h.instanceIds)
+                          ? h.instanceIds.length
+                          : 0;
+                    return areaCount > 0 || targetCount > 0;
+                  };
+                  if (!countHighlights(fh)) {
+                    window.alert(
+                      explainNoFireTargets(
+                        liveUnit,
+                        liveForFire.cell,
+                        cells,
+                        key === 'fireHard' ? 'fireHard' : 'fire',
+                        battleFogRevealedCellIds,
+                      ),
+                    );
+                    return;
+                  }
+                  setOrderPick({
+                    unit: { ...(liveUnit as Record<string, unknown>), instanceId: iid },
+                    cell: liveForFire.cell,
+                    orderKey: key,
+                    orderLabel: o.name,
+                  });
                 });
-                setBattleUnitOrders(null);
                 return;
               }
               if (key === 'accompaniment') {
@@ -1061,7 +1101,6 @@ const BattleUnitOrdersInner: React.FC<BattleUnitOrdersInnerProps> = ({
                 cell,
                 orderKey: key,
                 orderLabel: o.name,
-                ...(key === 'fire' && pickUseFireAdjustment ? { useFireAdjustment: true } : {}),
               });
               setBattleUnitOrders(null);
             }}

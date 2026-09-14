@@ -1,6 +1,8 @@
 'use strict'
 
 const { unitHasPropKey } = require('../../core/battleUnitType')
+const { hexDistCells } = require('../map/battleHexGeometry')
+const { getStr, unitFaction, opposing } = require('./battleUnitField')
 
 function hasHiddenStateProp(unit) {
   return Boolean(unit) && unitHasPropKey(unit, 'hiddenState')
@@ -20,9 +22,37 @@ function isHiddenConcealed(unit) {
   if (unit.tactical && unit.tactical.ambushOrder && !unit.tactical.ambushRevealed) return false
   const h = unit.tactical && unit.tactical.hiddenState
   if (!h || typeof h !== 'object') return true
-  if (h.skipThisTurn) return false
   if (h.revealed) return false
   return true
+}
+
+function hiddenHasAdjacentEnemy(cell, unit, cells) {
+  const fac = unitFaction(unit)
+  const selfId = Number(unit && unit.instanceId)
+  for (const oc of cells) {
+    if (hexDistCells(cell, oc) > 1) continue
+    for (const ou of oc.units || []) {
+      if (getStr(ou) <= 0) continue
+      if (Number(ou.instanceId) === selfId) continue
+      if (opposing(fac, unitFaction(ou))) return true
+    }
+  }
+  return false
+}
+
+/** Скрытость возвращается, как только рядом нет врага. */
+function concealHiddenIfNoAdjacentEnemy(cells) {
+  if (!Array.isArray(cells)) return
+  for (const c of cells) {
+    for (const u of c.units || []) {
+      if (!hasHiddenStateProp(u)) continue
+      const h = hiddenBag(u)
+      if (!h.revealed) continue
+      if (h.revealedThisTurn) continue
+      if (hiddenHasAdjacentEnemy(c, u, cells)) continue
+      h.revealed = false
+    }
+  }
 }
 
 function tickHiddenStateAtTurnStart(cells) {
@@ -31,11 +61,10 @@ function tickHiddenStateAtTurnStart(cells) {
     for (const u of c.units || []) {
       if (!hasHiddenStateProp(u)) continue
       const h = hiddenBag(u)
-      if (h.marched) h.skipThisTurn = true
-      else h.skipThisTurn = false
-      if (h.movedHex) h.revealed = false
+      h.skipThisTurn = false
       h.marched = false
       h.movedHex = false
+      h.revealedThisTurn = false
     }
   }
 }
@@ -57,6 +86,22 @@ function revealHiddenUnit(unit) {
     if (h.revealed) return false
   }
   hiddenBag(unit).revealed = true
+  return true
+}
+
+function revealHiddenByOpeningFire(unit, le, ph) {
+  if (!hasHiddenStateProp(unit)) return false
+  const wasConcealed = isHiddenConcealed(unit)
+  const h = hiddenBag(unit)
+  h.revealed = true
+  h.revealedThisTurn = true
+  if (!wasConcealed) return false
+  if (typeof le === 'function') {
+    le(ph, `Скрытый отряд обнаружен: юнит ${unit.instanceId} (открытый огонь)`, {
+      unitInstanceId: Number(unit.instanceId),
+      hiddenRevealed: true,
+    })
+  }
   return true
 }
 
@@ -149,9 +194,11 @@ module.exports = {
   hasHiddenStateProp,
   isHiddenConcealed,
   tickHiddenStateAtTurnStart,
+  concealHiddenIfNoAdjacentEnemy,
   markHiddenMarched,
   markHiddenMovedHex,
   revealHiddenUnit,
+  revealHiddenByOpeningFire,
   canSpotHiddenTarget,
   revealHiddenAdjacentToCell,
   revealHiddenAlreadyAdjacent,

@@ -1,9 +1,7 @@
 import React, { useEffect, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
 import { menuTrackSrc, SETTINGS_CHANGED_EVENT } from '../utils/userSettings'
 
 const MenuMusic: React.FC = () => {
-  const { pathname } = useLocation()
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const unlockRef = useRef<(() => void) | null>(null)
 
@@ -31,7 +29,7 @@ const MenuMusic: React.FC = () => {
     }
 
     const apply = () => {
-      const src = pathname === '/battle' ? null : menuTrackSrc()
+      const src = menuTrackSrc()
       if (!src) {
         dropUnlock()
         audio.pause()
@@ -58,7 +56,7 @@ const MenuMusic: React.FC = () => {
       audio.removeAttribute('src')
       audioRef.current = null
     }
-  }, [pathname])
+  }, [])
 
   return null
 }

@@ -35,6 +35,7 @@ const SMOKE_BLOCKED_ORDERS = new Set([
   'cutGlade',
   'repairRailway',
   'arson',
+  'fireAdjustment',
   'demolition',
 ])
 
@@ -168,6 +169,20 @@ function setSmokeShells(u, n) {
   u.smokeShells = Math.max(0, Math.floor(Number(n) || 0))
 }
 
+const DEFAULT_TRUCK_SMOKE_CAP = 10
+const DEFAULT_UNIT_SMOKE_CAP = 2
+
+function getSmokeShellsCapacityMax(u) {
+  const have = getSmokeShells(u)
+  const stored = Number(u && u.smokeShellsMax)
+  const storedCap = Number.isFinite(stored) && stored >= 0 ? Math.floor(stored) : null
+  const { isTruckUnit, unitHasOrderKey } = require('../../core/battleUnitType')
+  if (isTruckUnit(u)) return Math.max(DEFAULT_TRUCK_SMOKE_CAP, storedCap ?? 0, have)
+  if (storedCap != null) return Math.max(storedCap, have)
+  if (have > 0 || unitHasOrderKey(u, 'smoke')) return Math.max(DEFAULT_UNIT_SMOKE_CAP, have)
+  return 0
+}
+
 function resolveSmokeOrders(cells, list, ordersByUnit, le, ph, turnIndex, deps) {
   const { findUnitOnField, validateUnitOrdersAllowed } = deps
   for (const o of list) {
@@ -252,6 +267,7 @@ module.exports = {
   friendlyCanSpotSmokeHex,
   getSmokeShells,
   setSmokeShells,
+  getSmokeShellsCapacityMax,
   resolveSmokeOrders,
   tickSmokeAtTurnStart,
   truncatePathBeforeSmoke,

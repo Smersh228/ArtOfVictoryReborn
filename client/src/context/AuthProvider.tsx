@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import type { User } from '../api/auth'
 import { logoutRequest, verifySession } from '../api/auth'
 import { leaveLobbyPresence, sendLobbyHeartbeat } from '../api/lobbyHub'
+import { leaveActiveLobbyRoom, leaveActiveLobbyRoomAwait } from '../api/rooms'
 import { AuthContext } from './authContext'
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -23,6 +24,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   const logout = useCallback(async () => {
+    await leaveActiveLobbyRoomAwait()
     leaveLobbyPresence()
     await logoutRequest()
     setUser(null)
@@ -43,17 +45,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (!user) return
     let cancelled = false
+    const kickIfMaintenance = async () => {
+      const r = await verifySession()
+      if (cancelled) return
+      if (r.maintenance) {
+        setUser(null)
+        setMaintenanceNotice(r.message || 'Идут технические работы. Зайдите позже.')
+      }
+    }
     const beat = () => {
       if (cancelled) return
-      void sendLobbyHeartbeat().catch(() => undefined)
+      void sendLobbyHeartbeat()
+        .then(() => undefined)
+        .catch(() => {
+          void kickIfMaintenance()
+        })
     }
     beat()
-    const id = window.setInterval(beat, 12_000)
-    const onHide = () => {
+    const heartId = window.setInterval(beat, 12_000)
+    const watchId = window.setInterval(() => {
+      void kickIfMaintenance()
+    }, 4000)
+    const onHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return
       leaveLobbyPresence()
+      leaveActiveLobbyRoom()
     }
     const onShow = () => {
       beat()
+      void kickIfMaintenance()
     }
     const onVisibility = () => {
       if (document.visibilityState === 'visible') onShow()
@@ -63,7 +83,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       cancelled = true
-      window.clearInterval(id)
+      window.clearInterval(heartId)
+      window.clearInterval(watchId)
       window.removeEventListener('pagehide', onHide)
       window.removeEventListener('pageshow', onShow)
       document.removeEventListener('visibilitychange', onVisibility)

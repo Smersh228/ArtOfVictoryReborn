@@ -1,25 +1,62 @@
 'use strict'
 
-const { isArtilleryUnit, isInfantryUnit, unitHasPropKey, unitUsesGunDeploy } = require('../../core/battleUnitType')
+const { isArtilleryUnit, isInfantryUnit, unitHasPropKey, unitUsesGunDeploy, isTruckUnit, canTechTowArtillery } = require('../../core/battleUnitType')
 const { ensureCarriedUnits } = require('../../core/battleTransport')
 const {
   computeDefendSectorIds,
   maxShootRangeStepsForUnit,
   isValidDefendFacing,
 } = require('./battleDefendSector')
+const { canRailAcceptUnit } = require('./battleRailway')
 
 function isTruckUnitEditor(u) {
-  const t = String(u?.type ?? '').toLowerCase()
-  if (t !== 'tech') return false
-  if (/грузовик|truck|lkw/i.test(String(u.name || ''))) return true
-  const orders = u.orders
-  if (!Array.isArray(orders)) return false
-  return orders.some((o) => {
-    const k = String((o && (o.order_key || o.key)) || '')
-      .trim()
-      .toLowerCase()
-    return k === 'getsup' || k === 'loadingsup' || k === 'loading' || k === 'tow' || k === 'unloading'
-  })
+  return isTruckUnit(u)
+}
+
+function isTrainUnitEditor(u) {
+  if (!u) return false
+  if (String(u.type || '').toLowerCase() !== 'tech') return false
+  return unitHasPropKey(u, 'railwayDetachment')
+}
+
+function asCargoCatalogIds(raw, max = 4) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const item of raw) {
+    const n = Math.floor(Number(item))
+    if (!Number.isFinite(n) || n <= 0) continue
+    out.push(n)
+    if (out.length >= max) break
+  }
+  return out
+}
+
+function cargoIdsFromOrderEditorMeta(meta) {
+  if (!meta || typeof meta !== 'object') return []
+  if (meta.railCargo && typeof meta.railCargo === 'object' && Array.isArray(meta.railCargo.catalogUnitIds)) {
+    const ids = asCargoCatalogIds(meta.railCargo.catalogUnitIds)
+    if (ids.length) return ids
+  }
+  if (
+    meta.transportCargo &&
+    typeof meta.transportCargo === 'object' &&
+    Array.isArray(meta.transportCargo.catalogUnitIds)
+  ) {
+    const ids = asCargoCatalogIds(meta.transportCargo.catalogUnitIds)
+    if (ids.length) return ids
+  }
+  const out = []
+  for (const key of ['loading', 'tow']) {
+    const catalogId = Number(meta[key] && meta[key].catalogUnitId)
+    if (Number.isFinite(catalogId) && catalogId > 0) out.push(catalogId)
+  }
+  return out
+}
+
+function orderEditorMetaFromCargoIds(ids) {
+  const catalogUnitIds = asCargoCatalogIds(ids)
+  if (!catalogUnitIds.length) return undefined
+  return { transportCargo: { catalogUnitIds } }
 }
 
 function readArtilleryDeployMeta(meta) {
@@ -175,64 +212,83 @@ function collectTruckCargoCatalogUnitIds(cells) {
   if (!Array.isArray(cells)) return ids
   for (let ci = 0; ci < cells.length; ci++) {
     for (const u of cells[ci].units || []) {
-      if (!isTruckUnitEditor(u)) continue
-      const meta = u.orderEditorMeta
-      if (!meta || typeof meta !== 'object') continue
-      for (const key of ['loading', 'tow']) {
-        const catalogId = Number(meta[key]?.catalogUnitId)
-        if (Number.isFinite(catalogId)) ids.add(catalogId)
+      for (const catalogId of cargoIdsFromOrderEditorMeta(u && u.orderEditorMeta)) {
+        ids.add(catalogId)
       }
     }
   }
   return ids
 }
 
-/** Пехота / артиллерия из редактора карты → tactical.carriedUnits грузовика. */
+function enrichSpawnedCargo(cargo, row, enrichUnitFromCatalogRow, host) {
+  enrichUnitFromCatalogRow(cargo, row)
+  if (!cargo.name || !String(cargo.name).trim()) {
+    cargo.name = row.name != null ? String(row.name) : `Юнит ${cargo.instanceId}`
+  }
+  if (!cargo.type && row.type != null) cargo.type = String(row.type)
+  if (cargo.str == null) {
+    const n = Number(row.count)
+    cargo.str = Number.isFinite(n) && n > 0 ? n : 1
+  }
+  if (cargo.strength == null) cargo.strength = cargo.str
+  const hostStr = Number(host.str ?? host.strength)
+  const hostCap = Number.isFinite(hostStr) && hostStr > 0 ? hostStr : null
+  if (hostCap != null) {
+    const cStr = Number(cargo.str ?? cargo.strength)
+    if (Number.isFinite(cStr) && cStr > hostCap) cargo.str = hostCap
+  }
+  if (!cargo.tactical || typeof cargo.tactical !== 'object') cargo.tactical = {}
+  if (isArtilleryUnit(cargo)) cargo.tactical.artilleryDeployed = false
+  return cargo
+}
+
+/** Пехота / артиллерия / техника из редактора карты → tactical.carriedUnits грузовика или поезда. */
 function spawnMapEditorTruckCargo(cells, catalogById, enrichUnitFromCatalogRow) {
   if (!Array.isArray(cells) || !catalogById || typeof enrichUnitFromCatalogRow !== 'function') return
   let nextId = maxBattleInstanceId(cells) + 1
   for (let ci = 0; ci < cells.length; ci++) {
-    for (const truck of cells[ci].units || []) {
-      if (!isTruckUnitEditor(truck)) continue
-      const meta = truck.orderEditorMeta
-      if (!meta || typeof meta !== 'object') continue
-      const carried = ensureCarriedUnits(truck)
-      const truckStr = Number(truck.str ?? truck.strength)
-      const truckCap = Number.isFinite(truckStr) && truckStr > 0 ? truckStr : null
+    for (const host of cells[ci].units || []) {
+      const desired = cargoIdsFromOrderEditorMeta(host.orderEditorMeta)
+      if (!desired.length) continue
+      const train = isTrainUnitEditor(host)
+      const truck = isTruckUnitEditor(host)
+      if (!train && !truck) continue
+      const carried = ensureCarriedUnits(host)
+      const haveById = new Map()
+      for (const c of carried) {
+        const id = Number(c.id)
+        if (Number.isFinite(id) && id > 0) haveById.set(id, (haveById.get(id) || 0) + 1)
+      }
+      const wantById = new Map()
+      for (const id of desired) wantById.set(id, (wantById.get(id) || 0) + 1)
 
-      for (const key of ['loading', 'tow']) {
-        const block = meta[key]
-        const catalogId = Number(block?.catalogUnitId)
-        if (!Number.isFinite(catalogId)) continue
-        if (carried.some((x) => Number(x.id) === catalogId)) continue
+      for (const catalogId of desired) {
+        const have = haveById.get(catalogId) || 0
+        const want = wantById.get(catalogId) || 0
+        if (have >= want) continue
         const row = catalogById.get(catalogId)
         if (!row) continue
         const cargo = {
           id: catalogId,
-          instanceId: nextId++,
-          faction: truck.faction,
+          instanceId: nextId,
+          faction: host.faction,
         }
-        enrichUnitFromCatalogRow(cargo, row)
-        if (!cargo.name || !String(cargo.name).trim()) {
-          cargo.name = row.name != null ? String(row.name) : `Юнит ${cargo.instanceId}`
-        }
-        if (!cargo.type && row.type != null) cargo.type = String(row.type)
-        if (cargo.str == null) {
-          const n = Number(row.count)
-          cargo.str = Number.isFinite(n) && n > 0 ? n : 1
-        }
-        if (cargo.strength == null) cargo.strength = cargo.str
-        if (key === 'loading' && !isInfantryUnit(cargo)) continue
-        if (key === 'tow' && !isArtilleryUnit(cargo)) continue
-        if (truckCap != null) {
-          const cStr = Number(cargo.str ?? cargo.strength)
-          if (Number.isFinite(cStr) && cStr > truckCap) cargo.str = truckCap
-        }
-        if (!cargo.tactical || typeof cargo.tactical !== 'object') cargo.tactical = {}
-        if (isArtilleryUnit(cargo)) {
-          cargo.tactical.artilleryDeployed = false
+        enrichSpawnedCargo(cargo, row, enrichUnitFromCatalogRow, host)
+        if (train) {
+          if (!canRailAcceptUnit(host, cargo)) continue
+        } else {
+          if (isInfantryUnit(cargo)) {
+            if (carried.some((x) => isInfantryUnit(x))) continue
+          } else if (isArtilleryUnit(cargo)) {
+            if (carried.some((x) => isArtilleryUnit(x))) continue
+            if (!canTechTowArtillery(host, cargo)) continue
+          } else {
+            continue
+          }
         }
         carried.push(cargo)
+        haveById.set(catalogId, have + 1)
+        nextId += 1
       }
     }
   }
@@ -257,4 +313,6 @@ module.exports = {
   spawnMapEditorTruckCargo,
   collectDesantCatalogUnitIds,
   collectTruckCargoCatalogUnitIds,
+  cargoIdsFromOrderEditorMeta,
+  orderEditorMetaFromCargoIds,
 }

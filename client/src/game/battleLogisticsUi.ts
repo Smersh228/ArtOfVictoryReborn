@@ -58,10 +58,29 @@ function unitHasTruckLogisticsOrder(u: Record<string, unknown>): boolean {
 
 export function isTruckUnitBattle(u: Record<string, unknown>): boolean {
   const t = String(u.type || '').toLowerCase();
-  if (t !== 'tech') return false;
+  if (t !== 'tech' && t !== 'armor') return false;
   if (unitHasPropKey(u, 'railwayDetachment')) return false;
   if (/грузовик|truck|lkw/i.test(String(u.name || ''))) return true;
   return unitHasTruckLogisticsOrder(u);
+}
+
+export function isHeavyTechUnit(u: Record<string, unknown> | null | undefined): boolean {
+  const v = u?.heavyTech ?? u?.heavy_tech;
+  return v === true || v === 1 || v === '1' || v === 'true';
+}
+
+export function isHeavyArtilleryUnit(u: Record<string, unknown> | null | undefined): boolean {
+  const v = u?.heavyArtillery ?? u?.heavy_artillery;
+  return v === true || v === 1 || v === '1' || v === 'true';
+}
+
+export function canTechTowArtillery(
+  truck: Record<string, unknown>,
+  artillery: Record<string, unknown>,
+): boolean {
+  if (String(artillery.type || '').toLowerCase() !== 'artillery') return false;
+  if (isHeavyTechUnit(truck)) return true;
+  return !isHeavyArtilleryUnit(artillery);
 }
 
 function parseAmmoMaxFromRaw(raw: unknown): number | null {
@@ -88,6 +107,56 @@ export function parseAmmoCapacityMaxUi(u: Record<string, unknown>): number | nul
 
 const DEFAULT_UNIT_AMMO_CAP_UI = 10;
 const DEFAULT_TRUCK_AMMO_CAP_UI = 40;
+const DEFAULT_TRUCK_SPECIAL_CAP_UI = 10;
+const DEFAULT_UNIT_MINES_CAP_UI = 4;
+const DEFAULT_UNIT_EXPLOSIVES_CAP_UI = 2;
+const DEFAULT_UNIT_SMOKE_CAP_UI = 2;
+
+export type BattleSupplyAmounts = {
+  ammo: number;
+  mines: number;
+  explosives: number;
+  smoke: number;
+};
+
+function unitHasBattleOrderKey(u: Record<string, unknown>, key: string): boolean {
+  const want = String(key || '')
+    .trim()
+    .toLowerCase();
+  if (!want) return false;
+  const orders = u.orders;
+  if (!Array.isArray(orders)) return false;
+  return orders.some((o) => {
+    if (!o || typeof o !== 'object') return false;
+    const rec = o as { order_key?: unknown; key?: unknown };
+    return (
+      String(rec.order_key ?? rec.key ?? '')
+        .trim()
+        .toLowerCase() === want
+    );
+  });
+}
+
+function readStoredCapUi(u: Record<string, unknown>, key: string): number | null {
+  const n = Number(u[key]);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
+}
+
+function specialCapacityUi(
+  u: Record<string, unknown>,
+  have: number,
+  capKey: string,
+  unitDefault: number,
+  receiveOrderKeys: string[],
+): number {
+  const stored = readStoredCapUi(u, capKey);
+  if (isTruckUnitBattle(u)) return Math.max(DEFAULT_TRUCK_SPECIAL_CAP_UI, stored ?? 0, have);
+  if (stored != null) return Math.max(stored, have);
+  if (have > 0 || receiveOrderKeys.some((k) => unitHasBattleOrderKey(u, k))) {
+    return Math.max(unitDefault, have);
+  }
+  return 0;
+}
 
 export function getAmmoCapacityMaxUi(u: Record<string, unknown>): number {
   const p = parseAmmoCapacityMaxUi(u);
@@ -117,11 +186,68 @@ export function maxAmmoTransferFromTruckTo(
   truck: Record<string, unknown>,
   recipient: Record<string, unknown>,
 ): number {
-  const have = readAmmoCountUi(truck);
-  const cap = getAmmoCapacityMaxUi(recipient);
-  const rec = readAmmoCountUi(recipient);
-  const headroom = Math.max(0, cap - rec);
-  return Math.min(have, headroom);
+  return maxSupplyTransferFromTruckTo(truck, recipient).ammo;
+}
+
+function headroomUi(have: number, cap: number): number {
+  return Math.max(0, cap - have);
+}
+
+export function readMinesCountUi(u: Record<string, unknown>): number {
+  const am = u.ammunition as { mine?: unknown } | undefined;
+  const fromAmmo = Number(am?.mine);
+  if (Number.isFinite(fromAmmo) && fromAmmo >= 0) return Math.floor(fromAmmo);
+  const n = Number(u.mines);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+export function readExplosivesCountUi(u: Record<string, unknown>): number {
+  const am = u.ammunition as { explosives?: unknown } | undefined;
+  const fromAmmo = Number(am?.explosives);
+  if (Number.isFinite(fromAmmo) && fromAmmo >= 0) return Math.floor(fromAmmo);
+  const n = Number(u.explosives);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+export function readSmokeCountUi(u: Record<string, unknown>): number {
+  const n = Number(u.smokeShells);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+}
+
+export function getMinesCapacityMaxUi(u: Record<string, unknown>): number {
+  return specialCapacityUi(u, readMinesCountUi(u), 'minesMax', DEFAULT_UNIT_MINES_CAP_UI, [
+    'mining',
+    'explomost',
+  ]);
+}
+
+export function getExplosivesCapacityMaxUi(u: Record<string, unknown>): number {
+  return specialCapacityUi(u, readExplosivesCountUi(u), 'explosivesMax', DEFAULT_UNIT_EXPLOSIVES_CAP_UI, [
+    'explomost',
+  ]);
+}
+
+export function getSmokeCapacityMaxUi(u: Record<string, unknown>): number {
+  return specialCapacityUi(u, readSmokeCountUi(u), 'smokeShellsMax', DEFAULT_UNIT_SMOKE_CAP_UI, ['smoke']);
+}
+
+export function supplyAmountsTotal(a: BattleSupplyAmounts): number {
+  return a.ammo + a.mines + a.explosives + a.smoke;
+}
+
+export function maxSupplyTransferFromTruckTo(
+  truck: Record<string, unknown>,
+  recipient: Record<string, unknown>,
+): BattleSupplyAmounts {
+  return {
+    ammo: Math.min(readAmmoCountUi(truck), headroomUi(readAmmoCountUi(recipient), getAmmoCapacityMaxUi(recipient))),
+    mines: Math.min(readMinesCountUi(truck), headroomUi(readMinesCountUi(recipient), getMinesCapacityMaxUi(recipient))),
+    explosives: Math.min(
+      readExplosivesCountUi(truck),
+      headroomUi(readExplosivesCountUi(recipient), getExplosivesCapacityMaxUi(recipient)),
+    ),
+    smoke: Math.min(readSmokeCountUi(truck), headroomUi(readSmokeCountUi(recipient), getSmokeCapacityMaxUi(recipient))),
+  };
 }
 
 /** Юниты в кузове грузовика (пехота и свёрнутое орудие). */
@@ -261,7 +387,7 @@ export function computeGetSupTargetInstanceIds(
       if (d === 0 && unitInvolvesWaterUnit(truckUnit, u)) continue;
       if (unitStr(u) < 1) continue;
       if (!factionsAlliedOnMap(String(u.faction || ''), tf)) continue;
-      if (maxAmmoTransferFromTruckTo(truckUnit, u) < 1) continue;
+      if (supplyAmountsTotal(maxSupplyTransferFromTruckTo(truckUnit, u)) < 1) continue;
       out.add(iid);
     }
   }
@@ -321,6 +447,7 @@ export function computeTowTargetInstanceIds(
       if (tac?.embarkedTransportInstanceId != null) continue;
       if (tac?.artilleryDeployed === true) continue;
       if (isInstanceIdInAnyTruckCargo(cells, iid)) continue;
+      if (!canTechTowArtillery(truckUnit, u)) continue;
       if (used0 + battleGetStr(u) > cap) continue;
       out.add(iid);
     }
@@ -403,15 +530,38 @@ export function buildStorageHoverTip(cell: Cell): { title: string; rows: { key: 
   };
 }
 
+export function readStorageSmoke(cell: Cell): number {
+  return readStorageSupplyCount(cell, 'storageSmoke', STORAGE_DEFAULT_SMOKE);
+}
+
+export function readStorageExplosives(cell: Cell): number {
+  return readStorageSupplyCount(cell, 'storageExplosives', STORAGE_DEFAULT_EXPLOSIVES);
+}
+
+export function readStorageMines(cell: Cell): number {
+  return readStorageSupplyCount(cell, 'storageMines', STORAGE_DEFAULT_MINES);
+}
+
 export function maxAmmoLoadFromWarehouse(
   truck: Record<string, unknown>,
   warehouseCell: Cell,
 ): number {
-  const stock = readStorageAmmo(warehouseCell);
-  const cap = getAmmoCapacityMaxUi(truck);
-  const have = readAmmoCountUi(truck);
-  const headroom = Math.max(0, cap - have);
-  return Math.min(stock, headroom);
+  return maxSupplyLoadFromWarehouse(truck, warehouseCell).ammo;
+}
+
+export function maxSupplyLoadFromWarehouse(
+  truck: Record<string, unknown>,
+  warehouseCell: Cell,
+): BattleSupplyAmounts {
+  return {
+    ammo: Math.min(readStorageAmmo(warehouseCell), headroomUi(readAmmoCountUi(truck), getAmmoCapacityMaxUi(truck))),
+    mines: Math.min(readStorageMines(warehouseCell), headroomUi(readMinesCountUi(truck), getMinesCapacityMaxUi(truck))),
+    explosives: Math.min(
+      readStorageExplosives(warehouseCell),
+      headroomUi(readExplosivesCountUi(truck), getExplosivesCapacityMaxUi(truck)),
+    ),
+    smoke: Math.min(readStorageSmoke(warehouseCell), headroomUi(readSmokeCountUi(truck), getSmokeCapacityMaxUi(truck))),
+  };
 }
 
 export function computeLoadingSupTargetCellIds(
@@ -424,7 +574,7 @@ export function computeLoadingSupTargetCellIds(
     const d = hexDistCells(cell, truckCell);
     if (d > 1) continue;
     if (d === 0 && unitInvolvesWaterUnit(truckUnit)) continue;
-    if (maxAmmoLoadFromWarehouse(truckUnit, cell) < 1) continue;
+    if (supplyAmountsTotal(maxSupplyLoadFromWarehouse(truckUnit, cell)) < 1) continue;
     out.add(cell.id);
   }
   return out;

@@ -38,6 +38,8 @@ export type SavedMapListItem = {
   ownerUsername?: string | null
   canModerate?: boolean
   teamLimit?: number
+  solo?: boolean
+  botDifficulty?: 'easy' | 'normal' | 'hard'
 }
 
 
@@ -69,6 +71,12 @@ export type EditorMapPayloadLobby = {
     historyText?: string
     photos?: string[]
     teamLimit?: number
+    [key: string]: unknown
+  }
+  bots?: {
+    enabled?: boolean
+    difficulty?: string
+    slots?: Array<{ team?: number; kind?: string }>
     [key: string]: unknown
   }
   [key: string]: unknown
@@ -113,9 +121,15 @@ export async function fetchSavedMapById(id: number): Promise<{ map: SavedMapDeta
   return JSON.parse(text) as { map: SavedMapDetail }
 }
 
-export async function fetchSavedMaps(opts?: { editorOnly?: boolean }): Promise<{ maps: SavedMapListItem[] }> {
-  const q = opts?.editorOnly ? '?editor=1' : ''
-  const res = await fetch(mapsUrl(`/api/maps${q}`), { credentials: 'include' })
+export async function fetchSavedMaps(opts?: {
+  editorOnly?: boolean
+  solo?: boolean
+}): Promise<{ maps: SavedMapListItem[] }> {
+  const q = new URLSearchParams()
+  if (opts?.editorOnly) q.set('editor', '1')
+  if (opts?.solo) q.set('solo', '1')
+  const qs = q.toString()
+  const res = await fetch(mapsUrl(`/api/maps${qs ? `?${qs}` : ''}`), { credentials: 'include' })
   const text = await res.text()
   if (!res.ok) throw new Error(parseError(res, text))
   return JSON.parse(text) as { maps: SavedMapListItem[] }

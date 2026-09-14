@@ -19,11 +19,19 @@ export type EditorMapDesantMeta = {
   catalogUnitId?: number
 }
 
+export type EditorMapTransportCargoMeta = {
+  catalogUnitIds?: number[]
+}
+
 export type EditorMapUnitOrderEditorMeta = {
   desant?: EditorMapDesantMeta
   loading?: EditorMapLogisticsOrderMeta
   unloading?: EditorMapLogisticsOrderMeta
   tow?: EditorMapLogisticsOrderMeta
+  /** Груз поезда (2 пехоты + 2 любых, кроме поезда). */
+  railCargo?: EditorMapTransportCargoMeta
+  /** Универсальный груз транспорта (грузовик / подкрепление / пул). */
+  transportCargo?: EditorMapTransportCargoMeta
   /** @deprecated используйте artilleryDeploy */
   artilleryDeployed?: boolean
   artilleryDeploy?: EditorMapArtilleryDeployMeta

@@ -1,6 +1,7 @@
 'use strict'
 
-const { getStorageAmmo, setStorageAmmo, hasStorage } = require('../lib/map/battleStorage')
+const { hasStorage } = require('../lib/map/battleStorage')
+const supply = require('../lib/unit/battleSupplyTransfer')
 
 function validateLogisticsOrder(cells, o, deps) {
   const {
@@ -18,6 +19,7 @@ function validateLogisticsOrder(cells, o, deps) {
     unitFaction,
     isArtilleryUnit,
     isArtilleryCollapsedForTow,
+    canTechTowArtillery,
     sumEmbarkedArtilleryStrengthForTruck,
   } = deps
 
@@ -31,32 +33,26 @@ function validateLogisticsOrder(cells, o, deps) {
   if (ok === 'getSup') {
     const tid = Number(o.targetUnitInstanceId)
     if (!Number.isFinite(tid)) return 'нужна цель (targetUnitInstanceId)'
-    const n = Number(o.transferAmmo)
-    if (!Number.isFinite(n) || n < 1) return 'укажите transferAmmo (целое >= 1)'
-    if (!isTruckUnit(cur.unit)) return 'передаёт боеприпасы только грузовик'
+    const want = supply.readTransferWants(o)
+    if (!isTruckUnit(cur.unit)) return 'передаёт припасы только грузовик'
     const tgt = findUnitOnField(cells, tid)
     if (!tgt) return 'цель не на поле'
     if (!alliesSameFaction(cur.unit, tgt.unit)) return 'можно снабжать только союзника'
     const special = require('../lib/map/battleSpecialTerrain')
     const dist = hexDistCells(cur.cell, tgt.cell)
     if (special.unitInvolvesWaterUnit(cur.unit, tgt.unit)) {
-      if (dist !== 1) return 'у водного отряда боезапас должен быть в соседнем гексе'
+      if (dist !== 1) return 'у водного отряда припасы должны быть в соседнем гексе'
     } else if (dist > 1) {
       return 'цель в соседнем гексе или на том же'
     }
-    if (getAmmo(cur.unit) < 1) return 'нет БК для передачи'
-    const cap = getAmmoCapacityMax(tgt.unit)
-    const headroom = Math.max(0, cap - getAmmo(tgt.unit))
-    const giveMax = Math.min(getAmmo(cur.unit), headroom)
-    if (giveMax < 1) return 'у получателя нет места под БК'
-    if (n > giveMax) return `можно передать не больше ${giveMax}`
-    return null
+    const maxes = supply.maxTruckToUnit(cur.unit, tgt.unit)
+    if (supply.wantsTotal(maxes) < 1) return 'нет припасов для передачи или у получателя нет места'
+    return supply.validateWantsAgainstMax(want, maxes)
   }
   if (ok === 'loadingSup') {
     const cid = Number(o.targetCellId)
-    const n = Number(o.transferAmmo)
+    const want = supply.readTransferWants(o)
     if (!Number.isFinite(cid)) return 'нужна клетка склада (targetCellId)'
-    if (!Number.isFinite(n) || n < 1) return 'укажите transferAmmo (целое >= 1)'
     if (!isTruckUnit(cur.unit)) return 'со склада грузит только грузовик'
     const wh = cells.find((c) => Number(c.id) === cid)
     if (!wh) return 'клетка не существует'
@@ -68,14 +64,9 @@ function validateLogisticsOrder(cells, o, deps) {
     } else if (distWh > 1) {
       return 'склад должен быть в своём или соседнем гексе'
     }
-    const stock = getStorageAmmo(wh)
-    if (stock < 1) return 'на складе нет БК'
-    const cap = getAmmoCapacityMax(cur.unit)
-    const headroom = Math.max(0, cap - getAmmo(cur.unit))
-    const takeMax = Math.min(stock, headroom)
-    if (takeMax < 1) return 'у грузовика нет места под БК'
-    if (n > takeMax) return `можно взять не больше ${takeMax}`
-    return null
+    const maxes = supply.maxWarehouseToTruck(cur.unit, wh)
+    if (supply.wantsTotal(maxes) < 1) return 'на складе нет припасов или у грузовика нет места'
+    return supply.validateWantsAgainstMax(want, maxes)
   }
   if (ok === 'loading') {
     const tid = Number(o.targetUnitInstanceId)
@@ -115,6 +106,9 @@ function validateLogisticsOrder(cells, o, deps) {
     const tgt = findUnitOnField(cells, tid)
     if (!tgt) return 'цель не на поле'
     if (!isArtilleryUnit(tgt.unit)) return 'буксируется только артиллерия'
+    if (!canTechTowArtillery(cur.unit, tgt.unit)) {
+      return 'лёгкая техника буксирует только лёгкую артиллерию'
+    }
     if (!isArtilleryCollapsedForTow(tgt.unit)) return 'орудие должно быть свёрнуто'
     if (!alliesSameFaction(cur.unit, tgt.unit)) return 'только союзник'
     if (hexDistCells(cur.cell, tgt.cell) !== 1) return 'орудие в соседнем гексе'

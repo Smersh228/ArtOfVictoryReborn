@@ -11,7 +11,7 @@ interface BattleCenterModalsProps {
   pendingOrdersCount: number;
   scenarioBattleOutcome: {
     winnerFaction: 'rkka' | 'wehrmacht';
-    reason: 'objective' | 'timeout';
+    reason: 'objective' | 'timeout' | 'wipe';
   } | null;
   opponentVictory: boolean;
   myBattleFaction: BattleFaction;
@@ -115,9 +115,11 @@ const BattleCenterModals: React.FC<BattleCenterModalsProps> = ({
                     : 'Поражение'}
               </h2>
               <p className={styles.leftMenuSubtitle}>
-                {scenarioBattleOutcome.reason === 'objective'
-                  ? `Цель выполнена — победа: ${scenarioBattleOutcome.winnerFaction === 'rkka' ? 'РККА' : 'Вермахт'}`
-                  : `Лимит ходов исчерпан — победа: ${scenarioBattleOutcome.winnerFaction === 'rkka' ? 'РККА' : 'Вермахт'}`}
+                {scenarioBattleOutcome.reason === 'wipe'
+                  ? `У противника не осталось войск — победа: ${scenarioBattleOutcome.winnerFaction === 'rkka' ? 'РККА' : 'Вермахт'}`
+                  : scenarioBattleOutcome.reason === 'objective'
+                    ? `Цель выполнена — победа: ${scenarioBattleOutcome.winnerFaction === 'rkka' ? 'РККА' : 'Вермахт'}`
+                    : `Лимит ходов исчерпан — победа: ${scenarioBattleOutcome.winnerFaction === 'rkka' ? 'РККА' : 'Вермахт'}`}
               </p>
             </div>
           </header>

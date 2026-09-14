@@ -9,6 +9,9 @@ function ensureGroupedAreaFireBucket(groupedAreaFire, areaKey, shooterId, rollRe
     isSuppression: !!isSuppression,
     ammoCost,
     perTarget: new Map(),
+    structureHits: 0,
+    structureRolls: [],
+    structureAttempted: false,
   }
   bucket.shooterIds.push(Number(shooterId))
   bucket.rollResults.push(...(Array.isArray(rollResults) ? rollResults : []))

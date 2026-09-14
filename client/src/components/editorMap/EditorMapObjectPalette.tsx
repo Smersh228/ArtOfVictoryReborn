@@ -86,7 +86,7 @@ const EditorMapObjectPalette: React.FC<EditorMapObjectPaletteProps> = ({
               }
             >
               <div className={styles.objectIcon}>
-                <img width={50} height={50} src={unit.imagePath} alt={unit.name} />
+                <img width={64} height={64} src={unit.imagePath} alt={unit.name} />
               </div>
               <div className={styles.objectName}>{unit.name}</div>
             </div>
@@ -145,7 +145,7 @@ const EditorMapObjectPalette: React.FC<EditorMapObjectPaletteProps> = ({
                 }
               >
                 <div className={styles.objectIcon}>
-                  <img width={50} height={50} src={b.imagePath} alt={b.name} />
+                  <img width={64} height={64} src={b.imagePath} alt={b.name} />
                 </div>
                 <div className={styles.objectName}>{b.name}</div>
               </div>

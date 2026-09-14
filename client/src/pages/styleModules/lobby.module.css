@@ -17,12 +17,10 @@
   border: 1px solid rgba(255, 255, 255, 0.55);
   background: linear-gradient(
     160deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(200, 206, 214, 0.18) 50%,
-    rgba(255, 255, 255, 0.12) 100%
+    rgba(210, 214, 220, 0.88) 0%,
+    rgba(186, 192, 200, 0.9) 50%,
+    rgba(200, 206, 214, 0.86) 100%
   );
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
 }
 
@@ -668,21 +666,44 @@
   }
 }
 
+@media (max-width: 1280px) {
+  .lobbyLeft {
+    flex-basis: min(300px, 34vw);
+  }
+
+  .lobbyTitle {
+    font-size: 20px;
+  }
+}
+
 @media (max-width: 960px) {
   .lobbyBody {
     flex-direction: column;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .lobbyLeft {
     flex: 0 0 auto;
     max-width: none;
+    overflow: visible;
+  }
+
+  .lobbyPlayers {
+    flex: 0 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .playerList {
+    overflow: visible;
   }
 
   .lobbyRight {
-    min-height: 420px;
+    min-height: 0;
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto auto auto;
+    overflow: visible;
   }
 
   .lobbyMap {
@@ -703,7 +724,7 @@
 
   .lobbyTaskSplit {
     flex-direction: column;
-    min-height: 220px;
+    min-height: 0;
   }
 
   .lobbyHistoricalPhotos {
@@ -721,8 +742,9 @@
     height: 100dvh;
     max-height: 100dvh;
     margin: 0;
-    padding: 8px;
+    padding: 8px 8px max(8px, env(safe-area-inset-bottom, 0px));
     border-radius: 0;
+    overflow: hidden;
   }
 
   .lobbyLoadingOverlay {
@@ -730,29 +752,40 @@
   }
 
   .lobbyHeader {
-    padding: 10px 12px 12px;
-    margin-bottom: 8px;
+    padding: 8px 10px 10px;
+    margin-bottom: 6px;
     border-radius: 10px;
   }
 
   .lobbyTitle {
-    font-size: 18px;
+    font-size: 17px;
   }
 
   .lobbyNav {
     margin-top: 8px;
     gap: 6px;
+    width: 100%;
+  }
+
+  .lobbyNav > div {
+    flex: 1 1 calc(50% - 6px);
+    width: auto !important;
+    max-width: 100%;
+    min-width: 0;
   }
 
   .lobbyBody {
     gap: 8px;
     overflow-y: auto;
     min-height: 0;
+    -webkit-overflow-scrolling: touch;
   }
 
   .lobbyLeft {
     padding: 10px;
     gap: 8px;
+    flex: 0 0 auto;
+    max-width: none;
   }
 
   .lobbyButtonRow {
@@ -760,50 +793,85 @@
   }
 
   .lobbyButtonRow > div {
-    min-width: min(120px, 100%);
+    flex: 1 1 calc(50% - 6px);
+    width: auto !important;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .lobbyChat {
+    min-height: 0;
+  }
+
+  .lobbyChatList {
+    height: min(42dvh, 280px);
+    max-height: min(42dvh, 280px);
   }
 
   .lobbyRight {
-    min-height: 420px;
+    min-height: 0;
     gap: 8px;
-    overflow-y: auto;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .lobbyMap,
+  .lobbyBlockTaskInfo,
+  .lobbyHistorical {
+    grid-column: auto;
+    grid-row: auto;
   }
 
   .lobbyMap {
-    min-height: 240px;
+    min-height: 0;
   }
 
   .lobbyBlockTaskInfo,
   .lobbyHistorical {
-    min-height: 220px;
-    max-height: min(42dvh, 360px);
+    min-height: 0;
+    max-height: none;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .lobbyTaskSplit {
     min-height: 0;
-    flex: 1;
-    overflow: hidden;
+    flex: 1 0 auto;
+    overflow: visible;
+  }
+
+  .lobbyTaskColumn {
+    min-height: 0;
   }
 
   .cellBody,
   .lobbyTaskBody,
   .playerList {
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
   }
 
   .lobbyHistorical .cellBody {
-    flex: 1;
-    min-height: 88px;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    flex: 1 0 auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .playerRow {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .playerRowName,
+  .playerRowFaction,
+  .playerRowReady {
+    flex: 1 1 auto;
+    text-align: left;
   }
 
   .mapPreviewWrap {
-    min-height: 190px;
+    min-height: 160px;
     margin: 6px;
   }
 
@@ -821,7 +889,7 @@
 
 @media (max-width: 480px) {
   .lobby {
-    padding: 6px;
+    padding: 6px 6px max(6px, env(safe-area-inset-bottom, 0px));
   }
 
   .lobbyHeader {
@@ -842,25 +910,35 @@
   }
 
   .lobbyButtonRow > div {
-    flex-basis: 100%;
+    flex-basis: calc(50% - 6px);
+  }
+
+  .playerRow {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .playerRowFaction,
+  .playerRowReady {
+    text-align: left;
   }
 
   .lobbyMap {
-    min-height: 200px;
+    min-height: 0;
   }
 
   .mapPreviewWrap {
-    min-height: 160px;
+    min-height: 140px;
     margin: 5px;
   }
 
   .lobbyHistorical {
-    min-height: 210px;
-    max-height: min(46dvh, 340px);
+    min-height: 0;
+    max-height: none;
   }
 
   .lobbyHistorical .cellBody {
-    min-height: 80px;
+    min-height: 0;
   }
 
   .lobbyHistoryPhotoSlot {

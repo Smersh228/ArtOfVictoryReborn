@@ -43,6 +43,15 @@ export type LobbyHubState = {
 
 export type LobbyPlayerKills = Record<string, number>
 
+export type LobbyStatVs = 'player' | 'bot'
+
+export type LobbyStatBucket = {
+  wins: number
+  losses: number
+  kills: LobbyPlayerKills
+  casualties: LobbyPlayerKills
+}
+
 export type LobbyRoleKey = 'admin' | 'player' | 'moderator' | 'veteran' | 'veteran_moderator'
 
 export type LobbyPlayerProfile = {
@@ -57,6 +66,9 @@ export type LobbyPlayerProfile = {
   wins: number
   losses: number
   kills: LobbyPlayerKills
+  casualties: LobbyPlayerKills
+  vsPlayer: LobbyStatBucket
+  vsBot: LobbyStatBucket
   avatarPath: string | null
   muted: boolean
   mutedUntil: number | null
@@ -240,8 +252,24 @@ export async function sendLobbyChat(text: string): Promise<LobbyHubState> {
   return readHub(res)
 }
 
+function parseKills(raw: unknown): LobbyPlayerKills {
+  return raw && typeof raw === 'object' ? (raw as LobbyPlayerKills) : {}
+}
+
+function parseStatBucket(raw: Partial<LobbyStatBucket> | undefined, fallback?: Partial<LobbyStatBucket>): LobbyStatBucket {
+  const src = raw && typeof raw === 'object' ? raw : fallback || {}
+  return {
+    wins: Number(src.wins) || 0,
+    losses: Number(src.losses) || 0,
+    kills: parseKills(src.kills),
+    casualties: parseKills(src.casualties),
+  }
+}
+
 function parseProfile(raw: Partial<LobbyPlayerProfile> | undefined): LobbyPlayerProfile | null {
   if (!raw || raw.id == null) return null
+  const vsPlayer = parseStatBucket(raw.vsPlayer, raw)
+  const vsBot = parseStatBucket(raw.vsBot)
   return {
     id: Number(raw.id),
     username: String(raw.username || ''),
@@ -251,9 +279,12 @@ function parseProfile(raw: Partial<LobbyPlayerProfile> | undefined): LobbyPlayer
     highlight: raw.highlight === true,
     role: String(raw.role || 'Игрок'),
     roleKey: resolveLobbyRoleKey(raw.roleKey, raw.highlight),
-    wins: Number(raw.wins) || 0,
-    losses: Number(raw.losses) || 0,
-    kills: raw.kills && typeof raw.kills === 'object' ? raw.kills : {},
+    wins: vsPlayer.wins,
+    losses: vsPlayer.losses,
+    kills: vsPlayer.kills,
+    casualties: vsPlayer.casualties,
+    vsPlayer,
+    vsBot,
     avatarPath: raw.avatarPath ? String(raw.avatarPath) : null,
     muted: raw.muted === true,
     mutedUntil: raw.mutedUntil == null ? null : Number(raw.mutedUntil),
@@ -270,6 +301,77 @@ export async function fetchLobbyProfile(userId: number): Promise<LobbyPlayerProf
     throw new Error(data.error || 'Игрок не найден')
   }
   return profile
+}
+
+export type LobbyLeaderboardSort = 'kills' | 'casualties' | 'wins' | 'losses'
+
+export type LobbyLeaderboardRow = {
+  id: number
+  username: string
+  highlight: boolean
+  roleKey: LobbyRoleKey
+  role: string
+  wins: number
+  losses: number
+  killsTotal: number
+  casualtiesTotal: number
+}
+
+export const LEADERBOARD_SORTS: { key: LobbyLeaderboardSort; label: string }[] = [
+  { key: 'kills', label: 'Уничтожены' },
+  { key: 'casualties', label: 'Потери' },
+  { key: 'wins', label: 'Победы' },
+  { key: 'losses', label: 'Поражения' },
+]
+
+export const LEADERBOARD_VS: { key: LobbyStatVs; label: string }[] = [
+  { key: 'player', label: 'Против игрока' },
+  { key: 'bot', label: 'Против бота' },
+]
+
+function parseLeaderboardRow(raw: Partial<LobbyLeaderboardRow> | undefined): LobbyLeaderboardRow | null {
+  if (!raw || raw.id == null) return null
+  const id = Number(raw.id)
+  const username = String(raw.username || '').trim()
+  if (!Number.isFinite(id) || id <= 0 || !username) return null
+  return {
+    id,
+    username,
+    highlight: raw.highlight === true,
+    roleKey: resolveLobbyRoleKey(raw.roleKey, raw.highlight),
+    role: String(raw.role || 'Игрок'),
+    wins: Number(raw.wins) || 0,
+    losses: Number(raw.losses) || 0,
+    killsTotal: Number(raw.killsTotal) || 0,
+    casualtiesTotal: Number(raw.casualtiesTotal) || 0,
+  }
+}
+
+export async function fetchLobbyLeaderboard(
+  sort: LobbyLeaderboardSort = 'kills',
+  vs: LobbyStatVs = 'player',
+): Promise<{
+  sort: LobbyLeaderboardSort
+  vs: LobbyStatVs
+  rows: LobbyLeaderboardRow[]
+}> {
+  const allowed = new Set<LobbyLeaderboardSort>(['kills', 'casualties', 'wins', 'losses'])
+  const key = allowed.has(sort) ? sort : 'kills'
+  const vsKey: LobbyStatVs = vs === 'bot' ? 'bot' : 'player'
+  const res = await fetch(
+    lobbyHubUrl(`/leaderboard?sort=${encodeURIComponent(key)}&vs=${encodeURIComponent(vsKey)}`),
+    { credentials: 'include' },
+  )
+  const data = (await res.json()) as { sort?: string; vs?: string; rows?: unknown; error?: string }
+  if (!res.ok) {
+    throw new Error(data.error || 'Не удалось загрузить рейтинг')
+  }
+  const nextSort = allowed.has(data.sort as LobbyLeaderboardSort) ? (data.sort as LobbyLeaderboardSort) : key
+  const nextVs: LobbyStatVs = data.vs === 'bot' ? 'bot' : vsKey
+  const rows = Array.isArray(data.rows)
+    ? data.rows.map((item) => parseLeaderboardRow(item as Partial<LobbyLeaderboardRow>)).filter((row): row is LobbyLeaderboardRow => row != null)
+    : []
+  return { sort: nextSort, vs: nextVs, rows }
 }
 
 export async function moderateLobbyPlayer(

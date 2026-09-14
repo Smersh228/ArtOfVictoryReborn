@@ -27,12 +27,38 @@ function getNeighbor(hex, dir) {
   return { x: hex.x + dirs[dir].x, y: hex.y + dirs[dir].y, z: hex.z + dirs[dir].z }
 }
 
-function findCellByCoor(cells, coor) {
+const coorIndexCache = new WeakMap()
+
+function cellCoorKey(coor) {
+  if (!coor) return ''
+  return `${coor.x},${coor.y},${coor.z}`
+}
+
+function indexCellsByCoor(cells) {
+  const map = Object.create(null)
+  if (!cells) return map
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i]
-    if (c.coor.x === coor.x && c.coor.y === coor.y && c.coor.z === coor.z) return c
+    if (!c || !c.coor) continue
+    map[cellCoorKey(c.coor)] = c
   }
-  return null
+  return map
+}
+
+function getCellCoorIndex(cells) {
+  if (!cells) return null
+  let idx = coorIndexCache.get(cells)
+  if (!idx) {
+    idx = indexCellsByCoor(cells)
+    coorIndexCache.set(cells, idx)
+  }
+  return idx
+}
+
+function findCellByCoor(cells, coor) {
+  if (!coor || !cells) return null
+  const index = getCellCoorIndex(cells)
+  return index[cellCoorKey(coor)] || null
 }
 
 function hexDistCells(ca, cb) {
@@ -116,6 +142,9 @@ function buildFlightPathCellIds(cells, ca, cb) {
 module.exports = {
   hexDist,
   getNeighbor,
+  cellCoorKey,
+  indexCellsByCoor,
+  getCellCoorIndex,
   findCellByCoor,
   hexDistCells,
   hexFlightPathCellIds,

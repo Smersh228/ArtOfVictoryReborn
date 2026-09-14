@@ -7,6 +7,8 @@ const { hasDotOnCell, unitInDot } = require('./battleDot')
 const { unitHasPropKey } = require('../../core/battleUnitType')
 const { getStr, unitFaction, opposing, findUnitOnField } = require('../unit/battleUnitField')
 const { terrainEntryCost } = require('./battleTerrain')
+const ambush = require('../../core/battleAmbush')
+const hiddenOcc = require('../unit/battleHiddenState')
 const {
   createMoveSlopeCounters,
   slopeCountersAllow,
@@ -73,7 +75,11 @@ function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counte
   if (liveOnHex >= cap) return false
   for (let i = 0; i < us.length; i++) {
     if (unitFaction(us[i]) !== unitFaction(unit) && getStr(us[i]) > 0) {
-      if (fogRevealedCellIds != null && !fogRevealedCellIds.has(cell.id)) continue
+      if (hiddenOcc.isHiddenConcealed(us[i]) || ambush.isAmbushConcealed(us[i])) continue
+      if (fogRevealedCellIds != null) {
+        const hid = cell.id
+        if (!fogRevealedCellIds.has(hid) && !fogRevealedCellIds.has(Number(hid))) continue
+      }
       return false
     }
   }
@@ -99,7 +105,18 @@ function canEnterCell(cell, unit, fogRevealedCellIds, allCells, fromCell, counte
   return true
 }
 
-function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds) {
+function popMinByKey(queue, key) {
+  let best = 0
+  for (let i = 1; i < queue.length; i++) {
+    if (queue[i][key] < queue[best][key]) best = i
+  }
+  const item = queue[best]
+  const last = queue.pop()
+  if (best < queue.length) queue[best] = last
+  return item
+}
+
+function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds, allowSmoke) {
   const result = []
   const visited = Object.create(null)
   const queue = []
@@ -107,16 +124,26 @@ function findReachable(start, maxPoints, allCells, unit, fogRevealedCellIds) {
   const startKey = `${start.id}:${moveCountersKey(startCounters)}`
   visited[startKey] = 0
   queue.push({ cell: start, spent: 0, counters: startCounters })
+  let steps = 0
+  const maxSteps = Math.max(256, allCells.length * 12)
   while (queue.length > 0) {
-    queue.sort((a, b) => a.spent - b.spent)
-    const current = queue.shift()
+    if (++steps > maxSteps) break
+    const current = popMinByKey(queue, 'spent')
     if (current.spent <= maxPoints) result.push(current.cell)
     for (let dir = 0; dir < 6; dir++) {
       const nb = getNeighbor(current.cell.coor, dir)
       const neighbor = findCellByCoor(allCells, nb)
       if (
         !neighbor ||
-        !canEnterCell(neighbor, unit, fogRevealedCellIds, allCells, current.cell, current.counters)
+        !canEnterCell(
+          neighbor,
+          unit,
+          fogRevealedCellIds,
+          allCells,
+          current.cell,
+          current.counters,
+          allowSmoke,
+        )
       ) {
         continue
       }
@@ -147,10 +174,14 @@ function findPath(start, target, allCells, unit, fogRevealedCellIds, allowSmoke)
   let goalKey = null
   let steps = 0
   const maxSteps = Math.max(256, allCells.length * 12)
+  const byId = Object.create(null)
+  for (let i = 0; i < allCells.length; i++) {
+    const c = allCells[i]
+    if (c) byId[Number(c.id)] = c
+  }
   while (queue.length > 0) {
     if (++steps > maxSteps) break
-    queue.sort((a, b) => a.cost - b.cost)
-    const current = queue.shift()
+    const current = popMinByKey(queue, 'cost')
     if (current.cell.id === target.id) {
       goalKey = current.key
       break
@@ -186,7 +217,7 @@ function findPath(start, target, allCells, unit, fogRevealedCellIds, allowSmoke)
   }
   const path = []
   for (let i = 0; i < idChain.length; i++) {
-    const c = allCells.find((x) => Number(x.id) === idChain[i])
+    const c = byId[idChain[i]]
     if (c) path.push(c)
   }
   return path.length ? path : null

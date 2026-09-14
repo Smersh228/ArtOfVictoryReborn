@@ -1,6 +1,7 @@
 import React from 'react';
 import styles from '../../pages/styleModules/battle.module.css';
 import { airOrderNeedsHexTarget } from '../../game/battleAirSupport';
+import { cellIdListSize, type CellIdList } from '../map/cellIdSet';
 
 type OrderPickLike = {
   orderLabel?: string;
@@ -19,16 +20,13 @@ type OrderPickLike = {
 interface BattleMapHudProps {
   battleHoverCellId: number | null;
   orderPick: OrderPickLike | null;
-  battleAreaFireCellIds: number[] | null;
-  fireAdjustmentToggleAvailable?: boolean;
-  onToggleFireAdjustment?: () => void;
+  battleAreaFireCellIds: CellIdList;
   onApplyFireMode?: (reactive: boolean) => void;
 }
 
 function getOrderMetaText(
   orderPick: OrderPickLike,
-  battleAreaFireCellIds: number[] | null | undefined,
-  fireAdjustmentToggleAvailable?: boolean,
+  battleAreaFireCellIds: CellIdList,
 ): string {
   const isDefendLike =
     orderPick.orderKey === 'defend' ||
@@ -49,6 +47,9 @@ function getOrderMetaText(
   if (orderPick.orderKey === 'medical') {
     return ' — клик по союзной пехоте или артиллерии (свой или соседний гекс)';
   }
+  if (orderPick.orderKey === 'fireAdjustment') {
+    return ' — клик по союзной артиллерии с приказом «Огонь»: если первый залп не снял численность, тот же залп ещё раз';
+  }
   if (orderPick.orderKey === 'loadingSup') {
     return ' — клик по складу (свой гекс или соседний)';
   }
@@ -57,8 +58,7 @@ function getOrderMetaText(
   }
   if (
     (orderPick.orderKey === 'fire' || orderPick.orderKey === 'fireHard') &&
-    battleAreaFireCellIds &&
-    battleAreaFireCellIds.length > 0
+    cellIdListSize(battleAreaFireCellIds) > 0
   ) {
     return ' — зона огня по площади (туман не учитывается; цели не подсвечиваются)';
   }
@@ -68,7 +68,7 @@ function getOrderMetaText(
       : ' — серая подсветка и иконка: клетки выгрузки (соседний гекс)';
   }
   if (orderPick.orderKey === 'smoke') {
-    return battleAreaFireCellIds && battleAreaFireCellIds.length > 0
+    return cellIdListSize(battleAreaFireCellIds) > 0
       ? ' — клик по подсвеченному гексу в дальности и секторе стрельбы'
       : ' — нет гексов в дальности/секторе (артиллерия должна быть развёрнута)';
   }
@@ -116,11 +116,6 @@ function getOrderMetaText(
   if (orderPick.orderKey === 'trenches') {
     return ' — клик по соседнему гексу: сторона окопа (защита с фронта)';
   }
-  if (orderPick.orderKey === 'fire' && fireAdjustmentToggleAvailable) {
-    return orderPick.useFireAdjustment
-      ? ' — корректировка огня: вкл (закрытые цели, видимые наземным союзникам)'
-      : ' — включите корректировку для стрельбы по закрытым целям';
-  }
   if (airOrderNeedsHexTarget(orderPick.orderKey ?? '')) {
     return ' — клик по клетке назначения: прямая от точки вылета';
   }
@@ -131,8 +126,6 @@ const BattleMapHud: React.FC<BattleMapHudProps> = ({
   battleHoverCellId,
   orderPick,
   battleAreaFireCellIds,
-  fireAdjustmentToggleAvailable,
-  onToggleFireAdjustment,
   onApplyFireMode,
 }) => {
   const fireModePick =
@@ -149,7 +142,7 @@ const BattleMapHud: React.FC<BattleMapHudProps> = ({
           <span className={styles.battleHudOrderMeta}>
             {' '}
             · {orderPick.unit?.name ?? 'Юнит'}
-            {getOrderMetaText(orderPick, battleAreaFireCellIds, fireAdjustmentToggleAvailable)}
+            {getOrderMetaText(orderPick, battleAreaFireCellIds)}
           </span>
           {fireModePick && onApplyFireMode ? (
             <div className={styles.battleHudFireModeRow}>
@@ -161,18 +154,6 @@ const BattleMapHud: React.FC<BattleMapHudProps> = ({
               </button>
             </div>
           ) : null}
-          {orderPick.orderKey === 'fire' &&
-            !fireModePick &&
-            fireAdjustmentToggleAvailable &&
-            onToggleFireAdjustment && (
-            <button
-              type="button"
-              style={{ marginLeft: 8, fontSize: '0.85em', cursor: 'pointer', pointerEvents: 'auto' }}
-              onClick={onToggleFireAdjustment}
-            >
-              Корректировка: {orderPick.useFireAdjustment ? 'вкл' : 'выкл'}
-            </button>
-          )}
         </div>
       )}
     </div>

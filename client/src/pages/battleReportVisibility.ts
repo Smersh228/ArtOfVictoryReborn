@@ -150,6 +150,7 @@ export function shouldHideRawBattleReportLine(line: string): boolean {
 export function isDirectFireHiddenByGrouped(entry: BattleLogEntry, visibleLog: BattleLogEntry[]): boolean {
   const fireLine = entry.meta?.fireLine;
   if (!fireLine || fireLine.groupedFire === true || fireLine.groupedAreaFire === true) return false;
+  if (fireLine.fireAdjustmentMiss === true) return false;
   const attackerId = Number(fireLine.attackerId);
   const targetId = Number(fireLine.targetId);
   if (!Number.isFinite(attackerId) || !Number.isFinite(targetId)) return false;

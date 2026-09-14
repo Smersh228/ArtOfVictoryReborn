@@ -115,9 +115,11 @@ function fireAirCombatShot(attacker, attackerCell, defender, defenderCell, dista
   const consumeAmmo = options.consumeAmmo !== false
   if (consumeAmmo && getAmmo(attacker) < 1) return null
   const ia = intensityArrayFor(attacker, defender)
-  const ra = rangeArrayForAtCell
+  const raRaw = rangeArrayForAtCell
     ? rangeArrayForAtCell(attacker, attackerCell)
     : rangeArrayFor(attacker)
+  const { applyAirAccuracyRangeShift } = require('../scenario/battleEnvironment')
+  const ra = applyAirAccuracyRangeShift(raRaw)
   const warDef = moveWarDefenseBonus(defender.instanceId, ordersByUnit)
   const accBonus = terrainAccuracyBonusFromCell(attackerCell, attacker, defender, false)
   const res = computeShoot(

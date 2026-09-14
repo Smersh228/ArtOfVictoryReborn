@@ -30,7 +30,7 @@ const { hexFlightPathCellIds } = require('../map/battleHexGeometry')
 const { readVisionRange } = require('../unit/battleUnitVision')
 const { isDesantOnlyBattleMoveUnit } = require('../air/battleDesant')
 const { unitHasMeleeOnlyFireRowOptions } = require('../unit/battleUnitFireOptions')
-const { cellBlocksLineOfSight, isCellSeenByAnyHostileUnit } = require('../map/battleFogVisibility')
+const { isCellSeenByAnyHostileUnit } = require('../map/battleFogVisibility')
 const { computeDefendSectorIds, isValidDefendFacing, maxShootRangeStepsForUnit } = require('../map/battleDefendSector')
 const fireAdj = require('../fire/battleFireAdjustment')
 const desantCombat = require('../air/battleDesantCombat')
@@ -78,42 +78,108 @@ function isBattleAirCatalogUnit(unit) {
   return t === 'lightAir' || t === 'heavyAir'
 }
 
-function validateFireAdjustmentOrder(cells, found, orderKey, targetCellId, targetUnit) {
-  if (!found?.unit) return 'юнит не на поле'
-  if (!fireAdj.canShooterUseFireAdjustmentOrder(found.unit, orderKey, isArtilleryUnit)) {
-    return 'корректировка огня доступна только артиллерии (приказ «Огонь»), не для авиации'
+/** Огонь/атака с targetCellId: взять противника на гексе, если цель-юнит не указана. */
+function pickDirectFireTargetOnCell(found, cell, order) {
+  if (!found?.unit || !cell) return null
+  const { infantryCanRangedFireAtTarget } = require('../unit/battleUnitFireOptions')
+  const { unitInDot } = require('../map/battleDot')
+  const ok = String(order?.orderKey || '').trim()
+  const us = cell.units || []
+  for (let i = 0; i < us.length; i++) {
+    const u = us[i]
+    if (!u || getStr(u) <= 0) continue
+    if (!factionsOpposed(unitFaction(found.unit), unitFaction(u))) continue
+    if (unitInDot(u)) continue
+    if (
+      (ok === 'fire' || ok === 'fireHard') &&
+      isInfantryUnit(found.unit) &&
+      isArmoredVehicleTarget(u) &&
+      !infantryCanRangedFireAtTarget(found.unit, u, !!order.useReactiveFire)
+    ) {
+      continue
+    }
+    return u
   }
-  const fac = unitFaction(found.unit)
-  if (!fireAdj.hasActiveFireAdjustmentSpotter(cells, fac)) {
-    return 'нет доступного корректировщика огня (живой, не в транспорте; авиация не считается)'
-  }
-  let targetCell = null
-  if (targetCellId != null && Number.isFinite(Number(targetCellId))) {
-    targetCell = cells.find((c) => Number(c.id) === Number(targetCellId))
-  } else if (targetUnit?.cell) {
-    targetCell = targetUnit.cell
-  }
-  if (!targetCell) return 'цель не найдена'
-  const vis = fireAdj.resolveArtilleryFireVisibility(
-    found,
-    targetCell,
-    cells,
-    {
-      unitHasPropKey,
-      isArtilleryUnit,
-      artilleryAreaClosedIgnoresTerrainLos,
-      isHexVisible,
-    },
-    { useFireAdjustment: true },
-  )
-  if (!vis.allowed) return vis.reason || 'корректировка огня невозможна'
   return null
+}
+
+function validateFireAdjustmentSpotterOrder(cells, found, o, orders, normalizeOrderKeyFn) {
+  if (!found?.unit) return 'юнит не на поле'
+  if (!fireAdj.unitIsFireAdjustmentSpotter(found.unit)) {
+    return 'нет приказа «Корректировка огня артиллерии» в каталоге'
+  }
+  if (fireAdj.isUnitInTransport(found.unit)) return 'корректировщик в транспорте'
+  const tid = Number(o.targetUnitInstanceId)
+  if (!Number.isFinite(tid)) return 'укажите дружественную артиллерию'
+  const tgt = findUnitOnField(cells, tid)
+  if (!tgt) return 'цель не на поле'
+  if (unitFaction(tgt.unit) !== unitFaction(found.unit)) return 'только союзник'
+  if (!isArtilleryUnit(tgt.unit) && !unitUsesGunDeploy(tgt.unit)) return 'корректируется только артиллерия'
+  if (fireAdj.isUnitInTransport(tgt.unit)) return 'артиллерия в транспорте'
+  if (getStr(tgt.unit) <= 0) return 'артиллерия уничтожена'
+  let artFire = null
+  let otherAdjOnSame = 0
+  for (let i = 0; i < orders.length; i++) {
+    const other = orders[i] || {}
+    const ok = normalizeOrderKeyFn(String(other.orderKey ?? other.order_key ?? '').trim())
+    if (ok === 'fire' && (Number(other.unitInstanceId) === tid || Number(other.unitId) === tid)) artFire = other
+    if (ok === 'fireHard' && Number(other.unitInstanceId) === tid) {
+      return 'корректировка огня невозможна при приказе «Огонь на подавление»'
+    }
+    if (ok === 'fireAdjustment' && Number(other.targetUnitInstanceId) === tid) otherAdjOnSame += 1
+  }
+  if (otherAdjOnSame > 1) return 'на одну артиллерию — только одна корректировка'
+  if (!artFire) return 'у артиллерии должен быть приказ «Огонь»'
+  const fireTid = Number(artFire.targetUnitInstanceId)
+  let fireCell = null
+  let fireTgtUnit = null
+  if (Number.isFinite(fireTid)) {
+    const ft = findUnitOnField(cells, fireTid)
+    if (ft) {
+      fireTgtUnit = ft.unit
+      fireCell = ft.cell
+    }
+  }
+  if (!fireCell && artFire.targetCellId != null) {
+    fireCell = cells.find((c) => Number(c.id) === Number(artFire.targetCellId)) || null
+  }
+  const fireTy = String((fireTgtUnit && fireTgtUnit.type) || '').toLowerCase()
+  if (fireTy === 'lightair' || fireTy === 'heavyair') {
+    return 'корректировка не действует при стрельбе по авиации'
+  }
+  return null
+}
+
+function stripStaleOngoingOrders(orders, cells, normalizeOrderKey) {
+  if (!Array.isArray(orders) || !cells) return
+  const ambush = require('../../core/battleAmbush')
+  const sapper = require('../map/battleSapperJobs')
+  for (let i = orders.length - 1; i >= 0; i--) {
+    const o = orders[i] || {}
+    const ok = normalizeOrderKey(String(o.orderKey ?? o.order_key ?? o.order ?? '').trim())
+    const uid = Number(o.unitInstanceId)
+    if (!Number.isFinite(uid)) continue
+    const found = findUnitOnField(cells, uid)
+    if (!found) continue
+    if (ok === 'ambush' && ambush.isAmbushConcealed(found.unit)) {
+      orders.splice(i, 1)
+      continue
+    }
+    if (sapper.isSapperBusy(found.unit)) {
+      orders.splice(i, 1)
+      continue
+    }
+    if ((ok === 'move' || ok === 'moveWar') && Number(o.targetCellId) === Number(found.cell.id)) {
+      orders.splice(i, 1)
+    }
+  }
 }
 
 function validateBattleOrders(cells, orders, context) {
   const { ownsUnit, normalizeOrderKey, submittableOrderKeys } = context
   if (!Array.isArray(orders)) return 'Некорректный список приказов'
   if (!cells || !cells.length) return 'Поле боя не загружено'
+  stripStaleOngoingOrders(orders, cells, normalizeOrderKey)
   const fireAdjCounts = fireAdj.countFireAdjustmentUsesInOrders(orders, cells, findUnitOnField)
   for (const fac of Object.keys(fireAdjCounts)) {
     if (fireAdjCounts[fac] > 1) return 'Корректировка огня: только один приказ с корректировкой за ход на сторону'
@@ -148,8 +214,25 @@ function validateBattleOrders(cells, orders, context) {
       }
     }
     if (ok === 'fire' || ok === 'fireHard' || ok === 'attack') {
-      const tid = o.targetUnitInstanceId
-      const fireCellId = o.targetCellId
+      let tid = o.targetUnitInstanceId
+      let fireCellId = o.targetCellId
+      if (tid != null && Number.isFinite(Number(tid)) && (ok === 'fire' || ok === 'fireHard')) {
+        const tgtDot = findUnitOnField(cells, tid)
+        const structureHpPre = require('../map/battleStructureHp')
+        const dotModPre = require('../map/battleDot')
+        if (
+          tgtDot &&
+          dotModPre.unitInDot(tgtDot.unit) &&
+          (structureHpPre.unitCanRangedBuildFire(found.unit, !!o.useReactiveFire) ||
+            dotModPre.unitInDot(found.unit)) &&
+          structureHpPre.isBuildFireTargetCell(tgtDot.cell)
+        ) {
+          o.targetCellId = Number(tgtDot.cell.id)
+          delete o.targetUnitInstanceId
+          tid = null
+          fireCellId = o.targetCellId
+        }
+      }
       if (
         (ok === 'fire' || ok === 'fireHard') &&
         unitOrderUsesAreaHexFire(found.unit, o) &&
@@ -162,10 +245,6 @@ function validateBattleOrders(cells, orders, context) {
         useReactiveFire: !!o.useReactiveFire,
       })
       if (errAf) return `Приказ ${i + 1}: ${errAf}`
-      if (o.useFireAdjustment) {
-        const errAdj = validateFireAdjustmentOrder(cells, found, ok, Number(fireCellId), null)
-        if (errAdj) return `Приказ ${i + 1}: ${errAdj}`
-      }
       continue
     }
     if (
@@ -176,13 +255,15 @@ function validateBattleOrders(cells, orders, context) {
     ) {
       const structureHp = require('../map/battleStructureHp')
       const tcStruct = cells.find((c) => Number(c.id) === Number(fireCellId))
-      if (
-        tcStruct &&
-        structureHp.unitHasBuildFire(found.unit) &&
-        structureHp.isShootableStructureCell(tcStruct)
-      ) {
+      const dotMod = require('../map/battleDot')
+      if (tcStruct && structureHp.isBuildFireTargetCell(tcStruct)) {
+        if (
+          !structureHp.unitCanRangedBuildFire(found.unit, !!o.useReactiveFire) &&
+          !dotMod.unitInDot(found.unit)
+        ) {
+          return `Приказ ${i + 1}: нет дальнего огня по сооружениям`
+        }
         const needAmmo = ok === 'fireHard' ? 3 : 1
-        const dotMod = require('../map/battleDot')
         let haveAmmo = getAmmoForValidate(found.unit)
         if (dotMod.dotShooterUsesDotAmmo(found.unit)) {
           haveAmmo = dotMod.getDotAmmo(found.cell.builds)
@@ -222,12 +303,23 @@ function validateBattleOrders(cells, orders, context) {
         continue
       }
     }
+    if ((tid == null || !Number.isFinite(Number(tid))) && fireCellId != null && Number.isFinite(Number(fireCellId))) {
+      const tcUnit = cells.find((c) => Number(c.id) === Number(fireCellId))
+      const picked = pickDirectFireTargetOnCell(found, tcUnit, o)
+      if (picked && Number.isFinite(Number(picked.instanceId))) {
+        o.targetUnitInstanceId = Number(picked.instanceId)
+        tid = o.targetUnitInstanceId
+      }
+    }
     if (tid == null) return `Приказ ${i + 1}: нужна цель (targetUnitInstanceId)`
     const tgt = findUnitOnField(cells, tid)
     if (!tgt) return `Приказ ${i + 1}: цель не на поле`
     if (!factionsOpposed(unitFaction(found.unit), unitFaction(tgt.unit))) return `Приказ ${i + 1}: цель должна быть противником`
     if ((ok === 'fire' || ok === 'fireHard') && isInfantryUnit(found.unit) && isArmoredVehicleTarget(tgt.unit)) {
-      return `Приказ ${i + 1}: пехота не стреляет по бронетехнике и танкам`
+      const { infantryCanRangedFireAtTarget } = require('../unit/battleUnitFireOptions')
+      if (!infantryCanRangedFireAtTarget(found.unit, tgt.unit, !!o.useReactiveFire)) {
+        return `Приказ ${i + 1}: пехота не стреляет по бронетехнике и танкам`
+      }
     }
     if (ok === 'fire' || ok === 'fireHard') {
       const meleeId = Number(found.unit.tactical?.meleeOpponentInstanceId)
@@ -262,10 +354,6 @@ function validateBattleOrders(cells, orders, context) {
           : shootingAccuracyAtHexDistance(found.unit, effDFire)
         if (acc <= 0) {
           return `Приказ ${i + 1}: на этой дистанции меткость 0 — стрельба невозможна`
-        }
-        if (o.useFireAdjustment) {
-          const errAdj = validateFireAdjustmentOrder(cells, found, ok, tgt.cell.id, tgt)
-          if (errAdj) return `Приказ ${i + 1}: ${errAdj}`
         }
       }
       if ((ok === 'fire' || ok === 'fireHard') && unitUsesGunDeploy(found.unit)) {
@@ -353,6 +441,11 @@ function validateBattleOrders(cells, orders, context) {
       if (errFm) return `Приказ ${i + 1}: ${errFm}`
       continue
     }
+    if (ok === 'fireAdjustment') {
+      const errAdj = validateFireAdjustmentSpotterOrder(cells, found, o, orders, normalizeOrderKey)
+      if (errAdj) return `Приказ ${i + 1}: ${errAdj}`
+      continue
+    }
     if (ok === 'medical') {
       const medical = require('../unit/battleMedical')
       const tid = Number(o.targetUnitInstanceId)
@@ -406,6 +499,11 @@ function validateBattleOrders(cells, orders, context) {
         return `Приказ ${i + 1}: этот приказ нельзя отменить`
       }
       continue
+    }
+    if (ok === 'accompaniment' || AIR_HEX_TARGET_ORDER_KEYS.has(ok)) {
+      const airSortieMod = require('../air/battleAirSortie')
+      const rainBlock = airSortieMod.airLaunchWeatherBlockReason(ok)
+      if (rainBlock) return `Приказ ${i + 1}: ${rainBlock}`
     }
     if (ok === 'accompaniment') {
       if (!isBattleAirCatalogUnit(found.unit)) {
@@ -532,6 +630,9 @@ function validateBattleOrders(cells, orders, context) {
       if (!dotMod.canEnterDotUnitType(found.unit, isInfantryUnit, isArtilleryUnit)) {
         return `Приказ ${i + 1}: занять ДОТ могут только пехота и артиллерия`
       }
+      if (isArtilleryDeployedForBattle(found.unit)) {
+        return `Приказ ${i + 1}: развёрнутое орудие не может занять ДОТ — сначала «Свёртывание»`
+      }
       if (dotMod.unitInDot(found.unit)) return `Приказ ${i + 1}: юнит уже в ДОТ`
       if (dotMod.unitDotEntering(found.unit)) return `Приказ ${i + 1}: юнит уже занимает ДОТ`
       const cid = Number(o.targetCellId)
@@ -632,19 +733,14 @@ function validateBattleOrders(cells, orders, context) {
       const sectorIds = computeDefendSectorIds(cells, found.cell, fCell, found.unit, rcap)
       if (!sectorIds.length) return `Приказ ${i + 1}: ${tag} — сектор обстрела пуст`
       if (ok === 'ambush') {
-        const hexEx = found.cell.hexExtra
-        const aa = hexEx && typeof hexEx === 'object' ? hexEx.ambushAllowed : null
-        if (aa && typeof aa === 'object') {
+        const { isAmbushAllowedOnCell } = require('../map/battleTerrain')
+        if (!isAmbushAllowedOnCell(found.cell, found.unit)) {
           const ut = String(found.unit?.type || '')
-          if (aa[ut] === false) {
-            return `Приказ ${i + 1}: засада на этом гексе запрещена для типа «${ut}»`
-          }
+          return `Приказ ${i + 1}: засада на этом гексе запрещена для типа «${ut}»`
         }
-        if (isCellSeenByAnyHostileUnit(found.unit, found.cell, cells)) {
+        const already = require('../../core/battleAmbush').isAmbushConcealed(found.unit)
+        if (!already && isCellSeenByAnyHostileUnit(found.unit, found.cell, cells)) {
           return `Приказ ${i + 1}: засада — гекс должен быть вне обзора всех юнитов противника`
-        }
-        if (!cellBlocksLineOfSight(found.cell)) {
-          return `Приказ ${i + 1}: засада — гекс юнита должен быть с преградой видимости (лес, город, здание, visionBlock и т.п.)`
         }
       }
     }
@@ -912,6 +1008,16 @@ function validateBattleOrders(cells, orders, context) {
   return null
 }
 
+function validateBattleOrdersWithFogMemo(cells, orders, context) {
+  const fogVis = require('../map/battleFogVisibility')
+  fogVis.beginFogMemo(cells)
+  try {
+    return validateBattleOrders(cells, orders, context)
+  } finally {
+    fogVis.endFogMemo()
+  }
+}
+
 module.exports = {
-  validateBattleOrders,
+  validateBattleOrders: validateBattleOrdersWithFogMemo,
 }

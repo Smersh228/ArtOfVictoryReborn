@@ -4,6 +4,7 @@ import { specialMoveCountersAllow, stepUsesLimitedSpecialMove, waterCraftOnWater
 import { applyRainEntryCost } from './battleEnvironment';
 import { isPontonComplete } from './cellPonton';
 import { applyRailwayEntryDiscount } from './cellRailway';
+import { isSettlementDestroyedHex } from './cellSettlementFire';
 
 type HexExtra = Record<string, unknown>;
 
@@ -282,6 +283,25 @@ export function normalizeUnitTypeForHexExtra(unitType: unknown): string {
   return String(unitType ?? '').trim();
 }
 
+export function isAmbushAllowedOnCell(
+  cell: Cell | null | undefined,
+  unit: { type?: unknown } | null | undefined,
+): boolean {
+  const ex = hexExtraObj(cell);
+  const aa = ex?.ambushAllowed;
+  if (!aa || typeof aa !== 'object') return true;
+  const rec = aa as Record<string, unknown>;
+  const key = normalizeUnitTypeForHexExtra(unit?.type);
+  const raw = String(unit?.type ?? '').trim();
+  const candidates = [key, raw, raw.toLowerCase(), String(key).toLowerCase()];
+  for (let i = 0; i < candidates.length; i++) {
+    const k = candidates[i];
+    if (!k) continue;
+    if (rec[k] === false) return false;
+  }
+  return true;
+}
+
 function readAccuracyBonusForUnitType(ex: HexExtra, unitType: unknown): number {
   const byType = ex?.accuracyBonusByType;
   if (!byType || typeof byType !== 'object') return 0;
@@ -334,6 +354,7 @@ export function terrainAccuracyBonusFromCell(
   forMelee: boolean,
 ): number {
   if (!shooterCell || !shooterUnit) return 0;
+  if (isSettlementDestroyedHex(shooterCell)) return 0;
   const ex = hexExtraObj(shooterCell);
   if (!ex) return 0;
   const rules = ex.accuracyBonusRules;
@@ -357,6 +378,7 @@ export function terrainDefenseBonusFromCell(
   targetUnit: { type?: unknown; tactical?: { fireSuppression?: boolean } } | null | undefined,
 ): number {
   if (!targetCell || !targetUnit) return 0;
+  if (isSettlementDestroyedHex(targetCell)) return 0;
   if (targetUnit.tactical && targetUnit.tactical.fireSuppression) return 0;
   const ex = hexExtraObj(targetCell);
   const cellAny = targetCell as unknown as {

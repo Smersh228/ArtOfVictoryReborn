@@ -2,6 +2,20 @@
 
 const { terrainAccuracyBonusFromCell } = require('../lib/map/battleTerrain')
 const trench = require('../lib/map/battleTrench')
+const dotMod = require('../lib/map/battleDot')
+const hiddenState = require('../lib/unit/battleHiddenState')
+
+function defenderAlreadyShot(deps, defenderId) {
+  const used = deps && deps.sectorShotUsed
+  if (!used || typeof used.has !== 'function') return false
+  return used.has(Number(defenderId))
+}
+
+function markDefenderShot(deps, defenderId) {
+  const used = deps && deps.sectorShotUsed
+  if (!used || typeof used.add !== 'function') return
+  used.add(Number(defenderId))
+}
 
 function maybeAllDefendersReturnFireForAreaImpactCell(
   cells,
@@ -26,6 +40,7 @@ function maybeAllDefendersReturnFireForAreaImpactCell(
     for (let ui = 0; ui < us.length; ui++) {
       const du = us[ui]
       if (getStr(du) <= 0) continue
+      if (defenderAlreadyShot(deps, du.instanceId)) continue
       if (!du.tactical || (!du.tactical.defendOrder && !du.tactical.ambushOrder)) continue
       if (!opposing(unitFaction(du), unitFaction(atk.unit))) continue
       const sec = du.defendSectorCellIds
@@ -100,6 +115,7 @@ function maybeDefenderReturnFireAgainstShooter(
   const impactId = fireImpactCellId != null && Number.isFinite(Number(fireImpactCellId)) ? Number(fireImpactCellId) : null
   const impactInSector = impactId != null && secSet.has(impactId)
   if (!shooterInSector && !impactInSector) return
+  if (defenderAlreadyShot(deps, defenderInstanceId)) return
   const returnPairKey = `${Number(defenderInstanceId)}:${Number(shooterInstanceId)}`
   if (sectorReturnFired && sectorReturnFired.has(returnPairKey)) return
   if (sectorAggression) {
@@ -117,7 +133,7 @@ function maybeDefenderReturnFireAgainstShooter(
     atk.cell.coor.y,
     atk.cell.coor.z,
   )
-  const baseRaRet = rangeArrayForAtCell(du, defCell)
+  const baseRaRet = rangeArrayForAtCell(du, def.cell)
   const isAmbushRet = du.tactical.ambushOrder && !du.tactical.defendOrder
   const ra = isAmbushRet ? rangeArrayAmbushAccuracyBonus(baseRaRet) : baseRaRet
   const rMode = fireRangeTableMode(ra)
@@ -131,10 +147,11 @@ function maybeDefenderReturnFireAgainstShooter(
     if (!unitHasPropKey(du, 'concealedTargetFire')) return
     artilleryClosedOw = true
   }
-  const accBonusOw = terrainAccuracyBonusFromCell(defCell, du, atk.unit, false)
+  const accBonusOw = terrainAccuracyBonusFromCell(def.cell, du, atk.unit, false)
   const coverA = trench.unitCoverDefenseBonus(atk.unit, def.cell, atk.cell)
   const res = computeShoot(du, atk.unit, atk.cell, d, ia, ra, false, undefined, warDefA + coverA, accBonusOw, artilleryClosedOw, 1)
   setAmmo(du, getAmmo(du) - 1)
+  markDefenderShot(deps, defenderInstanceId)
   if (sectorReturnFired) {
     sectorReturnFired.add(`${Number(defenderInstanceId)}:${Number(shooterInstanceId)}`)
   }
@@ -160,6 +177,7 @@ function maybeDefenderReturnFireAgainstShooter(
         accuracy: Number(res.accuracy) || 0,
         defendReturnFire: true,
         isAmbush: !!isAmbushRet,
+        fromDot: dotMod.dotShooterUsesDotAmmo(du),
       },
     },
   )
@@ -181,6 +199,7 @@ function maybeDefenderReturnFireAgainstShooter(
       ambushCleared: true,
     })
   }
+  hiddenState.revealHiddenByOpeningFire(du, le, ph)
 }
 
 function resolveDefendSectorIdleFire(
@@ -225,6 +244,7 @@ function resolveDefendSectorIdleFire(
     for (let ui = 0; ui < us.length; ui++) {
       const du = us[ui]
       if (getStr(du) <= 0) continue
+      if (defenderAlreadyShot(deps, du.instanceId)) continue
       if (!du.tactical || (!du.tactical.defendOrder && !du.tactical.ambushOrder)) continue
       const sec = du.defendSectorCellIds
       if (!Array.isArray(sec) || !sec.length) continue
@@ -294,6 +314,7 @@ function resolveDefendSectorIdleFire(
       const coverT = trench.unitCoverDefenseBonus(tgt, defCell, tgtCell)
       const res = computeShoot(du, tgt, tgtCell, d, ia, ra, false, undefined, warDefT + coverT, accBonusSector, artilleryClosedOw, 1)
       setAmmo(du, getAmmo(du) - 1)
+      markDefenderShot(deps, defInst)
       const tagW = warDefT ? ' [бой +1 З]' : ''
       const idleIntro = isAmbushDu
         ? 'Огонь с засады (в секторе, без хода цели)'
@@ -318,6 +339,7 @@ function resolveDefendSectorIdleFire(
             accuracy: Number(res.accuracy) || 0,
             defendSectorIdle: true,
             isAmbush: !!isAmbushDu,
+            fromDot: dotMod.dotShooterUsesDotAmmo(du),
           },
         },
       )
@@ -336,6 +358,7 @@ function resolveDefendSectorIdleFire(
           ambushCleared: true,
         })
       }
+      hiddenState.revealHiddenByOpeningFire(du, le, ph)
     }
   }
 }
@@ -380,6 +403,7 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
       for (let ui = 0; ui < us.length; ui++) {
         const u = us[ui]
         if (Number(u.instanceId) === Number(moverInstanceId)) continue
+        if (defenderAlreadyShot(deps, u.instanceId)) continue
         const hasDef = u.tactical && (u.tactical.defendOrder || u.tactical.ambushOrder)
         if (!hasDef) continue
         const sec = u.defendSectorCellIds
@@ -442,6 +466,7 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
       const coverM = trench.unitCoverDefenseBonus(moverTgt.unit, defCell, owCell)
       const res = computeShoot(u, moverTgt.unit, owCell, d, ia, ra, false, undefined, warDef + coverM, accBonusMove, artilleryClosedOw, 1)
       setAmmo(u, getAmmo(u) - 1)
+      markDefenderShot(deps, u.instanceId)
       shots.push({
         attackerId: u.instanceId,
         targetId: moverInstanceId,
@@ -451,6 +476,7 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
         warDef,
         owKind,
         isAmbushDef: !!(u.tactical.ambushOrder && !u.tactical.defendOrder),
+        fromDot: dotMod.dotShooterUsesDotAmmo(u),
       })
       if (clearAmbushOrderFully(u)) {
         le(ph, `Засада раскрыта: юнит ${u.instanceId} (огонь при движении врага)`, {
@@ -458,6 +484,7 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
           ambushCleared: true,
         })
       }
+      hiddenState.revealHiddenByOpeningFire(u, le, ph)
     }
 
     const dmgByTarget = new Map()
@@ -492,6 +519,7 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
             accuracy: Number(s.result?.accuracy) || 0,
             defendOverwatch: true,
             isAmbush: !!s.isAmbushDef,
+            fromDot: !!s.fromDot,
           },
         },
       )
@@ -516,9 +544,159 @@ function tryDefendOverwatchOnMovePath(cells, moverInstanceId, path, ordersByUnit
   return { fired: false, stopStepIndex: null, died: false }
 }
 
+function shooterHasFireOrderThisTurn(unit, ordersByUnit) {
+  if (!ordersByUnit || typeof ordersByUnit.get !== 'function') return false
+  const spec = ordersByUnit.get(Number(unit.instanceId))
+  const k = String(spec && spec.orderKey ? spec.orderKey : '').trim()
+  return k === 'fire' || k === 'fireHard' || k === 'fireMove'
+}
+
+function resolveDotSectorAutoFire(cells, ordersByUnit, le, ph, movedInstanceIds, deps) {
+  const {
+    getStr,
+    opposing,
+    unitFaction,
+    hexDist,
+    rangeArrayForAtCell,
+    fireRangeTableMode,
+    intensityArrayFor,
+    getDiceCount,
+    moveWarDefenseBonus,
+    isHexVisible,
+    computeShoot,
+    setStr,
+    logUnitDestroyed,
+    isTruckUnit,
+    applyCargoDamageFromTruckHit,
+    sweepCorpses,
+    findUnitOnField,
+    trySteadfastnessAfterOverwatchDamage,
+    computeRevealedCellIdsForFaction,
+  } = deps
+  for (let ci = 0; ci < cells.length; ci++) {
+    const defCell = cells[ci]
+    if (!dotMod.hasDotOnCell(defCell.builds)) continue
+    const us = defCell.units || []
+    for (let ui = 0; ui < us.length; ui++) {
+      const du = us[ui]
+      if (getStr(du) <= 0) continue
+      if (!dotMod.dotShooterUsesDotAmmo(du)) continue
+      if (defenderAlreadyShot(deps, du.instanceId)) continue
+      if (du.tactical && (du.tactical.defendOrder || du.tactical.ambushOrder)) continue
+      if (shooterHasFireOrderThisTurn(du, ordersByUnit)) continue
+      if (dotMod.getDotAmmo(defCell.builds) < 1) continue
+      const facing = dotMod.resolveDotFacingDir(defCell, cells)
+      const maxSteps = dotMod.dotMaxFireStepsForEnvironment(du)
+      if (maxSteps < 1) continue
+      const sectorIds = dotMod.computeDotMgSectorCellIds(defCell, facing, cells, maxSteps)
+      if (!Array.isArray(sectorIds) || !sectorIds.length) continue
+      const secSet = new Set(sectorIds.map((x) => Number(x)))
+      const fog =
+        typeof computeRevealedCellIdsForFaction === 'function'
+          ? computeRevealedCellIdsForFaction(cells, unitFaction(du))
+          : null
+      const candidates = []
+      for (let oi = 0; oi < cells.length; oi++) {
+        const hCell = cells[oi]
+        if (!secSet.has(Number(hCell.id))) continue
+        if (fog && typeof fog.has === 'function' && !fog.has(Number(hCell.id))) continue
+        if (!isHexVisible(defCell, hCell, cells)) continue
+        const hus = hCell.units || []
+        for (let hi = 0; hi < hus.length; hi++) {
+          const eu = hus[hi]
+          if (getStr(eu) <= 0) continue
+          if (!opposing(unitFaction(du), unitFaction(eu))) continue
+          const eid = Number(eu.instanceId)
+          if (movedInstanceIds && movedInstanceIds.has(eid)) continue
+          const dist = hexDist(
+            defCell.coor.x,
+            defCell.coor.y,
+            defCell.coor.z,
+            hCell.coor.x,
+            hCell.coor.y,
+            hCell.coor.z,
+          )
+          const ra0 = rangeArrayForAtCell(du, defCell)
+          const rMode0 = fireRangeTableMode(ra0)
+          const out0 = rMode0 === 'ranged' ? dist < 1 || dist >= ra0.length : dist > ra0.length
+          if (out0) continue
+          const ia0 = intensityArrayFor(du, eu)
+          const io = typeof getDiceCount === 'function' ? getDiceCount(du, ia0) : Number(ia0 && ia0[0]) || 0
+          if (!(io > 0)) continue
+          candidates.push({ unit: eu, cell: hCell, io, dist, ra: ra0, ia: ia0 })
+        }
+      }
+      if (!candidates.length) continue
+      let best = candidates[0]
+      for (let i = 1; i < candidates.length; i++) {
+        if (candidates[i].io > best.io) best = candidates[i]
+      }
+      const tgt = best.unit
+      const tgtCell = best.cell
+      const warDefT = moveWarDefenseBonus(Number(tgt.instanceId), ordersByUnit)
+      const accBonusSector = terrainAccuracyBonusFromCell(defCell, du, tgt, false)
+      const coverT = trench.unitCoverDefenseBonus(tgt, defCell, tgtCell)
+      const res = computeShoot(
+        du,
+        tgt,
+        tgtCell,
+        best.dist,
+        best.ia,
+        best.ra,
+        false,
+        undefined,
+        warDefT + coverT,
+        accBonusSector,
+        false,
+        1,
+      )
+      dotMod.deductShooterAmmoForFire({ unit: du, cell: defCell }, 1, false, () => 0, () => {})
+      hiddenState.revealHiddenByOpeningFire(du, le, ph)
+      markDefenderShot(deps, du.instanceId)
+      const tagW = warDefT ? ' [бой +1 З]' : ''
+      const defInst = Number(du.instanceId)
+      le(
+        ph,
+        `Огонь с обороны (ДОТ, авто): ${defInst} → ${tgt.instanceId}, попаданий ${res.hits}, урон ${res.damages} (выпало: ${res.rollResults.join(',')})${tagW}`,
+        {
+          fireLine: {
+            attackerId: defInst,
+            targetId: tgt.instanceId,
+            fromCellId: defCell.id,
+            targetCellId: tgtCell.id,
+            hits: res.hits,
+            damages: res.damages,
+            rollResults: res.rollResults,
+            warDef: !!warDefT,
+            isSuppression: false,
+            baseDiceCount: res.baseDiceCount,
+            diceCount: res.diceCount,
+            ammoCost: 1,
+            accuracy: Number(res.accuracy) || 0,
+            defendSectorIdle: true,
+            dotSectorAuto: true,
+            isAmbush: false,
+            fromDot: true,
+          },
+        },
+      )
+      const prevTgtStr = getStr(tgt)
+      setStr(tgt, prevTgtStr - res.damages)
+      logUnitDestroyed(le, ph, tgt, prevTgtStr, 'огонь ДОТ по сектору', tgtCell && tgtCell.id)
+      if (isTruckUnit(tgt)) applyCargoDamageFromTruckHit(cells, tgt, res.damages)
+      sweepCorpses(cells)
+      const tgtAfter = findUnitOnField(cells, tgt.instanceId)
+      if (tgtAfter && getStr(tgtAfter.unit) > 0 && res.damages > 0) {
+        trySteadfastnessAfterOverwatchDamage(le, ph, tgtAfter.unit, res.damages)
+      }
+    }
+  }
+}
+
 module.exports = {
   maybeAllDefendersReturnFireForAreaImpactCell,
   maybeDefenderReturnFireAgainstShooter,
   resolveDefendSectorIdleFire,
   tryDefendOverwatchOnMovePath,
+  resolveDotSectorAutoFire,
 }

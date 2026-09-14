@@ -2,8 +2,10 @@ import type { Cell, IBuildCell } from '../../../server/src/game/gameLogic/cells/
 import { settlementKindOf, settlementKindFromFlags, isSettlementDestroyedHex } from './cellSettlementFire';
 import { isIntactBridgeHex, isRailwayBridgeHex, isDestroyedBridgeHex } from './battleSpecialTerrain';
 import { isRailwayStationHex } from './cellRailway';
+import { hasDotOnCell } from './cellDot';
+import { hasStorageOnCell } from './editorMapFortifications';
 
-export type StructureHpKind = 'city' | 'village' | 'station' | 'bridge' | 'railBridge';
+export type StructureHpKind = 'city' | 'village' | 'station' | 'bridge' | 'railBridge' | 'storage';
 
 export type StructureHp = {
   kind: StructureHpKind;
@@ -24,15 +26,59 @@ function splitNums(v: unknown): number[] {
     });
 }
 
-export function unitHasBuildFire(unit: Record<string, unknown> | null | undefined, useReactiveFire?: boolean): boolean {
-  if (!unit) return false;
-  const src = useReactiveFire
-    ? unit.fireReactive
-    : unit.fireParsed || unit.fire;
+function buildFireSourcePositive(src: unknown): boolean {
   if (!src || typeof src !== 'object') return false;
   const raw = (src as Record<string, unknown>).build;
   if (raw == null || raw === '') return false;
   return splitNums(raw).some((n) => n > 0);
+}
+
+export function unitHasBuildFire(unit: Record<string, unknown> | null | undefined, useReactiveFire?: boolean): boolean {
+  if (!unit) return false;
+  if (useReactiveFire) return buildFireSourcePositive(unit.fireReactive);
+  return (
+    buildFireSourcePositive(unit._fireRaw) ||
+    buildFireSourcePositive(unit.fire) ||
+    buildFireSourcePositive(unit.fireParsed)
+  );
+}
+
+function fireRowOptionsOf(
+  unit: Record<string, unknown> | null | undefined,
+  useReactiveFire?: boolean,
+): Record<string, { melee?: boolean } | undefined> | null {
+  if (!unit) return null;
+  const raw = useReactiveFire ? unit.fireRowOptionsReactive : unit.fireRowOptions;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  return raw as Record<string, { melee?: boolean } | undefined>;
+}
+
+/** Строка «сооружения» помечена как ближний бой — дальний огонь по зданиям/ДОТ недоступен. */
+export function unitBuildFireIsMeleeOnly(
+  unit: Record<string, unknown> | null | undefined,
+  useReactiveFire?: boolean,
+): boolean {
+  return fireRowOptionsOf(unit, useReactiveFire)?.build?.melee === true;
+}
+
+export function unitCanRangedBuildFire(
+  unit: Record<string, unknown> | null | undefined,
+  useReactiveFire?: boolean,
+): boolean {
+  return unitHasBuildFire(unit, useReactiveFire) && !unitBuildFireIsMeleeOnly(unit, useReactiveFire);
+}
+
+function cellHasStorage(cell: Cell | null | undefined): boolean {
+  if (!cell) return false;
+  if (hasStorageOnCell(cell.builds)) return true;
+  const t = String(cell.type || '')
+    .trim()
+    .toLowerCase();
+  if (t === 'warehouse' || t.includes('склад')) return true;
+  const mb = (cell as { mapBuilding?: { destroyed?: unknown; name?: unknown } }).mapBuilding;
+  if (!mb || typeof mb !== 'object') return false;
+  if (mb.destroyed === true) return false;
+  return /склад/i.test(String(mb.name || ''));
 }
 
 export function hpKindForCell(cell: Cell | null | undefined): StructureHpKind | null {
@@ -44,11 +90,12 @@ export function hpKindForCell(cell: Cell | null | undefined): StructureHpKind | 
   if (isRailwayStationHex(cell)) return 'station';
   const sk = settlementKindOf(cell);
   if (sk) return sk;
-  if (stored && (stored.kind === 'city' || stored.kind === 'village' || stored.kind === 'bridge' || stored.kind === 'railBridge')) {
+  if (stored && (stored.kind === 'city' || stored.kind === 'village' || stored.kind === 'bridge' || stored.kind === 'railBridge' || stored.kind === 'storage')) {
     return stored.kind;
   }
   if (isIntactBridgeHex(cell) && isRailwayBridgeHex(cell)) return 'railBridge';
   if (isIntactBridgeHex(cell)) return 'bridge';
+  if (cellHasStorage(cell)) return 'storage';
   return null;
 }
 
@@ -56,6 +103,7 @@ function defaultHp(kind: StructureHpKind): StructureHp {
   if (kind === 'city') return { kind, str: 18, maxStr: 18, def: 2, maxDef: 2 };
   if (kind === 'village') return { kind, str: 24, maxStr: 24, def: 1, maxDef: 1 };
   if (kind === 'station') return { kind, str: 12, maxStr: 12, def: 1, maxDef: 1 };
+  if (kind === 'storage') return { kind, str: 4, maxStr: 4, def: 1, maxDef: 1 };
   return { kind, str: 3, maxStr: 3, def: 3, maxDef: 3 };
 }
 
@@ -82,6 +130,12 @@ export function structureHpOf(cell: Cell | null | undefined): StructureHp | null
 export function isShootableStructureCell(cell: Cell | null | undefined): boolean {
   const hp = structureHpOf(cell);
   return !!(hp && hp.str > 0);
+}
+
+/** Гекс для дальнего огня по сооружениям: здание или ДОТ (пустой и занятый). */
+export function isBuildFireTargetCell(cell: Cell | null | undefined): boolean {
+  if (!cell) return false;
+  return isShootableStructureCell(cell) || hasDotOnCell(cell.builds) || cellHasStorage(cell);
 }
 
 export function unitCanEnterDamagedStructure(
@@ -153,6 +207,7 @@ const STRUCTURE_KIND_LABEL: Record<StructureHpKind, string> = {
   station: 'ЖД станция',
   bridge: 'Мост',
   railBridge: 'ЖД мост',
+  storage: 'Склад',
 };
 
 const UNIT_TYPE_LABELS: { id: string; label: string }[] = [
@@ -212,19 +267,18 @@ export function structureInspectOf(cell: Cell | null | undefined): StructureInsp
     defBonusTech?: number;
     defBonusByType?: Record<string, number>;
   };
-  const defBonusInf = Math.max(
-    0,
-    Number((ex && ex.defBonusInf) ?? cellAny.defBonusInf) || 0,
-  );
-  const defBonusTech = Math.max(
-    0,
-    Number((ex && ex.defBonusTech) ?? cellAny.defBonusTech) || 0,
-  );
-  const defBonusByType = readBonusMap(
-    (ex && ex.defBonusByType) || cellAny.defBonusByType,
-    UNIT_TYPE_LABELS,
-  );
-  const accuracyBonusByType = readBonusMap(ex && ex.accuracyBonusByType, UNIT_TYPE_LABELS);
+  const defBonusInf = destroyed
+    ? 0
+    : Math.max(0, Number((ex && ex.defBonusInf) ?? cellAny.defBonusInf) || 0);
+  const defBonusTech = destroyed
+    ? 0
+    : Math.max(0, Number((ex && ex.defBonusTech) ?? cellAny.defBonusTech) || 0);
+  const defBonusByType = destroyed
+    ? []
+    : readBonusMap((ex && ex.defBonusByType) || cellAny.defBonusByType, UNIT_TYPE_LABELS);
+  const accuracyBonusByType = destroyed
+    ? []
+    : readBonusMap(ex && ex.accuracyBonusByType, UNIT_TYPE_LABELS);
   return {
     kind,
     destroyed,

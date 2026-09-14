@@ -197,8 +197,27 @@ export function cubeLineDraw(a: Cube, b: Cube): Cube[] {
   return dedup;
 }
 
+function cubeMapKey(cube: { x: number; y: number; z: number }): string {
+  return `${cube.x},${cube.y},${cube.z}`;
+}
+
+const cubeIndexByCells = new WeakMap<Cell[], Map<string, Cell>>();
+
+export function getCellCubeIndex(cells: Cell[]): Map<string, Cell> {
+  let idx = cubeIndexByCells.get(cells);
+  if (!idx) {
+    idx = new Map();
+    for (let i = 0; i < cells.length; i++) {
+      const c = cells[i];
+      idx.set(cubeMapKey(c.coor), c);
+    }
+    cubeIndexByCells.set(cells, idx);
+  }
+  return idx;
+}
+
 export function findCellByCube(cells: Cell[], cube: Cube): Cell | undefined {
-  return cells.find((c) => c.coor.x === cube.x && c.coor.y === cube.y && c.coor.z === cube.z);
+  return getCellCubeIndex(cells).get(cubeMapKey(cube));
 }
 
 
@@ -218,15 +237,15 @@ const LOS_BLOCKING_TERRAIN = new Set([
 ]);
 
 export function cellBlocksLineOfSight(cell: Cell): boolean {
-  if (hexLooksLikeRiver(cell)) return false;
   const ext = cell as unknown as {
     mapBuilding?: unknown;
     visionBlock?: unknown;
     hexExtra?: { visionBlock?: unknown };
   };
-  if (ext.mapBuilding != null) return true;
   const vb = ext.visionBlock ?? ext.hexExtra?.visionBlock;
   if (vb === true || vb === 'true' || vb === 1 || vb === '1') return true;
+  if (hexLooksLikeRiver(cell)) return false;
+  if (ext.mapBuilding != null) return true;
 
   const vis = (cell as unknown as { visible?: boolean }).visible;
   if (vis === false) return true;
@@ -245,15 +264,23 @@ function cellHasSmoke(cell: Cell | undefined | null): boolean {
   return Number(raw) > 0;
 }
 
+function cellOnLine(line: Cube[], i: number, index: Map<string, Cell>): Cell | undefined {
+  return index.get(cubeMapKey(line[i]));
+}
+
 /** Дым закрывает всю линию за собой, не только один гекс тени. */
-function lineOpenThroughSmoke(observer: Cell, target: Cell, cells: Cell[]): boolean {
-  const line = cubeLineDraw(cellToCube(observer), cellToCube(target));
+function lineOpenThroughSmokeOnLine(line: Cube[], cells: Cell[]): boolean {
+  const index = getCellCubeIndex(cells);
   for (let i = 1; i < line.length - 1; i++) {
-    const c = findCellByCube(cells, line[i]);
+    const c = cellOnLine(line, i, index);
     if (!c) return false;
     if (cellHasSmoke(c)) return false;
   }
   return true;
+}
+
+function lineOpenThroughSmoke(observer: Cell, target: Cell, cells: Cell[]): boolean {
+  return lineOpenThroughSmokeOnLine(cubeLineDraw(cellToCube(observer), cellToCube(target)), cells);
 }
 
 export type HexVisibilityOptions = {
@@ -273,11 +300,11 @@ function ravineBlocksHexLoS(
 }
 
 /** Гребень выше наблюдателя закрывает клетки за собой; сам гребень виден как цель. */
-function lineOpenWithElevationRidge(observer: Cell, target: Cell, cells: Cell[]): boolean {
+function lineOpenWithElevationRidgeOnLine(observer: Cell, line: Cube[], cells: Cell[]): boolean {
   const obsE = effectiveElevationLevel(observer);
-  const line = cubeLineDraw(cellToCube(observer), cellToCube(target));
+  const index = getCellCubeIndex(cells);
   for (let i = 1; i < line.length - 1; i++) {
-    const c = findCellByCube(cells, line[i]);
+    const c = cellOnLine(line, i, index);
     if (!c) return false;
     if (hexLooksLikeRiver(c)) continue;
     if (effectiveElevationLevel(c) > obsE) return false;
@@ -285,23 +312,13 @@ function lineOpenWithElevationRidge(observer: Cell, target: Cell, cells: Cell[])
   return true;
 }
 
-/** Тень в один гекс сразу за преградой для видимости. */
-function lineOpenWithOneHexShadow(observer: Cell, target: Cell, cells: Cell[]): boolean {
-  const line = cubeLineDraw(cellToCube(observer), cellToCube(target));
-  const targetCube = cellToCube(target);
+/** Преграда видимости закрывает всю линию за собой; сам гекс преграды виден как цель. */
+function lineOpenWithOneHexShadowOnLine(_target: Cell, line: Cube[], cells: Cell[]): boolean {
+  const index = getCellCubeIndex(cells);
   for (let i = 1; i < line.length - 1; i++) {
-    const c = findCellByCube(cells, line[i]);
+    const c = cellOnLine(line, i, index);
     if (!c) return false;
-    if (!cellBlocksLineOfSight(c)) continue;
-    const shadowCube = line[i + 1];
-    if (
-      shadowCube &&
-      shadowCube.x === targetCube.x &&
-      shadowCube.y === targetCube.y &&
-      shadowCube.z === targetCube.z
-    ) {
-      return false;
-    }
+    if (cellBlocksLineOfSight(c)) return false;
   }
   return true;
 }
@@ -316,9 +333,10 @@ export function isHexVisible(
   const dist = hexDistCells(observer, target);
   if (dist <= 0) return true;
   if (ravineBlocksHexLoS(observer, target, dist, options)) return false;
-  if (!options?.airObserver && !lineOpenWithElevationRidge(observer, target, cells)) return false;
-  if (!lineOpenThroughSmoke(observer, target, cells)) return false;
-  return lineOpenWithOneHexShadow(observer, target, cells);
+  const line = cubeLineDraw(cellToCube(observer), cellToCube(target));
+  if (!options?.airObserver && !lineOpenWithElevationRidgeOnLine(observer, line, cells)) return false;
+  if (!lineOpenThroughSmokeOnLine(line, cells)) return false;
+  return lineOpenWithOneHexShadowOnLine(target, line, cells);
 }
 
 
@@ -446,7 +464,9 @@ export class VisibleLogic {
           revealed.add(cell.id);
           fromDot.forEach((id) => {
             const t = cells.find((x) => Number(x.id) === Number(id));
-            if (t && lineOpenThroughSmoke(cell, t, cells)) revealed.add(Number(id));
+            if (t && (Number(t.id) === Number(cell.id) || isHexVisible(cell, t, cells))) {
+              revealed.add(Number(id));
+            }
           });
           continue;
         }
@@ -479,31 +499,25 @@ export function isCellSeenByAnyHostileUnit(
       if (!factionsOpposedSides(mySide, unitFaction(u))) continue;
       const fromDot = dotOccupantVisionCellIds(cell, u, cells);
       if (fromDot) {
-        if (fromDot.has(targetCell.id)) return true;
+        if (Number(targetCell.id) === Number(cell.id)) return true;
+        if (fromDot.has(targetCell.id) && isHexVisible(cell, targetCell, cells)) return true;
         continue;
       }
       const seen = visibleCellIdsInRange(cell, readVisionRange(u), cells, {
         airObserver: isBattleAirUnitType(u),
       });
       if (seen.has(targetCell.id)) return true;
-      if (isUnitVisibleFromCell(cell, u, targetCell, null, cells)) return true;
     }
   }
   return false;
 }
 
-/**
- *  {@link cellBlocksLineOfSight}).
- */
 export function canPlaceAmbushFromEnemyVision(
   subjectUnit: UnitFogFields,
   ambushCell: Cell,
   cells: Cell[],
 ): boolean {
-  return (
-    !isCellSeenByAnyHostileUnit(subjectUnit, ambushCell, cells) &&
-    cellBlocksLineOfSight(ambushCell)
-  );
+  return !isCellSeenByAnyHostileUnit(subjectUnit, ambushCell, cells);
 }
 
 

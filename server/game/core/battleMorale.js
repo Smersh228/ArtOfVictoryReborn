@@ -69,8 +69,8 @@ function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttac
       : unit.tactical || (unit.tactical = {})
   t.steadfastnessUiRoll = sum
   applyMoraleRollResult(unit, sum)
-  if (sum < mor) {
-    le(ph, `${tag}: юнит ${unit.instanceId} (${sum} < ${mor})`)
+  if (sum <= mor) {
+    le(ph, `${tag}: юнит ${unit.instanceId} (${sum} ≤ ${mor})`)
     return true
   }
   if (suppressOnFail) {
@@ -82,9 +82,9 @@ function rollTankFearSteadfastness(le, ph, unit, tag, suppressOnFail, abortAttac
       findUnitOnField: deps.findUnitOnField,
       ordersByUnit: deps.ordersByUnit,
     })
-    le(ph, `${tag}: юнит ${unit.instanceId} провал (${sum} ≥ ${mor}) → подавление`)
+    le(ph, `${tag}: юнит ${unit.instanceId} провал (${sum} > ${mor}) → подавление`)
   } else {
-    le(ph, `${tag}: юнит ${unit.instanceId} провал (${sum} ≥ ${mor}) — атака не совершена`)
+    le(ph, `${tag}: юнит ${unit.instanceId} провал (${sum} > ${mor}) — атака не совершена`)
   }
   if (abortAttackOnFail) return false
   return true
@@ -118,13 +118,13 @@ function tryHardMoveSteadfastness(le, ph, atkPack, defPack, deps) {
   const { isInfantryUnit, isArtilleryUnit, unitHasPropKey, ensureTacticalBattle, clearDefendOnUnit } = deps
   if (!isInfantryUnit(defPack.unit) && !isArtilleryUnit(defPack.unit)) return true
   const flame = unitHasPropKey(atkPack.unit, 'attackMoral')
-  const ok = rollTankFearSteadfastness(
+  rollTankFearSteadfastness(
     le,
     ph,
     defPack.unit,
     'Мощная атака',
     true,
-    true,
+    false,
     steadfastDeps(deps),
   )
   if (flame && isInfantryUnit(defPack.unit) && defPack.unit.tactical && defPack.unit.tactical.steadfastnessUiRoll != null) {
@@ -134,7 +134,7 @@ function tryHardMoveSteadfastness(le, ph, atkPack, defPack, deps) {
       flameTankMoralePenalty: 2,
     })
   }
-  return ok
+  return true
 }
 
 function tryAttackMoraleTests(le, ph, atkPack, defPack, deps) {
@@ -165,9 +165,9 @@ function resolveSuppressionRecovery(cells, le, deps) {
       if (mor <= 0) continue
       const sum = roll2d6()
       applyMoraleRollResult(u, sum)
-      if (sum < mor) {
+      if (sum <= mor) {
         delete u.tactical.fireSuppression
-        le(ph, `Подавление снято: юнит ${u.instanceId} (${sum} < ${mor})`, { unitInstanceId: u.instanceId })
+        le(ph, `Подавление снято: юнит ${u.instanceId} (${sum} ≤ ${mor})`, { unitInstanceId: u.instanceId })
       }
     }
   }

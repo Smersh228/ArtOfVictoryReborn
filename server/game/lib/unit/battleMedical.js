@@ -135,14 +135,18 @@ function applyMedicalAidFlags(cells, ordersByUnit, le, ph) {
     if (hexDistCells(tgt.cell, m.cell) > 1) {
       clearMedicalJob(m.unit)
       if (typeof le === 'function') {
-        le(ph, `Лечение: помощь отряду ${tid} прервана — цель вне области санитара`)
+        le(ph, `Лечение: помощь отряду ${tid} прервана — цель вне области санитара`, {
+          medicalLine: { medicInstanceId: Number(m.unit.instanceId), targetUnitInstanceId: Number(tid) },
+        })
       }
       continue
     }
     if (targetLeavesMedicRange(cells, m.cell, tid, ordersByUnit) || medicLeavesTargetRange(cells, m.unit, tgt.cell, ordersByUnit)) {
       clearMedicalJob(m.unit)
       if (typeof le === 'function') {
-        le(ph, `Лечение: помощь отряду ${tid} прервана — цель покидает область санитара`)
+        le(ph, `Лечение: помощь отряду ${tid} прервана — цель покидает область санитара`, {
+          medicalLine: { medicInstanceId: Number(m.unit.instanceId), targetUnitInstanceId: Number(tid) },
+        })
       }
       continue
     }
@@ -172,7 +176,9 @@ function interruptMedicalIfOutOfRange(cells, ordersByUnit, le, ph) {
         clearMedicalAidOnUnit(tgt.unit)
         clearMedicalJob(u)
         if (typeof le === 'function') {
-          le(ph, `Лечение: приказ прерван — отряд ${tid} покинул область санитара ${u.instanceId}`)
+          le(ph, `Лечение: приказ прерван — отряд ${tid} покинул область санитара ${u.instanceId}`, {
+            medicalLine: { medicInstanceId: Number(u.instanceId), targetUnitInstanceId: Number(tid) },
+          })
         }
       }
     }

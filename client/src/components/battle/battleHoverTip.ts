@@ -17,6 +17,13 @@ export function hoverTipFromDot(tip: DotHoverTip): BattleHoverTipView {
   return { title: tip.title, rows };
 }
 
+export function withPendingOrderTipRow(tip: BattleHoverTipView, orderLabel: string | null | undefined): BattleHoverTipView {
+  const label = String(orderLabel ?? '').trim();
+  if (!label) return tip;
+  if (tip.rows.some((row) => row.key === 'Приказ')) return tip;
+  return { ...tip, rows: [...tip.rows, { key: 'Приказ', val: label }] };
+}
+
 export function hoverTipFromStructure(cell: Cell): BattleHoverTipView | null {
   const info = structureInspectOf(cell);
   if (!info) return null;

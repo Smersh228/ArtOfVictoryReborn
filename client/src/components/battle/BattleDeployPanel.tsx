@@ -41,6 +41,11 @@ interface BattleDeployPanelProps {
   error: string | null;
   catalogUnits: CatalogUnit[];
   catalogBuildings: CatalogBuilding[];
+  isReinforcement?: boolean;
+  phoneModal?: boolean;
+  phoneModalOpen?: boolean;
+  onPhoneModalOpen?: () => void;
+  onPhoneModalClose?: () => void;
 }
 
 function groupCounts<T extends number | string>(ids: T[]): { id: T; count: number }[] {
@@ -80,28 +85,49 @@ const BattleDeployPanel: React.FC<BattleDeployPanelProps> = ({
   error,
   catalogUnits,
   catalogBuildings,
+  isReinforcement = false,
+  phoneModal = false,
+  phoneModalOpen = true,
+  onPhoneModalOpen,
+  onPhoneModalClose,
 }) => {
   const [poolTab, setPoolTab] = useState<PoolTab>('units');
   const unitGroups = useMemo(() => groupCounts(remaining.unitIds), [remaining.unitIds]);
   const structureGroups = useMemo(() => groupCounts(remaining.structureIds), [remaining.structureIds]);
   const readyCount = membersReady.filter((m) => m.ready).length;
+  const activeTab = isReinforcement ? 'units' : poolTab;
 
-  return (
+  const panel = (
     <aside
-      className={`${styles.leftMenuPanel} ${styles.leftMenuPanelStandard} ${styles.battleDeployPanel}`}
+      className={`${styles.leftMenuPanel} ${styles.leftMenuPanelStandard} ${styles.battleDeployPanel}${phoneModal ? ` ${styles.battleDeployPanelPhone}` : ''}`}
       aria-label="Расстановка"
+      aria-modal={phoneModal ? true : undefined}
+      role={phoneModal ? 'dialog' : undefined}
     >
       <header className={styles.leftMenuHeader}>
         <div className={styles.leftMenuTitles}>
-          <h2 className={styles.leftMenuTitle}>Расстановка</h2>
+          <h2 className={styles.leftMenuTitle}>{isReinforcement ? 'Подкрепление' : 'Расстановка'}</h2>
           <p className={styles.leftMenuSubtitle}>
             {readonlyBattle
-              ? 'Игроки расставляют войска по зонам'
+              ? isReinforcement
+                ? 'Игрок расставляет прибывшие подкрепления'
+                : 'Игроки расставляют войска по зонам'
               : youReady
                 ? 'Ожидание остальных. Можно снять готовность и поменять расстановку'
-                : 'Выберите карточку и кликните гекс своей зоны. Свой юнит или сооружение — клик, чтобы вернуть'}
+                : isReinforcement
+                  ? 'Выберите карточку и кликните гекс зоны прибытия. Свой юнит — клик, чтобы вернуть'
+                  : 'Выберите карточку и кликните гекс своей зоны. Свой юнит или сооружение — клик, чтобы вернуть'}
           </p>
         </div>
+        {phoneModal ? (
+          <button
+            type="button"
+            className={styles.battleDeployModalMapBtn}
+            onClick={onPhoneModalClose}
+          >
+            К карте
+          </button>
+        ) : null}
       </header>
       <div className={styles.leftMenuBody}>
         {!readonlyBattle ? (
@@ -109,21 +135,28 @@ const BattleDeployPanel: React.FC<BattleDeployPanelProps> = ({
             <div className={styles.battleDeployTabs}>
               <button
                 type="button"
-                className={`${styles.battleDeployTab} ${poolTab === 'units' ? styles.battleDeployTabActive : ''}`}
+                className={`${styles.battleDeployTab} ${activeTab === 'units' ? styles.battleDeployTabActive : ''}`}
                 onClick={() => setPoolTab('units')}
               >
                 Юниты ({remaining.unitIds.length})
               </button>
-              <button
-                type="button"
-                className={`${styles.battleDeployTab} ${poolTab === 'structures' ? styles.battleDeployTabActive : ''}`}
-                onClick={() => setPoolTab('structures')}
-              >
-                Сооружения ({remaining.structureIds.length})
-              </button>
+              {!isReinforcement ? (
+                <button
+                  type="button"
+                  className={`${styles.battleDeployTab} ${poolTab === 'structures' ? styles.battleDeployTabActive : ''}`}
+                  onClick={() => setPoolTab('structures')}
+                >
+                  Сооружения ({remaining.structureIds.length})
+                </button>
+              ) : null}
             </div>
+            {selected ? (
+              <p className={styles.battleDeployPicked}>
+                Выбрано — нажмите гекс своей зоны, чтобы поставить
+              </p>
+            ) : null}
             <div className={styles.battleDeployGrid}>
-              {poolTab === 'units' &&
+              {activeTab === 'units' &&
                 (unitGroups.length ? (
                   unitGroups.map((row) => {
                     const unit = catalogUnits.find((u) => u.id === row.id);
@@ -150,7 +183,7 @@ const BattleDeployPanel: React.FC<BattleDeployPanelProps> = ({
                 ) : (
                   <p className={styles.leftMenuText}>Юнитов в пуле не осталось.</p>
                 ))}
-              {poolTab === 'structures' &&
+              {activeTab === 'structures' &&
                 (structureGroups.length ? (
                   structureGroups.map((row) => {
                     const meta = structureMeta(row.id, catalogBuildings);
@@ -205,6 +238,61 @@ const BattleDeployPanel: React.FC<BattleDeployPanelProps> = ({
         </footer>
       ) : null}
     </aside>
+  );
+
+  if (!phoneModal) return panel;
+
+  if (!phoneModalOpen) {
+    return (
+      <div className={styles.battleDeployPhoneDock} role="region" aria-label="Расстановка">
+        {selected ? (
+          <>
+            <p className={styles.battleDeployPhoneDockText}>Нажмите гекс своей зоны</p>
+            <button
+              type="button"
+              className={styles.battleDeployPhoneDockBtn}
+              onClick={() => {
+                onSelect(null);
+                onPhoneModalOpen?.();
+              }}
+            >
+              Отмена
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={styles.battleDeployPhoneDockBtn}
+              onClick={onPhoneModalOpen}
+            >
+              {isReinforcement ? 'Пул подкреплений' : 'Пул войск'}
+            </button>
+            {!readonlyBattle ? (
+              <Button
+                name={youReady ? 'Снять готовность' : 'Готов'}
+                className={styles.battleDeployPhoneDockReady}
+                disabled={busy}
+                onClick={() => onReady(!youReady)}
+              />
+            ) : null}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div
+        className={`${styles.leftMenuBackdrop} ${styles.leftMenuBackdropDim}`}
+        role="presentation"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget) onPhoneModalClose?.();
+        }}
+      />
+      {panel}
+    </>
   );
 };
 

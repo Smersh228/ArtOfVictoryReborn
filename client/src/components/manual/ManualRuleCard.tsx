@@ -18,8 +18,20 @@ interface ManualRuleCardProps {
   entry: ManualRuleCardEntry;
 }
 
+function ExtraPhoto({ path }: { path: string }) {
+  return (
+    <div className={styles.cardDescriptionPhotoCol}>
+      <div className={styles.cardRuleExtraPhotoFrame}>
+        <img src={resolveEditorImageUrl(path)} alt="" />
+      </div>
+    </div>
+  );
+}
+
 const ManualRuleCard: React.FC<ManualRuleCardProps> = ({ entry }) => {
   const imgSrc = entry.imagePath ? resolveEditorImageUrl(entry.imagePath) : undefined;
+  const extraLeft = entry.imagePath2.trim();
+  const extraRight = entry.imagePath3.trim();
   return (
     <div className={styles.card}>
       <div className={styles.cardImage}>
@@ -30,23 +42,11 @@ const ManualRuleCard: React.FC<ManualRuleCardProps> = ({ entry }) => {
         <div className={styles.cardDescriptionBlock}>
           <div className={styles.cardDescriptionText}>
             <div className={styles.cardDescriptionTextRow}>
-              <div className={`${styles.cardDescriptionPhotoCol} ${styles.cardDescriptionPhotoColLeft}`}>
-                {entry.imagePath2 ? (
-                  <div className={styles.cardRuleExtraPhotoFrame}>
-                    <img src={resolveEditorImageUrl(entry.imagePath2)} alt="" />
-                  </div>
-                ) : null}
-              </div>
+              {extraLeft ? <ExtraPhoto path={extraLeft} /> : null}
               <div className={styles.cardDescriptionTextBody}>
                 {entry.description.trim() ? entry.description : '—'}
               </div>
-              <div className={`${styles.cardDescriptionPhotoCol} ${styles.cardDescriptionPhotoColRight}`}>
-                {entry.imagePath3 ? (
-                  <div className={styles.cardRuleExtraPhotoFrame}>
-                    <img src={resolveEditorImageUrl(entry.imagePath3)} alt="" />
-                  </div>
-                ) : null}
-              </div>
+              {extraRight ? <ExtraPhoto path={extraRight} /> : null}
             </div>
           </div>
         </div>

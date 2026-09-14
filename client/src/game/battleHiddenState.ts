@@ -25,7 +25,6 @@ export function isHiddenConcealedClient(unit: Record<string, unknown> | null | u
   if (tac?.ambushOrder && !tac?.ambushRevealed) return false;
   const h = tac?.hiddenState;
   if (!h || typeof h !== 'object') return true;
-  if (h.skipThisTurn) return false;
   if (h.revealed) return false;
   return true;
 }

@@ -132,7 +132,7 @@ function processAmbushPhase(cells, list, le, ph, deps) {
     isValidDefendFacing,
     maxShootRangeStepsForUnit,
     computeDefendSectorIds,
-    cellBlocksLineOfSight,
+    isCellSeenByAnyHostileUnit,
   } = deps
   for (const o of list) {
     const cur = findUnitOnField(cells, o.unitId)
@@ -144,6 +144,15 @@ function processAmbushPhase(cells, list, le, ph, deps) {
     }
     const okOrder = String(o.orderKey || '').trim()
     if (okOrder !== 'ambush') continue
+    const alreadyHidden = require('../core/battleAmbush').isAmbushConcealed(cur.unit)
+    if (
+      !alreadyHidden &&
+      typeof isCellSeenByAnyHostileUnit === 'function' &&
+      isCellSeenByAnyHostileUnit(cur.unit, cur.cell, cells)
+    ) {
+      le(ph, `Засада: юнит ${o.unitId} — гекс в обзоре противника`)
+      continue
+    }
     if (isArtilleryUnit(cur.unit)) {
       if (!isArtilleryDeployedForBattle(cur.unit)) {
         le(ph, `Засада: артиллерия ${o.unitId} — сначала развернитесь`)
@@ -190,10 +199,6 @@ function processAmbushPhase(cells, list, le, ph, deps) {
         artilleryFireSector: true,
         isAmbush: true,
       })
-      continue
-    }
-    if (!cellBlocksLineOfSight(cur.cell)) {
-      le(ph, `Засада: юнит ${o.unitId} — только на клетке с преградой видимости`)
       continue
     }
     const fid = o.defendFacingCellId

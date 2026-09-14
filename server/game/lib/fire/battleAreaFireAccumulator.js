@@ -42,6 +42,7 @@ function accumulateAreaFireForShooter({
       1,
       accBonus,
     )
+    groupedArea.accuracy = Number(salvoTarget.accuracy) || 0
     const hits = areaFireHitsForTargetByOrder(salvoTarget.hitSuccesses, ti, artilleryClosed)
     if (hadAmbush && clearAmbushOrderFully(tgtU)) {
       le(ph, `Засада снята: юнит ${tgtU.instanceId} (обстрел)`, {

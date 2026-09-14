@@ -21,12 +21,10 @@
   border: 1px solid rgba(255, 255, 255, 0.55);
   background: linear-gradient(
     160deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(200, 206, 214, 0.18) 50%,
-    rgba(255, 255, 255, 0.12) 100%
+    rgba(210, 214, 220, 0.88) 0%,
+    rgba(186, 192, 200, 0.9) 50%,
+    rgba(200, 206, 214, 0.86) 100%
   );
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
 }
 

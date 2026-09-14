@@ -1,7 +1,7 @@
 const express = require('express')
 const { verifyToken, pool } = require('../../db')
 const { getTokenFromRequest } = require('../../cookieAuth')
-const { enrichBattleCells, loadBattleCellsFromMapId, loadBattleMapConditionsFromMapId, loadBattleMapDeploymentFromMapId } = require('../../game/lib/support/battleEnrich')
+const { enrichBattleCells, loadBattleCellsFromMapId, loadBattleMapConditionsFromMapId, loadBattleMapDeploymentFromMapId, loadBattleMapReinforcementsFromMapId } = require('../../game/lib/support/battleEnrich')
 const { isMapAdminUser } = require('../../mapsPolicy')
 const {
   ensureMemberSlots,
@@ -13,16 +13,39 @@ const {
   maybeForfeitDisconnectedBattleFighter,
   touchBattlePresenceFromPoll,
   initBattlePresenceForFighters,
+  touchLobbyPresenceFromPoll,
+  dropWaitingLobbyMember,
+  sweepStaleLobbyMembers,
+  sweepAllWaitingLobbies,
+  closeHostSoloRooms,
+  sweepAbandonedBattles,
   assignMemberTeam,
   addRoomChatMessage,
 } = require('./shared')
 const { rooms, allocRoomId } = require('./state')
+const { ensureRoomBots, applyBotDeploy, isSoloPlayerBotMap } = require('../../game/lib/ai/battleBots')
 
 const FACTIONS = ['none', 'rkka', 'wehrmacht']
 
+let lobbyPresenceSweepTimer = null
+
 function registerLobbyRoutes(router) {
+  if (!lobbyPresenceSweepTimer) {
+    lobbyPresenceSweepTimer = setInterval(() => {
+      try {
+        sweepAllWaitingLobbies()
+        sweepAbandonedBattles()
+      } catch (err) {
+        console.error('lobby presence sweep:', err)
+      }
+    }, 15_000)
+    if (typeof lobbyPresenceSweepTimer.unref === 'function') lobbyPresenceSweepTimer.unref()
+  }
   router.get('/', (_req, res) => {
+    sweepAllWaitingLobbies()
+    sweepAbandonedBattles()
     const list = Array.from(rooms.values())
+      .filter((room) => !room.solo || room.battleStartedAt != null)
       .sort((a, b) => a.createdAt - b.createdAt)
       .map(roomToPublic)
     res.json({ rooms: list })
@@ -74,7 +97,10 @@ function registerLobbyRoutes(router) {
       maybeForfeitDisconnectedBattleFighter(room)
       const selfKey = await memberKeyForRoom(req, room)
       touchBattlePresenceFromPoll(room, selfKey, req)
-      await sendRoomDetailOr500(res, room, selfKey)
+      touchLobbyPresenceFromPoll(room, selfKey)
+      sweepStaleLobbyMembers(room)
+      if (!rooms.get(id)) return res.status(404).json({ error: 'Комната не найдена' })
+      await sendRoomDetailOr500(res, room, selfKey, req)
     } catch (err) {
       console.error('GET /api/rooms/:id', err)
       if (!res.headersSent) res.status(500).json({ error: 'Ошибка сервера' })
@@ -92,6 +118,7 @@ function registerLobbyRoutes(router) {
 
     let mapLabel = String(map || '').trim()
     let resolvedMapId = null
+    let mapBots = null
     const mid = mapId != null ? Number(mapId) : NaN
     if (Number.isFinite(mid)) {
       const token = getTokenFromRequest(req)
@@ -105,7 +132,8 @@ function registerLobbyRoutes(router) {
       try {
         const row = await pool.query(
           `SELECT sm.name, sm.owner_user_id, u.username AS owner_username,
-                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit
+                  (sm.payload #>> '{scenario,teamLimit}') AS team_limit,
+                  sm.payload -> 'bots' AS bots
            FROM saved_map sm
            LEFT JOIN users u ON u.id = sm.owner_user_id
            WHERE sm.id_map = $1`,
@@ -132,12 +160,20 @@ function registerLobbyRoutes(router) {
         mapLabel = String(row.rows[0].name || '').trim() || mapLabel
         const fromMap = Number(row.rows[0].team_limit)
         mp = fromMap === 4 || fromMap === 6 ? fromMap : 2
+        mapBots = row.rows[0].bots
       } catch (err) {
         console.error('rooms mapId lookup:', err.message)
         return res.status(500).json({ error: 'Не удалось проверить карту' })
       }
     }
     if (!mapLabel) mapLabel = 'Карта'
+
+    const soloMap = isSoloPlayerBotMap({ bots: mapBots }, mp)
+    if (req.body && req.body.solo && !soloMap) {
+      return res.status(400).json({
+        error: 'Для одиночной игры нужна карта на двоих: один слот игрока и один слот бота',
+      })
+    }
 
     const id = allocRoomId()
     const room = {
@@ -161,9 +197,12 @@ function registerLobbyRoutes(router) {
       battleFieldRevision: 0,
       battleLog: [],
       battleOrdersDraft: {},
-      members: [{ key, faction: 'none', ready: true }],
+      members: [{ key, faction: 'none', ready: true, lobbyLastSeenAt: Date.now() }],
       createdAt: Date.now(),
     }
+    ensureRoomBots(room, { bots: mapBots })
+    room.solo = soloMap || Boolean(req.body && req.body.solo)
+    if (room.solo) closeHostSoloRooms(key, null)
     rooms.set(id, room)
     res.status(201).json({ room: roomToPublic(room) })
   })
@@ -183,10 +222,13 @@ function registerLobbyRoutes(router) {
     if (room.members.some((m) => m.key === key)) {
       return res.json({ room: roomToPublic(room), alreadyMember: true })
     }
+    if (room.solo) {
+      return res.status(403).json({ error: 'В одиночную игру нельзя присоединиться' })
+    }
     if (room.members.length >= room.maxPlayers) {
       return res.status(403).json({ error: 'Комната заполнена' })
     }
-    room.members.push({ key, faction: 'none', ready: false })
+    room.members.push({ key, faction: 'none', ready: false, lobbyLastSeenAt: Date.now() })
     res.json({ room: roomToPublic(room) })
   })
 
@@ -215,6 +257,7 @@ function registerLobbyRoutes(router) {
     if (!key) return res.status(401).json({ error: 'Нет идентификатора' })
     const mem = room.members.find((m) => m.key === key)
     if (!mem) return res.status(403).json({ error: 'Вы не в этой комнате' })
+    touchLobbyPresenceFromPoll(room, key)
 
     const { faction, ready, toggleFaction, toggleReady } = req.body || {}
     if (toggleFaction) {
@@ -249,6 +292,14 @@ function registerLobbyRoutes(router) {
     }
     if (room.battleStartedAt != null) {
       return await sendRoomDetailOr500(res, room, key)
+    }
+    if (room.mapId != null) {
+      try {
+        const r = await pool.query('SELECT payload FROM saved_map WHERE id_map = $1', [room.mapId])
+        ensureRoomBots(room, r.rows[0] && r.rows[0].payload)
+      } catch (e) {
+        console.error('start-battle bots:', e.message)
+      }
     }
     const check = validateBattleStart(room)
     if (!check.ok) {
@@ -288,10 +339,20 @@ function registerLobbyRoutes(router) {
     room.battleDeployPhase = null
     if (room.mapId != null) {
       try {
+        const reinforcements = await loadBattleMapReinforcementsFromMapId(pool, room.mapId)
+        if (reinforcements) {
+          const { initBattleReinforcements } = require('../../game/lib/map/battleReinforcements')
+          initBattleReinforcements(room, reinforcements)
+        }
+      } catch (e) {
+        console.error('start-battle reinforcements:', e.message)
+      }
+      try {
         const deployment = await loadBattleMapDeploymentFromMapId(pool, room.mapId)
         if (deployment) {
           const { initBattleDeployPhase } = require('../../game/lib/map/battleDeployPhase')
           initBattleDeployPhase(room, deployment)
+          applyBotDeploy(room)
         }
       } catch (e) {
         console.error('start-battle deployment:', e.message)
@@ -300,6 +361,10 @@ function registerLobbyRoutes(router) {
     const { initBattleEnvironment } = require('../../game/lib/scenario/battleEnvironment')
     initBattleEnvironment(room)
     if (!(room.battleDeployPhase && room.battleDeployPhase.active)) {
+      const { commitReinforcementsForTurn } = require('../../game/lib/map/battleReinforcements')
+      commitReinforcementsForTurn(room)
+      const { enrichRoomBattleCellsIfNeeded } = require('../../game/lib/support/battleEnrich')
+      await enrichRoomBattleCellsIfNeeded(room)
       const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
       withBattleEnv(room, () => {
         const { syncBattleReconByFaction } = require('../../game/lib/recon/battleReconResolve')
@@ -318,7 +383,11 @@ function registerLobbyRoutes(router) {
     const key = await memberKeyForRoom(req, room)
     if (!key) return res.status(401).json({ error: 'Нет идентификатора' })
     if (!room.members.some((m) => m.key === key)) {
-      return res.status(403).json({ error: 'Вы не в этой комнате' })
+      return res.json({ ok: true })
+    }
+    if (room.battleStartedAt == null) {
+      const result = dropWaitingLobbyMember(room, key)
+      return res.json({ ok: true, roomClosed: result === 'closed' })
     }
     const wasHost = key === room.hostKey
     if (wasHost) {

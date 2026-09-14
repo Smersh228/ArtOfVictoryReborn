@@ -6,7 +6,7 @@ import { hexDistCells, maxAirMissionHexStepsForUnit } from './battleFirePreview'
 import { findUnitCellByInstanceId } from './battleMovePreview'
 import { battleOrderLabelForKey } from './battleOrderIcons'
 import { visibleCellIdsInRange } from './hexVisibility'
-import { applyVisionPenalty } from './battleEnvironment'
+import { applyVisionPenalty, rainBlocksAirLaunch } from './battleEnvironment'
 
 /** Юниты малой/большой авиации на карте редактора не показываются на гексах боя — только в панели «Авиаподдержка». */
 export function isBattleAirUnitType(type: unknown): boolean {
@@ -27,9 +27,23 @@ export const AIR_ORDER_KEYS_NEED_HEX_TARGET = new Set<string>([
   'patrol',
 ])
 
+/** Новые вылеты (не отзыв). В дождь недоступны. */
+export const AIR_LAUNCH_ORDER_KEYS = new Set<string>([
+  ...AIR_ORDER_KEYS_NEED_HEX_TARGET,
+  'accompaniment',
+  'interception',
+])
+
 export function airOrderNeedsHexTarget(orderKey: string | null | undefined): boolean {
   const k = String(orderKey ?? '').trim()
   return k !== '' && AIR_ORDER_KEYS_NEED_HEX_TARGET.has(k)
+}
+
+export function airLaunchOrderBlockedReason(orderKey: string | null | undefined): string | null {
+  const k = String(orderKey ?? '').trim()
+  if (!k || !AIR_LAUNCH_ORDER_KEYS.has(k)) return null
+  if (rainBlocksAirLaunch()) return 'Вылет невозможен: дождь'
+  return null
 }
 
 /** Авиаприказ с траекторией на карте (в т.ч. сопровождение, перехват). */

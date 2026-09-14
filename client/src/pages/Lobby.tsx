@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom';
 import styles from './styleModules/lobby.module.css';
 import Button from '../components/Button';
+import UserSettingsModal from '../components/UserSettingsModal';
 import { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import LobbyPlayersPanel from '../components/lobby/LobbyPlayersPanel';
 import LobbyMissionPanels from '../components/lobby/LobbyMissionPanels';
@@ -12,6 +13,8 @@ import {
   fetchRoomDetail,
   fetchRoomLobbyMap,
   leaveRoom,
+  setActiveLobbyRoomId,
+  leaveActiveLobbyRoom,
   postRoomChat,
   startRoomBattle,
   updateLobbyMe,
@@ -85,9 +88,13 @@ function getStartBattleHint(members: RoomMember[], youAreHost: boolean, maxPlaye
   const perTeam = cap / 2;
   if (members.length !== cap) return `Для начала боя нужно ${cap} игроков`;
   for (const m of members) {
-    if ((m.faction ?? 'none') === 'none') return 'Все игроки должны выбрать фракцию';
+    if (m.isBot) continue;
+    if ((m.faction ?? 'none') === 'none' || !m.team) {
+      return 'Выберите свободную фракцию — слот бота уже занят';
+    }
   }
   for (const m of members) {
+    if (m.isBot) continue;
     if (!m.ready) return 'Все игроки должны быть готовы';
   }
   const rkka = members.filter((m) => m.faction === 'rkka').length;
@@ -114,6 +121,7 @@ const Lobby: React.FC = () => {
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatSending, setChatSending] = useState(false);
   const [chatSeen, setChatSeen] = useState({ all: 0, team: 0, global: 0 });
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const { user } = useAuth();
   const siteChat = useSiteChat();
 
@@ -132,6 +140,7 @@ const Lobby: React.FC = () => {
     setLobbyError(null);
     if (data.battleStartedAt != null && !battleNavigatedRef.current && serverId != null) {
       battleNavigatedRef.current = true;
+      setActiveLobbyRoomId(null);
       navigate(`/battle?room=${serverId}`, { state: { serverId } });
     }
   };
@@ -165,6 +174,20 @@ const Lobby: React.FC = () => {
       window.clearInterval(id);
     };
   }, [serverId, navigate]);
+
+  useEffect(() => {
+    if (serverId == null || !Number.isFinite(serverId)) return undefined;
+    setActiveLobbyRoomId(serverId);
+    const onPageHide = (e: PageTransitionEvent) => {
+      if (e.persisted) return;
+      if (battleNavigatedRef.current) return;
+      leaveActiveLobbyRoom();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [serverId]);
 
   useEffect(() => {
     if (serverId == null || !Number.isFinite(serverId)) {
@@ -225,6 +248,7 @@ const Lobby: React.FC = () => {
 
   const goMain = () => {
     if (serverId != null && Number.isFinite(serverId)) {
+      setActiveLobbyRoomId(null);
       void leaveRoom(serverId).finally(() => navigate('/main'));
     } else {
       navigate('/main');
@@ -331,6 +355,7 @@ const Lobby: React.FC = () => {
         <h1 className={styles.lobbyTitle}>{headerTitle}</h1>
         <div className={styles.lobbyNav}>
           <Button name="На главную" size={180} onClick={goMain} />
+          <Button name="Настройки" size={180} onClick={() => setShowSettingsModal(true)} />
         </div>
       </header>
 
@@ -385,6 +410,7 @@ const Lobby: React.FC = () => {
         globalMessages={siteChat.messages}
         globalMuted={siteChat.muted}
       />
+      <UserSettingsModal isOpen={showSettingsModal} onClose={() => setShowSettingsModal(false)} />
     </div>
   );
 };

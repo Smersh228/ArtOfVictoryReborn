@@ -1,11 +1,8 @@
 import { useMemo } from 'react';
 import type { BattleHqRevealedOrder, BattleOrderPayload, LobbyFaction } from '../../api/rooms';
 import type { Cell } from '../../../../server/src/game/gameLogic/cells/cell';
-import {
-  canOfferFireAdjustment,
-  canArtilleryUseFireAdjustment,
-} from '../../game/battleFireAdjustment';
-import { computeBattleCellSize } from '../../game/battleMapFit';
+import { computeFireAdjustmentTargetInstanceIds } from '../../game/battleFireAdjustment';
+import { computeBattleCellSize, computeHexMapCanvasSize } from '../../game/battleMapFit';
 import {
   findMovementPath,
   findReachableCells,
@@ -44,6 +41,7 @@ import {
   hasDotOnCell,
   hasDotFacing,
   isDotFireShooter,
+  resolveDotOccupantAtCellId,
   unitInDot,
 } from '../../game/cellDot';
 import {
@@ -57,7 +55,7 @@ import {
 import { computeRailLoadingTargetInstanceIds, computeRailUnloadCellIds, isRailwayUnitBattle } from '../../game/battleRailway';
 import { computeMedicalTargetInstanceIds } from '../../game/battleMedical';
 import { computeBattlePendingOrderHover, resolveHoveredBattleOrder } from '../../game/battlePendingOrderHover';
-import { HexVisibility } from '../../game/hexVisibility';
+import { HexVisibility, isHexVisible } from '../../game/hexVisibility';
 import { airOrderHasFlightPreview, airOrderNeedsHexTarget, airOrderShowsFlightPathPreview, collectAirUnitsInFlight, collectEnemyAirInterceptionTargets, computeBombardmentAreaCellIds, computeBombardmentDirectionPickCellIds, computePatrolRangePickCellIds, computePatrolVisibilityCellIds, computeGroundReconRadiusCellIds, isBattleAirUnitType, isUnitOnIntelligenceAirPatrol, readAirMissionHexPreviewFromUnit, readAirMissionPreviewDecalCellId, readAirSupportReadinessFromUnit, readBattleVisionRange, readBombardmentApproachCellId, readPatrolCenterCellIdFromUnit, readPatrolRangeStepsFromUnit, readReconRingStepsFromUnit } from '../../game/battleAirSupport';
 import { buildBattleReportReplayHighlight, buildBattleReportSectorHover } from '../battleReportReplay';
 import type {
@@ -118,7 +116,9 @@ export function useBattleDerivedState(params: {
   } = params;
 
   const hoverOrderPreview = useMemo(() => {
-    const tipUnit = (battleUnitTip?.unit as Record<string, unknown> | undefined) ?? null;
+    const tipUnit =
+      (battleUnitTip?.unit as Record<string, unknown> | undefined) ??
+      resolveDotOccupantAtCellId(battleHoverCellId, cells);
     const tipIid = Number(tipUnit?.instanceId);
     const listIid = Number(hqListHoverInstanceId);
     const instanceId = Number.isFinite(tipIid) ? tipIid : Number.isFinite(listIid) ? listIid : null;
@@ -136,6 +136,7 @@ export function useBattleDerivedState(params: {
     return { instanceId, liveUnit, order };
   }, [
     battleUnitTip,
+    battleHoverCellId,
     hqListHoverInstanceId,
     cells,
     myBattleFaction,
@@ -182,7 +183,12 @@ export function useBattleDerivedState(params: {
         if (isBattleAirUnitType(raw.type)) continue;
         const fromDot = dotOccupantVisionCellIds(cell, raw, cells);
         if (fromDot) {
-          for (const id of fromDot) revealed.add(id);
+          revealed.add(Number(cell.id));
+          for (const id of fromDot) {
+            const t = cells.find((x) => Number(x.id) === Number(id));
+            if (!t) continue;
+            if (Number(t.id) === Number(cell.id) || isHexVisible(cell, t, cells)) revealed.add(Number(id));
+          }
           continue;
         }
         hv.computeVisibleCellIds(cell, readBattleVisionRange(raw)).forEach((id) => revealed.add(id));
@@ -224,10 +230,18 @@ export function useBattleDerivedState(params: {
     return revealed;
   }, [cells, viewerBattleFaction, unitIsMineOnMap, battleReconByFaction]);
 
-  const battleCellSize = useMemo(
-    () => computeBattleCellSize(cells, mapViewport.w, mapViewport.h, mapPad),
-    [cells, mapViewport.w, mapViewport.h, mapPad],
-  );
+  const battleCellSize = useMemo(() => {
+    const fit = computeBattleCellSize(cells, mapViewport.w, mapViewport.h, mapPad)
+    return Math.max(30, fit)
+  }, [cells, mapViewport.w, mapViewport.h, mapPad])
+
+  const battleMapSize = useMemo(() => {
+    const needed = computeHexMapCanvasSize(cells, battleCellSize, mapPad)
+    return {
+      w: Math.max(mapViewport.w, needed.width || mapViewport.w),
+      h: Math.max(mapViewport.h, needed.height || mapViewport.h),
+    }
+  }, [cells, battleCellSize, mapViewport.w, mapViewport.h, mapPad])
 
   const movePreviewLive = useMemo(() => {
     if (!orderPick) return null;
@@ -882,10 +896,14 @@ export function useBattleDerivedState(params: {
   );
 
   const battleLogisticsPickInstanceIds = useMemo(() => {
-    if (!orderPick || !['getSup', 'loading', 'tow', 'railLoading', 'medical'].includes(orderPick.orderKey)) return null;
+    if (!orderPick || !['getSup', 'loading', 'tow', 'railLoading', 'medical', 'fireAdjustment'].includes(orderPick.orderKey)) return null;
     const live = findUnitCellByInstanceId(cells, Number(orderPick.unit.instanceId));
     if (!live) return null;
     const u = orderPick.unit as unknown as Record<string, unknown>;
+    if (orderPick.orderKey === 'fireAdjustment') {
+      const ids = computeFireAdjustmentTargetInstanceIds(cells, u);
+      return ids.size > 0 ? ids : null;
+    }
     if (orderPick.orderKey === 'medical') {
       const ids = computeMedicalTargetInstanceIds(cells, u, live.cell);
       return ids.size > 0 ? ids : null;
@@ -1001,18 +1019,6 @@ export function useBattleDerivedState(params: {
     );
   }, [orderPick, cells, firePickLive, battleFogRevealedCellIds, myBattleFaction]);
 
-  const fireAdjustmentToggleAvailable = useMemo(() => {
-    if (!orderPick || orderPick.orderKey !== 'fire' || !firePickLive) return false;
-    if (orderPick.fireModeStep === 'mode') return false;
-    const u = firePickLive.unit as unknown as Record<string, unknown>;
-    if (!canArtilleryUseFireAdjustment(u, 'fire')) return false;
-    const findUnitById = (id: number) => {
-      const live = findUnitCellByInstanceId(cells, id);
-      return (live?.unit as Record<string, unknown> | undefined) ?? null;
-    };
-    return canOfferFireAdjustment(cells, myBattleFaction, pendingOrders, findUnitById);
-  }, [orderPick, firePickLive, cells, myBattleFaction, pendingOrders]);
-
   const battleFireTargetInstanceIds = useMemo(() => {
     if (
       !battleFireHighlights ||
@@ -1043,12 +1049,17 @@ export function useBattleDerivedState(params: {
       (orderPick.orderKey === 'fire' || orderPick.orderKey === 'fireHard') &&
       isDotFireShooter(firePickLive.unit as Record<string, unknown>, firePickLive.cell, cells);
     if (fireFromDot) {
-      const ids = computeOccupiedDotFireSectorCellIds(firePickLive.cell, cells);
+      const ids = computeOccupiedDotFireSectorCellIds(firePickLive.cell, cells, { forFire: true });
       return ids.length ? ids : null;
     }
+    const fogHidesDotCell = (cellId: unknown) => {
+      if (viewerBattleFaction === 'none') return false;
+      if (battleFogRevealedCellIds == null) return false;
+      return !battleFogRevealedCellIds.has(Number(cellId));
+    };
     const hoverCell =
       battleHoverCellId != null ? cells.find((c) => Number(c.id) === Number(battleHoverCellId)) : null;
-    if (hoverCell && hasDotOnCell(hoverCell.builds)) {
+    if (hoverCell && hasDotOnCell(hoverCell.builds) && !fogHidesDotCell(hoverCell.id)) {
       const occIds = computeOccupiedDotFireSectorCellIds(hoverCell, cells);
       if (occIds.length) return occIds;
       if (hasDotFacing(hoverCell.builds)) {
@@ -1057,17 +1068,37 @@ export function useBattleDerivedState(params: {
       }
     }
     const ordersCell = battleUnitOrders?.cell as Cell | undefined;
-    if (ordersCell && hasDotOnCell(ordersCell.builds) && unitInDot(battleUnitOrders.unit)) {
+    if (
+      ordersCell &&
+      hasDotOnCell(ordersCell.builds) &&
+      unitInDot(battleUnitOrders.unit) &&
+      !fogHidesDotCell(ordersCell.id)
+    ) {
       const ids = computeOccupiedDotFireSectorCellIds(ordersCell, cells);
       if (ids.length) return ids;
     }
     const tipCell = battleUnitTip?.cell as Cell | undefined;
-    if (tipCell && hasDotOnCell(tipCell.builds) && unitInDot(battleUnitTip.unit) && !battleUnitOrders) {
+    if (
+      tipCell &&
+      hasDotOnCell(tipCell.builds) &&
+      unitInDot(battleUnitTip.unit) &&
+      !battleUnitOrders &&
+      !fogHidesDotCell(tipCell.id)
+    ) {
       const ids = computeOccupiedDotFireSectorCellIds(tipCell, cells);
       if (ids.length) return ids;
     }
     return null;
-  }, [firePickLive, orderPick, cells, battleHoverCellId, battleUnitOrders, battleUnitTip]);
+  }, [
+    firePickLive,
+    orderPick,
+    cells,
+    battleHoverCellId,
+    battleUnitOrders,
+    battleUnitTip,
+    viewerBattleFaction,
+    battleFogRevealedCellIds,
+  ]);
 
   const battlePendingOrderHover = useMemo(
     () =>
@@ -1344,6 +1375,7 @@ export function useBattleDerivedState(params: {
 
   return {
     battleCellSize,
+    battleMapSize,
     battleFogRevealedCellIds,
     moveReachableCellIds,
     cutWireTargetCellIds,
@@ -1384,7 +1416,6 @@ export function useBattleDerivedState(params: {
     cellsHoverPathIsAirMission,
     battleAirInterceptionTargets,
     battleAirUnitsInFlight,
-    fireAdjustmentToggleAvailable,
     hiddenBattleInstanceIds,
   };
 }

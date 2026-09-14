@@ -5,6 +5,7 @@ import type { AirInterceptionTarget, AirUnitInFlight } from '../../game/battleAi
 import cursorPointer from '../../img/cursors/cursorPointer.cur'
 import {
   cellHasEditorPlacement,
+  traceHexPath,
 } from './cellsDrawBase'
 import {
   clientToCanvas as toCanvasPoint,
@@ -17,10 +18,12 @@ import {
 import { drawPathOverlay } from './cellsDrawOverlays'
 import { drawUnitsOnCell, drawAirInterceptionTargetsOnCell, drawAirUnitsInFlightOnCell } from './cellsDrawUnits'
 import { drawCellsCanvas } from './cellsDraw'
+import { cellIdListSize, cellIdSetHas, type CellIdList } from './cellIdSet'
 import CellContextMenus from './CellContextMenus'
 import type { EditorMapCatalogUnitPick } from './EditorMapUnitOrderMenu'
 import { useCellsAssets } from './useCellsAssets'
 import type { BattlePendingOrderHover } from '../../game/battlePendingOrderHover'
+import { hasDotOnCell } from '../../game/cellDot'
 
 export interface BattlePendingShootPreview {
   targetInstanceId?: number
@@ -46,6 +49,8 @@ export interface BattleReportReplayHighlight {
   /** Склад: иконка загрузки припасов при наведении на строку отчёта. */
   loadingSupCellDecalId?: number
   lossCellId?: number
+  /** Гексы появления подкреплений при наведении на строку отчёта. */
+  spawnCellIds?: number[]
   /** Область разведки при наведении на строку отчёта. */
   reconZoneCellIds?: number[]
   reconCenterCellId?: number
@@ -59,6 +64,10 @@ export interface BattleReportReplayHighlight {
   airCombatOrderKey?: string
   /** Гекс выстрела ПВО (сектор артиллерии по авиации) при наведении на строку отчёта. */
   artilleryAirSectorCellId?: number
+  /** Гекс ДОТ, из которого вели огонь, при наведении на строку отчёта. */
+  dotGlowCellIds?: number[]
+  /** Иконка приказа на гексе ДОТ при hover отчёта. */
+  dotOrderKey?: string
 }
 
 
@@ -95,6 +104,10 @@ interface CellsProps {
   hiddenBattleInstanceIds?: number[] | null
   onUnitHover?: (unit: any, cell: Cell, event: React.MouseEvent) => void
   onUnitLeave?: () => void
+  /** Не вызывать hover-подсказки (телефон: осмотр зажатием). */
+  suppressPointerHoverTips?: boolean
+  /** Телефон: удержание пальца — характеристики юнита / клетки. */
+  onLongPress?: (info: { cell: Cell | null; unit: any | null; clientX: number; clientY: number }) => void
   onUnitDelete?: (unitInstanceId: number, cell: Cell) => void
 
   onCellHover?: (cell: Cell | null, event: React.MouseEvent<HTMLCanvasElement>) => void
@@ -102,21 +115,21 @@ interface CellsProps {
   hoverPath?: Cell[] | null
   /** Рисовать траекторию как авиацию (линия), без иконок походного приказа */
   hoverPathIsAirMission?: boolean
-  moveReachableCellIds?: number[] | null
-  defendFacingPickCellIds?: number[] | null
+  moveReachableCellIds?: CellIdList
+  defendFacingPickCellIds?: CellIdList
   battleDefendHover?: BattleDefendHoverState | null
-  battleFireTargetInstanceIds?: number[] | null
-  battleAreaFireCellIds?: number[] | null
-  battleDotSectorCellIds?: number[] | null
-  enterDotGlowCellIds?: number[] | null
+  battleFireTargetInstanceIds?: CellIdList
+  battleAreaFireCellIds?: CellIdList
+  battleDotSectorCellIds?: CellIdList
+  enterDotGlowCellIds?: CellIdList
   /** Выбор склада: серое свечение спрайта, без заливки гекса. */
-  loadingSupGlowCellIds?: number[] | null
+  loadingSupGlowCellIds?: CellIdList
   battlePendingShootPreview?: BattlePendingShootPreview | null
   battlePendingOrderHover?: BattlePendingOrderHover | null
-  battleFogRevealedCellIds?: number[] | null
+  battleFogRevealedCellIds?: CellIdList
   battleReportReplayHighlight?: BattleReportReplayHighlight | null
-  battleLogisticsPickInstanceIds?: number[] | null
-  battleUnloadCellIds?: number[] | null
+  battleLogisticsPickInstanceIds?: CellIdList
+  battleUnloadCellIds?: CellIdList
   /** Гекс вылета: красная подсветка гекса и иконка (панель). */
   battleAirDepartureHoverCellId?: number | null
   /** Гекс вылета при выборе авиаприказа: красный гекс и иконка. */
@@ -124,24 +137,24 @@ interface CellsProps {
   /** Цель авиаприказа в превью — только иконка приказа на гексе. */
   battleAirMissionPreview?: { targetCellId: number; orderKey: string } | null
   /** Зона патрулирования: клетки в радиусе видимости от точки патруля. */
-  battlePatrolVisibilityCellIds?: number[] | null
+  battlePatrolVisibilityCellIds?: CellIdList
   /** Центр зоны патрулирования (точка патруля). */
   battlePatrolCenterCellId?: number | null
   /** Патруль: клетки для выбора радиуса зоны. */
-  patrolRangePickCellIds?: number[] | null
+  patrolRangePickCellIds?: CellIdList
   /** Разведка/радиоперехват: клетки, на которых можно задать радиус. */
-  reconRangePickCellIds?: number[] | null
+  reconRangePickCellIds?: CellIdList
   /** Разведка/радиоперехват: зона при наведении курсора. */
-  battleReconHoverAreaCellIds?: number[] | null
+  battleReconHoverAreaCellIds?: CellIdList
   /** Разведка/радиоперехват: гекс юнита (центр зоны). */
   battleReconHoverCenterCellId?: number | null
   /** Назначенный приказ: иконка на юните при наведении. */
   battleReconHoverUnitInstanceId?: number | null
   battleReconHoverOrderKey?: 'razvedka' | 'svzy' | null
   /** Область бомбардировки при наведении на цель. */
-  battleBombardmentAreaCellIds?: number[] | null
+  battleBombardmentAreaCellIds?: CellIdList
   /** Бомбардировка: соседние гексы цели — выбор стороны захода. */
-  bombardmentDirectionPickCellIds?: number[] | null
+  bombardmentDirectionPickCellIds?: CellIdList
   /** Бомбардировка: гекс захода по траектории полёта (сторона захода). */
   bombardmentApproachCellId?: number | null
   battleLogisticsUnitDecal?: { orderKey: 'tow' | 'loading'; targetInstanceIds: number[] } | null
@@ -164,7 +177,7 @@ interface CellsProps {
     unitInstanceId: number,
     patch: (unit: Record<string, unknown>) => Record<string, unknown>,
   ) => void
-  editorFacingPickCellIds?: number[] | null
+  editorFacingPickCellIds?: CellIdList
   onEditorFacingCellPick?: (cell: Cell) => void
   artilleryFacingPick?: { unitInstanceId: number; unitCellId: number } | null
   onStartArtilleryFacingPick?: (unitInstanceId: number, unitCellId: number) => void
@@ -209,6 +222,8 @@ const Cells: React.FC<CellsProps> = ({
   hiddenBattleInstanceIds = null,
   onUnitHover,
   onUnitLeave,
+  suppressPointerHoverTips = false,
+  onLongPress,
   onUnitDelete,
   onCellHover,
   onCellLeave,
@@ -306,6 +321,17 @@ const Cells: React.FC<CellsProps> = ({
   const [hoveredUnit, setHoveredUnit] = useState<HoveredUnitState | null>(null)
   const [unitMenu, setUnitMenu] = useState<UnitMenuState | null>(null)
   const [cellMenu, setCellMenu] = useState<CellMenuState | null>(null)
+  const lastHoverRef = useRef<{ cellId: number | null; unitId: number | null }>({ cellId: null, unitId: null })
+  const holdTimerRef = useRef<number | null>(null)
+  const holdStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null)
+  const suppressClickRef = useRef(false)
+  const onLongPressRef = useRef(onLongPress)
+  onLongPressRef.current = onLongPress
+  const baseCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  const hoverCellRef = useRef(hoverCell)
+  const hoveredUnitRef = useRef(hoveredUnit)
+  hoverCellRef.current = hoverCell
+  hoveredUnitRef.current = hoveredUnit
 
   function isEnemyUnitHiddenByFog(unit: { faction?: string }, cell: Cell) {
     if (mode !== 'battle' || lobbyPreview || !battleFogRevealedCellIds || viewerBattleFaction === 'none') {
@@ -319,7 +345,7 @@ const Cells: React.FC<CellsProps> = ({
     const mineIsAxis = viewerBattleFaction === 'wehrmacht'
     const isAlly = (unitIsSoviet && mineIsSoviet) || (unitIsAxis && mineIsAxis)
     if (isAlly) return false
-    return !battleFogRevealedCellIds.includes(cell.id)
+    return !cellIdSetHas(battleFogRevealedCellIds, cell.id)
   }
 
   const getCellCenter = (q: number, r: number) => getHexCellCenter(q, r, cellSize, width, height)
@@ -351,6 +377,108 @@ const Cells: React.FC<CellsProps> = ({
     })
   }
 
+  const LONG_PRESS_MS = 420
+  const LONG_PRESS_MOVE_PX = 16
+
+  const holdWindowCleanupRef = useRef<(() => void) | null>(null)
+
+  const detachHoldWindow = () => {
+    holdWindowCleanupRef.current?.()
+    holdWindowCleanupRef.current = null
+  }
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current != null) {
+      window.clearTimeout(holdTimerRef.current)
+      holdTimerRef.current = null
+    }
+    holdStartRef.current = null
+    detachHoldWindow()
+  }
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!onLongPressRef.current || lobbyPreview || e.button !== 0) return
+    suppressClickRef.current = false
+    clearHoldTimer()
+    const pointerId = e.pointerId
+    holdStartRef.current = { x: e.clientX, y: e.clientY, pointerId }
+    const onWinMove = (ev: PointerEvent) => {
+      const start = holdStartRef.current
+      if (!start || ev.pointerId !== start.pointerId) return
+      const dx = ev.clientX - start.x
+      const dy = ev.clientY - start.y
+      if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) clearHoldTimer()
+    }
+    const onWinUp = (ev: PointerEvent) => {
+      const start = holdStartRef.current
+      if (start && ev.pointerId !== start.pointerId) return
+      clearHoldTimer()
+    }
+    window.addEventListener('pointermove', onWinMove)
+    window.addEventListener('pointerup', onWinUp)
+    window.addEventListener('pointercancel', onWinUp)
+    holdWindowCleanupRef.current = () => {
+      window.removeEventListener('pointermove', onWinMove)
+      window.removeEventListener('pointerup', onWinUp)
+      window.removeEventListener('pointercancel', onWinUp)
+    }
+    holdTimerRef.current = window.setTimeout(() => {
+      const start = holdStartRef.current
+      holdTimerRef.current = null
+      holdStartRef.current = null
+      detachHoldWindow()
+      const inspect = onLongPressRef.current
+      if (!start || !inspect) return
+      const canvas = canvasRef.current
+      const rect = canvas?.getBoundingClientRect()
+      if (!rect) return
+      const point = toCanvasPoint(start.x, start.y, rect, canvas)
+      const unitHit = findUnitAtPosition(point.x, point.y)
+      const cellHit = unitHit?.cell ?? findCellAtPosition(point.x, point.y)
+      if (unitHit) {
+        setHoveredUnit(unitHit)
+        setHoverCell(unitHit.cell)
+      } else {
+        setHoveredUnit(null)
+        setHoverCell(cellHit)
+      }
+      suppressClickRef.current = true
+      window.setTimeout(() => {
+        suppressClickRef.current = false
+      }, 700)
+      inspect({
+        cell: cellHit,
+        unit: unitHit?.unit ?? null,
+        clientX: start.x,
+        clientY: start.y,
+      })
+      try {
+        navigator.vibrate?.(12)
+      } catch {
+        /* ignore */
+      }
+    }, LONG_PRESS_MS)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const start = holdStartRef.current
+    if (!start || e.pointerId !== start.pointerId) return
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+    if (dx * dx + dy * dy > LONG_PRESS_MOVE_PX * LONG_PRESS_MOVE_PX) clearHoldTimer()
+  }
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const start = holdStartRef.current
+    if (start && e.pointerId !== start.pointerId) return
+    clearHoldTimer()
+  }
+
+  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!onLongPressRef.current) return
+    e.preventDefault()
+  }
+
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!cells.length || lobbyPreview) return
     
@@ -367,6 +495,19 @@ const Cells: React.FC<CellsProps> = ({
     const hoverCursor = battleHoverCursor || 'pointer'
     const editorHoverCursor = `url(${cursorPointer}), pointer`
 
+    const nextCell = unitUnderMouse ? unitUnderMouse.cell : cellAtPointer
+    const nextCellId = nextCell != null ? Number(nextCell.id) : null
+    const nextUnitId =
+      unitUnderMouse && Number.isFinite(Number(unitUnderMouse.unit?.instanceId))
+        ? Number(unitUnderMouse.unit.instanceId)
+        : null
+    const hoverUnchanged =
+      lastHoverRef.current.cellId === nextCellId && lastHoverRef.current.unitId === nextUnitId
+
+    if (hoverUnchanged) return
+    const leftUnit = lastHoverRef.current.unitId != null && nextUnitId == null
+    lastHoverRef.current = { cellId: nextCellId, unitId: nextUnitId }
+
     if (unitUnderMouse) {
       setHoveredUnit(unitUnderMouse)
       setHoverCell(unitUnderMouse.cell)
@@ -378,56 +519,59 @@ const Cells: React.FC<CellsProps> = ({
         onCellHover(unitUnderMouse.cell, e)
       }
 
-      if (onUnitHover) {
+      if (!suppressPointerHoverTips && onUnitHover) {
         onUnitHover(unitUnderMouse.unit, unitUnderMouse.cell, e)
       }
     } else {
       setHoveredUnit(null)
-      
-      if (onUnitLeave) {
+      if (!suppressPointerHoverTips && leftUnit && onUnitLeave) {
         onUnitLeave()
       }
-      
-      const cellUnderMouse = cellAtPointer
-      setHoverCell(cellUnderMouse)
+      setHoverCell(cellAtPointer)
 
       if (onCellHover) {
-        onCellHover(cellUnderMouse, e)
+        onCellHover(cellAtPointer, e)
       }
       
       if (canvasRef.current) {
         if (lobbyPreview) {
           canvasRef.current.style.cursor = 'default'
-        } else if (cellUnderMouse) {
+        } else if (cellAtPointer) {
           canvasRef.current.style.cursor = mode === 'editor' ? editorHoverCursor : hoverCursor
         } else {
           canvasRef.current.style.cursor = mode === 'editor' ? editorHoverCursor : 'default'
         }
       }
     }
-    
-    draw()
   }
 
   const handleMouseLeave = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const hadHover = lastHoverRef.current.cellId != null || lastHoverRef.current.unitId != null
+    lastHoverRef.current = { cellId: null, unitId: null }
+    if (!hadHover) return
     setHoverCell(null)
     setHoveredUnit(null)
     if (onCellHover) {
       onCellHover(null, e)
     }
-    if (onCellLeave) {
+    if (!suppressPointerHoverTips && onCellLeave) {
       onCellLeave()
     }
-    if (onUnitLeave) {
+    if (!suppressPointerHoverTips && onUnitLeave) {
       onUnitLeave()
     }
     if (canvasRef.current) {
       canvasRef.current.style.cursor = mode === 'editor' ? `url(${cursorPointer}), pointer` : 'default'
     }
-    draw()
   }
 
   const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  if (suppressClickRef.current) {
+    suppressClickRef.current = false
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
   if (lobbyPreview) return
   const rect = canvasRef.current?.getBoundingClientRect()
   if (!rect) return
@@ -475,7 +619,7 @@ const Cells: React.FC<CellsProps> = ({
       mode === 'editor' &&
       cell &&
       editorFacingPickCellIds &&
-      editorFacingPickCellIds.includes(cell.id) &&
+      cellIdSetHas(editorFacingPickCellIds, cell.id) &&
       onEditorFacingCellPick
     if (facingPick) {
       e.stopPropagation()
@@ -531,7 +675,13 @@ const Cells: React.FC<CellsProps> = ({
     })
   }
 
-  const drawUnits = (ctx: CanvasRenderingContext2D, cell: Cell, center: { x: number, y: number }) => {
+  const drawUnitsWithHover = (
+    ctx: CanvasRenderingContext2D,
+    cell: Cell,
+    center: { x: number; y: number },
+    hoverU: HoveredUnitState | null,
+    hoverC: Cell | null,
+  ) => {
     drawUnitsOnCell(ctx, {
       cell,
       center,
@@ -540,8 +690,8 @@ const Cells: React.FC<CellsProps> = ({
       mode,
       viewerBattleFaction,
       viewerBattleTeam,
-      hoveredUnit,
-      hoverCell,
+      hoveredUnit: hoverU,
+      hoverCell: hoverC,
       battleFireTargetInstanceIds,
       battleLogisticsPickInstanceIds,
       battlePendingLogisticsPreview,
@@ -579,7 +729,7 @@ const Cells: React.FC<CellsProps> = ({
     })
 
     if (battleAirInterceptionTargets?.length) {
-      const hoveredIdRaw = hoveredUnit?.unit?.instanceId
+      const hoveredIdRaw = hoverU?.unit?.instanceId
       const hoveredId =
         hoveredIdRaw != null && Number.isFinite(Number(hoveredIdRaw)) ? Number(hoveredIdRaw) : null
       drawAirInterceptionTargetsOnCell(ctx, {
@@ -597,20 +747,82 @@ const Cells: React.FC<CellsProps> = ({
     }
   }
 
-  const draw = () => {
+  const hoverOverlayOnly = !battleDefendHover && !battlePendingLogisticsPreview
+
+  const ensureBaseCanvas = () => {
+    let c = baseCanvasRef.current
+    if (!c) {
+      c = document.createElement('canvas')
+      baseCanvasRef.current = c
+    }
+    if (c.width !== width) c.width = width
+    if (c.height !== height) c.height = height
+    return c
+  }
+
+  const paintHoverOverlay = () => {
+    const canvas = canvasRef.current
+    const base = baseCanvasRef.current
+    if (!canvas || !base) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    ctx.drawImage(base, 0, 0)
+    const hc = hoverCellRef.current
+    const hu = hoveredUnitRef.current
+    const fogHidesHoverDot =
+      mode === 'battle' &&
+      !lobbyPreview &&
+      viewerBattleFaction !== 'none' &&
+      battleFogRevealedCellIds != null &&
+      hc != null &&
+      !cellIdSetHas(battleFogRevealedCellIds, hc.id)
+    const skipRing =
+      !hc ||
+      !!hu ||
+      (hasDotOnCell(hc.builds) && !fogHidesHoverDot) ||
+      cellIdListSize(moveReachableCellIds) > 0 ||
+      cellIdListSize(defendFacingPickCellIds) > 0 ||
+      cellIdListSize(battleAreaFireCellIds) > 0 ||
+      cellIdListSize(battleUnloadCellIds) > 0 ||
+      cellIdListSize(patrolRangePickCellIds) > 0 ||
+      cellIdListSize(battlePatrolVisibilityCellIds) > 0 ||
+      cellIdListSize(reconRangePickCellIds) > 0 ||
+      cellIdListSize(battleReconHoverAreaCellIds) > 0 ||
+      cellIdListSize(battleBombardmentAreaCellIds) > 0 ||
+      bombardmentApproachCellId != null ||
+      battleAirDeparturePickCellId != null ||
+      battleAirDepartureHoverCellId != null
+    if (hc && !skipRing) {
+      const center = getCellCenter(hc.coor.x, hc.coor.z)
+      const corners = getCellCorners(center.x, center.y)
+      ctx.beginPath()
+      traceHexPath(ctx, corners)
+      ctx.strokeStyle = 'yellow'
+      ctx.lineWidth = 3
+      ctx.stroke()
+    }
+    if (hu) {
+      const center = getCellCenter(hu.cell.coor.x, hu.cell.coor.z)
+      drawUnitsWithHover(ctx, hu.cell, center, hu, hc)
+    }
+  }
+
+  const draw = (opts?: { hoverC?: Cell | null; hoverU?: HoveredUnitState | null; target?: HTMLCanvasElement | null }) => {
+    const hoverC = opts && 'hoverC' in opts ? opts.hoverC ?? null : hoverCell
+    const hoverU = opts && 'hoverU' in opts ? opts.hoverU ?? null : hoveredUnit
     drawCellsCanvas({
-      canvas: canvasRef.current,
+      canvas: opts?.target ?? canvasRef.current,
       width,
       height,
       cellSize,
       mode,
       lobbyPreview,
       cells,
-      hoverCell,
-      hoveredUnit,
+      hoverCell: hoverC,
+      hoveredUnit: hoverU,
       moveReachableCellIds,
       defendFacingPickCellIds:
-        mode === 'editor' && editorFacingPickCellIds?.length
+        mode === 'editor' && cellIdListSize(editorFacingPickCellIds) > 0
           ? editorFacingPickCellIds
           : defendFacingPickCellIds,
       battleDefendHover,
@@ -642,7 +854,7 @@ const Cells: React.FC<CellsProps> = ({
       getCellCorners,
       getTexture,
       resolveEditorCachedImage,
-      drawUnits,
+      drawUnits: (ctx, cell, center) => drawUnitsWithHover(ctx, cell, center, hoverU, hoverC),
       drawPath,
       deployOrderDecalImg: deployOrderDecalImgRef.current,
       changeSectorOrderDecalImg: changeSectorOrderDecalImgRef.current,
@@ -690,11 +902,30 @@ const Cells: React.FC<CellsProps> = ({
   }, [unitMenu, cellMenu, mode, lobbyPreview, artilleryFacingPick, dotFacingPick])
 
   useEffect(() => {
-    draw()
+    const el = wrapRef.current
+    if (!el) return
+    const cancelHold = () => clearHoldTimer()
+    el.addEventListener('scroll', cancelHold, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', cancelHold)
+      clearHoldTimer()
+    }
+  }, [])
+
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => {
+      if (hoverOverlayOnly) {
+        draw({ hoverC: null, hoverU: null, target: ensureBaseCanvas() })
+        paintHoverOverlay()
+      } else {
+        draw()
+      }
+    })
+    return () => {
+      window.cancelAnimationFrame(id)
+    }
   }, [
     cells,
-    hoverCell,
-    hoveredUnit,
     unitMenu,
     mode,
     lobbyPreview,
@@ -733,7 +964,6 @@ const Cells: React.FC<CellsProps> = ({
     bombardmentApproachCellId,
     battleLogisticsUnitDecal,
     battlePendingLogisticsPreview,
-    battleAirInterceptionTargets,
     battleAirUnitsInFlight,
     editorAviationEdgeHighlight,
     editorAviationEdgeCellIds,
@@ -747,13 +977,31 @@ const Cells: React.FC<CellsProps> = ({
     cellSize,
     textureVersion,
     hiddenBattleInstanceIdSet,
+    hoverOverlayOnly,
   ])
+
+  useEffect(() => {
+    if (!hoverOverlayOnly) {
+      const id = window.requestAnimationFrame(() => {
+        draw()
+      })
+      return () => window.cancelAnimationFrame(id)
+    }
+    const id = window.requestAnimationFrame(() => {
+      paintHoverOverlay()
+    })
+    return () => window.cancelAnimationFrame(id)
+  }, [hoverCell, hoveredUnit, hoverOverlayOnly])
 
   return (
     <div
       ref={wrapRef}
       className={wrapClassName}
-      style={{ position: 'relative', overflow: lobbyPreview ? 'hidden' : 'visible' }}
+      style={{
+        position: 'relative',
+        overflow: lobbyPreview ? 'hidden' : mode === 'battle' ? undefined : 'visible',
+        overflowY: mode === 'battle' ? 'auto' : undefined,
+      }}
     >
       <canvas
         ref={canvasRef}
@@ -762,6 +1010,12 @@ const Cells: React.FC<CellsProps> = ({
         onClick={handleClick}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        onContextMenu={handleContextMenu}
+        style={suppressPointerHoverTips ? { touchAction: 'manipulation' } : undefined}
       />
       <CellContextMenus
         mode={mode}

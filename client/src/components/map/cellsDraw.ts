@@ -36,6 +36,7 @@ import {
 import { dotOccupancySide, hasDotOnCell, unitInDot } from '../../game/cellDot'
 import { battleUnitsVisibleOnMap } from '../../game/battleAirSupport'
 import type { LobbyFaction } from '../../api/rooms'
+import { toCellIdSet, type CellIdList } from './cellIdSet'
 import { getTrenchEdgesMask } from '../../game/cellTrenchEdges'
 import { getAntiTankEdgesMask } from '../../game/cellAntiTankEdges'
 import { cellHasWarehouse, isLoadingSupHoverLink } from '../../game/battleLogisticsUi'
@@ -430,13 +431,13 @@ function paintDeployZoneOverlay(
 function battleBuildingHiddenByFog(
   mode: 'editor' | 'battle',
   lobbyPreview: boolean,
-  fogIds: number[] | null | undefined,
+  fogIds: ReadonlySet<number> | null | undefined,
   cellId: number,
   viewerFaction: LobbyFaction | undefined,
 ): boolean {
   if (mode !== 'battle' || lobbyPreview) return false
   if (!fogIds || viewerFaction === 'none' || viewerFaction == null) return false
-  return !fogIds.some((id) => Number(id) === Number(cellId))
+  return !fogIds.has(Number(cellId))
 }
 
 function drawCenterBuildFortifications(
@@ -529,23 +530,40 @@ function drawCenterBuildFortifications(
     }
   }
 
-  if (hasSmokeOnCell(builds)) {
+  const smokeOnCell = hasSmokeOnCell(builds)
+  const fireOnCell = hasSettlementFire(builds)
+  const splitSmokeFire = smokeOnCell && fireOnCell
+  const smokeFireSide = splitSmokeFire ? cellSize * 0.38 : 0
+
+  if (smokeOnCell) {
     const img =
       smokeImg?.complete && smokeImg.naturalWidth > 0
         ? smokeImg
         : resolveEditorCachedImage(SMOKE_SPRITE_URL).ready
     if (img?.naturalWidth) {
       ctx.save()
-      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.78 })
+      drawCenterFortification(ctx, {
+        center,
+        cellSize,
+        img,
+        scale: splitSmokeFire ? 0.62 : 0.78,
+        offsetX: -smokeFireSide,
+      })
       ctx.restore()
     }
   }
 
-  if (hasSettlementFire(builds)) {
+  if (fireOnCell) {
     const img = resolveEditorCachedImage(SETTLEMENT_FIRE_SPRITE_URL).ready
     if (img?.naturalWidth) {
       ctx.save()
-      drawCenterFortification(ctx, { center, cellSize, img, scale: 0.55 })
+      drawCenterFortification(ctx, {
+        center,
+        cellSize,
+        img,
+        scale: splitSmokeFire ? 0.48 : 0.55,
+        offsetX: smokeFireSide,
+      })
       ctx.restore()
       const markers = settlementFireMarkers(builds)
       if (markers > 0) {
@@ -627,25 +645,25 @@ export function drawCellsCanvas(params: {
   cells: Cell[]
   hoverCell: Cell | null
   hoveredUnit: { cell: Cell; unit: any; index: number } | null
-  moveReachableCellIds: number[] | null
-  defendFacingPickCellIds: number[] | null
+  moveReachableCellIds: CellIdList
+  defendFacingPickCellIds: CellIdList
   battleDefendHover: any
-  battleAreaFireCellIds: number[] | null
-  battleDotSectorCellIds?: number[] | null
-  enterDotGlowCellIds?: number[] | null
-  loadingSupGlowCellIds?: number[] | null
-  battlePatrolVisibilityCellIds?: number[] | null
+  battleAreaFireCellIds: CellIdList
+  battleDotSectorCellIds?: CellIdList
+  enterDotGlowCellIds?: CellIdList
+  loadingSupGlowCellIds?: CellIdList
+  battlePatrolVisibilityCellIds?: CellIdList
   battlePatrolCenterCellId?: number | null
-  battleAirInterceptionTargetCellIds?: number[] | null
-  patrolRangePickCellIds?: number[] | null
-  reconRangePickCellIds?: number[] | null
-  battleReconHoverAreaCellIds?: number[] | null
+  battleAirInterceptionTargetCellIds?: CellIdList
+  patrolRangePickCellIds?: CellIdList
+  reconRangePickCellIds?: CellIdList
+  battleReconHoverAreaCellIds?: CellIdList
   battleReconHoverCenterCellId?: number | null
-  battleBombardmentAreaCellIds?: number[] | null
-  bombardmentDirectionPickCellIds?: number[] | null
+  battleBombardmentAreaCellIds?: CellIdList
+  bombardmentDirectionPickCellIds?: CellIdList
   bombardmentApproachCellId?: number | null
   battleReportReplayHighlight: any
-  battleUnloadCellIds: number[] | null
+  battleUnloadCellIds: CellIdList
   /** Гекс вылета: красная подсветка + иконка при наведении на строку панели. */
   battleAirDepartureHoverCellId?: number | null
   /** Выбор авиаприказа с целью: красный гекс вылета и иконка; без жёлтого hover-кольца. */
@@ -686,7 +704,7 @@ export function drawCellsCanvas(params: {
   pontonStageImgs?: (HTMLImageElement | null)[]
   smokeImg?: HTMLImageElement | null
   viewerBattleFaction?: LobbyFaction
-  battleFogRevealedCellIds?: number[] | null
+  battleFogRevealedCellIds?: CellIdList
   extraHiddenInstanceIds?: ReadonlySet<number> | null
 }) {
   const {
@@ -763,11 +781,32 @@ export function drawCellsCanvas(params: {
   if (!ctx) return
   ctx.clearRect(0, 0, width, height)
 
+  const moveReachableCellIdsSet = toCellIdSet(moveReachableCellIds)
+  const defendFacingPickCellIdsSet = toCellIdSet(defendFacingPickCellIds)
+  const battleAreaFireCellIdsSet = toCellIdSet(battleAreaFireCellIds)
+  const battleDotSectorCellIdsSet = toCellIdSet(battleDotSectorCellIds)
+  const enterDotGlowCellIdsSet = toCellIdSet(enterDotGlowCellIds)
+  const loadingSupGlowCellIdsSet = toCellIdSet(loadingSupGlowCellIds)
+  const battlePatrolVisibilityCellIdsSet = toCellIdSet(battlePatrolVisibilityCellIds)
+  const battleAirInterceptionTargetCellIdsSet = toCellIdSet(battleAirInterceptionTargetCellIds)
+  const patrolRangePickCellIdsSet = toCellIdSet(patrolRangePickCellIds)
+  const reconRangePickCellIdsSet = toCellIdSet(reconRangePickCellIds)
+  const battleReconHoverAreaCellIdsSet = toCellIdSet(battleReconHoverAreaCellIds)
+  const battleBombardmentAreaCellIdsSet = toCellIdSet(battleBombardmentAreaCellIds)
+  const bombardmentDirectionPickCellIdsSet = toCellIdSet(bombardmentDirectionPickCellIds)
+  const battleUnloadCellIdsSet = toCellIdSet(battleUnloadCellIds)
+  const battleFogRevealedCellIdsSet = toCellIdSet(battleFogRevealedCellIds)
+  const pendingAreaIdsSet = toCellIdSet(battlePendingOrderHover?.areaCellIds)
+  const pendingIconIdsSet = toCellIdSet(battlePendingOrderHover?.iconCellIds)
+  const reconZoneIdsSet = toCellIdSet(battleReportReplayHighlight?.reconZoneCellIds)
+  const spawnCellIdsSet = toCellIdSet(battleReportReplayHighlight?.spawnCellIds)
+  const reportDotGlowIdsSet = toCellIdSet(battleReportReplayHighlight?.dotGlowCellIds)
+
   const defendHoverSectorIds =
     mode === 'battle' && battleDefendHover && battleDefendHover.sectorCellIds.length
       ? battleDefendHover.showSectorWithoutUnitHover === true ||
         (hoveredUnit && hoveredUnit.unit.instanceId == battleDefendHover.unitInstanceId)
-        ? battleDefendHover.sectorCellIds
+        ? toCellIdSet(battleDefendHover.sectorCellIds)
         : null
       : null
 
@@ -775,7 +814,7 @@ export function drawCellsCanvas(params: {
     mode === 'battle' &&
     battleDefendHover?.commitPreviewSectorCellIds &&
     battleDefendHover.commitPreviewSectorCellIds.length
-      ? battleDefendHover.commitPreviewSectorCellIds
+      ? toCellIdSet(battleDefendHover.commitPreviewSectorCellIds)
       : null
 
   const cellsByCube = buildCellByCubeKey(cells)
@@ -878,12 +917,15 @@ export function drawCellsCanvas(params: {
         ctx.fillText(idLabel, center.x, center.y - 20)
       }
 
+      const visibleDotOnCell =
+        hasDotOnCell(cell.builds) &&
+        !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIdsSet, cell.id, viewerBattleFaction)
       if (
         hoverCell?.id === cell.id &&
         !hoveredUnit &&
-        !hasDotOnCell(cell.builds) &&
+        !visibleDotOnCell &&
         !cell.highlight &&
-        !defendFacingPickCellIds?.length
+        !defendFacingPickCellIdsSet?.size
       ) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
@@ -892,7 +934,7 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (defendFacingPickCellIds?.includes(cell.id)) {
+      if (defendFacingPickCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(56, 132, 220, 0.45)'
@@ -904,7 +946,7 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (battleDotSectorCellIds?.includes(cell.id)) {
+      if (battleDotSectorCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(150, 155, 175, 0.40)'
@@ -1001,28 +1043,31 @@ export function drawCellsCanvas(params: {
         )
       }
 
+      const visibleDotOnBattleCell =
+        hasDotOnCell(cell.builds) &&
+        !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIdsSet, cell.id, viewerBattleFaction)
       const showBattleHexHoverRing =
         hoverCell?.id === cell.id &&
         !hoveredUnit &&
-        !hasDotOnCell(cell.builds) &&
+        !visibleDotOnBattleCell &&
         !cell.highlight &&
-        !(mode === 'battle' && moveReachableCellIds && moveReachableCellIds.length > 0) &&
-        !(mode === 'battle' && defendFacingPickCellIds && defendFacingPickCellIds.length > 0) &&
-        !(mode === 'editor' && defendFacingPickCellIds && defendFacingPickCellIds.length > 0) &&
-        !(mode === 'battle' && battleUnloadCellIds && battleUnloadCellIds.length > 0) &&
-        !(mode === 'battle' && battleAreaFireCellIds && battleAreaFireCellIds.length > 0) &&
-        !(mode === 'battle' && patrolRangePickCellIds && patrolRangePickCellIds.length > 0) &&
-        !(mode === 'battle' && battlePatrolVisibilityCellIds && battlePatrolVisibilityCellIds.length > 0) &&
-        !(mode === 'battle' && reconRangePickCellIds && reconRangePickCellIds.length > 0) &&
-        !(mode === 'battle' && battleReconHoverAreaCellIds && battleReconHoverAreaCellIds.length > 0) &&
-        !(mode === 'battle' && battlePendingOrderHover?.areaCellIds && battlePendingOrderHover.areaCellIds.length > 0) &&
+        !(mode === 'battle' && moveReachableCellIdsSet && moveReachableCellIdsSet.size > 0) &&
+        !(mode === 'battle' && defendFacingPickCellIdsSet && defendFacingPickCellIdsSet.size > 0) &&
+        !(mode === 'editor' && defendFacingPickCellIdsSet && defendFacingPickCellIdsSet.size > 0) &&
+        !(mode === 'battle' && battleUnloadCellIdsSet && battleUnloadCellIdsSet.size > 0) &&
+        !(mode === 'battle' && battleAreaFireCellIdsSet && battleAreaFireCellIdsSet.size > 0) &&
+        !(mode === 'battle' && patrolRangePickCellIdsSet && patrolRangePickCellIdsSet.size > 0) &&
+        !(mode === 'battle' && battlePatrolVisibilityCellIdsSet && battlePatrolVisibilityCellIdsSet.size > 0) &&
+        !(mode === 'battle' && reconRangePickCellIdsSet && reconRangePickCellIdsSet.size > 0) &&
+        !(mode === 'battle' && battleReconHoverAreaCellIdsSet && battleReconHoverAreaCellIdsSet.size > 0) &&
+        !(mode === 'battle' && pendingAreaIdsSet && pendingAreaIdsSet.size > 0) &&
         !(
           mode === 'battle' &&
-          battleReportReplayHighlight?.reconZoneCellIds &&
-          battleReportReplayHighlight.reconZoneCellIds.length > 0
+          reconZoneIdsSet &&
+          reconZoneIdsSet.size > 0
         ) &&
-        !(mode === 'battle' && battleBombardmentAreaCellIds && battleBombardmentAreaCellIds.length > 0) &&
-        !(mode === 'battle' && bombardmentDirectionPickCellIds && bombardmentDirectionPickCellIds.length > 0) &&
+        !(mode === 'battle' && battleBombardmentAreaCellIdsSet && battleBombardmentAreaCellIdsSet.size > 0) &&
+        !(mode === 'battle' && bombardmentDirectionPickCellIdsSet && bombardmentDirectionPickCellIdsSet.size > 0) &&
         !(mode === 'battle' && bombardmentApproachCellId != null && cell.id === bombardmentApproachCellId) &&
         !(
           mode === 'battle' &&
@@ -1049,14 +1094,14 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (moveReachableCellIds?.some((id) => Number(id) === Number(cell.id))) {
+      if (moveReachableCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.5)'
         ctx.fill()
       }
 
-      if (defendFacingPickCellIds?.includes(cell.id)) {
+      if (defendFacingPickCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle =
@@ -1083,7 +1128,7 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (bombardmentDirectionPickCellIds?.includes(cell.id)) {
+      if (bombardmentDirectionPickCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.5)'
@@ -1095,24 +1140,24 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      const pendingAreaIdsEarly = battlePendingOrderHover?.areaCellIds
+      const pendingAreaIdsEarly = pendingAreaIdsSet
       const inPendingDaisy =
-        pendingAreaIdsEarly?.some((id) => Number(id) === Number(cell.id)) ?? false
+        pendingAreaIdsEarly?.has(cell.id) ?? false
 
-      if (battleUnloadCellIds?.includes(cell.id) && !inPendingDaisy) {
+      if (battleUnloadCellIdsSet?.has(cell.id) && !inPendingDaisy) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.5)'
         ctx.fill()
       }
 
-      if (battleAreaFireCellIds?.includes(cell.id) && !inPendingDaisy) {
+      if (battleAreaFireCellIdsSet?.has(cell.id) && !inPendingDaisy) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(200, 72, 72, 0.26)'
         ctx.fill()
       }
-      if (patrolRangePickCellIds?.includes(cell.id)) {
+      if (patrolRangePickCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.45)'
@@ -1124,8 +1169,8 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      const inReconHoverArea = battleReconHoverAreaCellIds?.some((id) => Number(id) === Number(cell.id))
-      if (reconRangePickCellIds?.some((id) => Number(id) === Number(cell.id)) && !inReconHoverArea) {
+      const inReconHoverArea = battleReconHoverAreaCellIdsSet?.has(cell.id)
+      if (reconRangePickCellIdsSet?.has(cell.id) && !inReconHoverArea) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(128, 128, 128, 0.45)'
@@ -1137,7 +1182,7 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (battlePatrolVisibilityCellIds?.includes(cell.id)) {
+      if (battlePatrolVisibilityCellIdsSet?.has(cell.id)) {
         const isPatrolCenter = battlePatrolCenterCellId != null && cell.id === battlePatrolCenterCellId
         ctx.beginPath()
         traceHexPath(ctx, corners)
@@ -1168,8 +1213,7 @@ export function drawCellsCanvas(params: {
         ctx.setLineDash([])
       }
 
-      const pendingAreaIds = battlePendingOrderHover?.areaCellIds
-      const inPendingOrderArea = pendingAreaIds?.some((id) => Number(id) === Number(cell.id))
+      const inPendingOrderArea = pendingAreaIdsSet?.has(cell.id)
       if (inPendingOrderArea) {
         const isAreaCenter =
           battlePendingOrderHover?.areaCenterCellId != null &&
@@ -1187,7 +1231,7 @@ export function drawCellsCanvas(params: {
         ctx.setLineDash([])
       }
 
-      if (battleAirInterceptionTargetCellIds?.includes(cell.id)) {
+      if (battleAirInterceptionTargetCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(220, 60, 60, 0.28)'
@@ -1198,8 +1242,18 @@ export function drawCellsCanvas(params: {
         ctx.lineWidth = 2.5
         ctx.stroke()
       }
-      const reconZoneIds = battleReportReplayHighlight?.reconZoneCellIds
-      const isInReconZone = reconZoneIds?.some((id) => Number(id) === Number(cell.id))
+      if (mode === 'battle' && spawnCellIdsSet?.has(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(52, 168, 108, 0.34)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(24, 118, 68, 0.95)'
+        ctx.lineWidth = 3
+        ctx.stroke()
+      }
+      const isInReconZone = reconZoneIdsSet?.has(cell.id)
       if (mode === 'battle' && isInReconZone) {
         const reconCenterId = battleReportReplayHighlight?.reconCenterCellId
         const isReconCenter = reconCenterId != null && Number(reconCenterId) === Number(cell.id)
@@ -1239,15 +1293,26 @@ export function drawCellsCanvas(params: {
         ctx.lineWidth = 2
         ctx.stroke()
       }
+      if (reportDotGlowIdsSet?.has(cell.id)) {
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.fillStyle = 'rgba(234, 179, 0, 0.22)'
+        ctx.fill()
+        ctx.beginPath()
+        traceHexPath(ctx, corners)
+        ctx.strokeStyle = 'rgba(234, 179, 0, 0.95)'
+        ctx.lineWidth = 3
+        ctx.stroke()
+      }
 
-      if (defendHoverSectorIds?.includes(cell.id)) {
+      if (defendHoverSectorIds?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(150, 155, 175, 0.44)'
         ctx.fill()
       }
 
-      if (battleDotSectorCellIds?.includes(cell.id)) {
+      if (battleDotSectorCellIdsSet?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(150, 155, 175, 0.40)'
@@ -1259,7 +1324,7 @@ export function drawCellsCanvas(params: {
         ctx.stroke()
       }
 
-      if (defendCommitPreviewIds?.includes(cell.id)) {
+      if (defendCommitPreviewIds?.has(cell.id)) {
         ctx.beginPath()
         traceHexPath(ctx, corners)
         ctx.fillStyle = 'rgba(72, 160, 120, 0.42)'
@@ -1330,7 +1395,7 @@ export function drawCellsCanvas(params: {
     }
 
     if (
-      !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIds, cell.id, viewerBattleFaction)
+      !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIdsSet, cell.id, viewerBattleFaction)
     ) {
       const visibleUnits = battleUnitsVisibleOnMap(cell, mode, extraHiddenInstanceIds)
       const hoveringDot =
@@ -1339,11 +1404,14 @@ export function drawCellsCanvas(params: {
         hasDotOnCell(cell.builds) &&
         (!hoveredUnit || unitInDot(hoveredUnit.unit as Record<string, unknown>))
       const enterDotGlow = Boolean(
-        enterDotGlowCellIds?.some((id) => Number(id) === Number(cell.id)) && hasDotOnCell(cell.builds),
+        enterDotGlowCellIdsSet?.has(cell.id) && hasDotOnCell(cell.builds),
       )
-      const glowDot = hoveringDot || enterDotGlow
+      const reportDotGlow = Boolean(
+        reportDotGlowIdsSet?.has(cell.id) && hasDotOnCell(cell.builds),
+      )
+      const glowDot = hoveringDot || enterDotGlow || reportDotGlow
       const warehousePickGlow = Boolean(
-        loadingSupGlowCellIds?.some((id) => Number(id) === Number(cell.id)),
+        loadingSupGlowCellIdsSet?.has(cell.id),
       )
       const warehouseOrderLink =
         battlePendingLogisticsPreview?.kind === 'loadingSup' &&
@@ -1464,9 +1532,23 @@ export function drawCellsCanvas(params: {
     }
     if (
       mode === 'battle' &&
-      battlePendingOrderHover?.iconCellIds?.some((id) => Number(id) === Number(cell.id))
+      pendingIconIdsSet?.has(cell.id)
     ) {
       const orderKey = battlePendingOrderHover.orderKey
+      const decal = orderDecals[orderKey] ?? shootOrderDecals[orderKey as 'fire' | 'fireHard']
+      if (decal?.naturalWidth) {
+        const r = Math.max(8, cellSize * 0.14)
+        ctx.save()
+        drawImageCoverInCircle(ctx, decal, center.x, center.y, r)
+        ctx.restore()
+      }
+    }
+    if (
+      mode === 'battle' &&
+      reportDotGlowIdsSet?.has(cell.id) &&
+      battleReportReplayHighlight?.dotOrderKey
+    ) {
+      const orderKey = String(battleReportReplayHighlight.dotOrderKey)
       const decal = orderDecals[orderKey] ?? shootOrderDecals[orderKey as 'fire' | 'fireHard']
       if (decal?.naturalWidth) {
         const r = Math.max(8, cellSize * 0.14)
@@ -1478,7 +1560,7 @@ export function drawCellsCanvas(params: {
 
     if (
       mode === 'battle' &&
-      battleBombardmentAreaCellIds?.includes(cell.id)
+      battleBombardmentAreaCellIdsSet?.has(cell.id)
     ) {
       drawAirMissionOrderDecal(ctx, center, cellSize, 'bombardment', airMissionOrderDecals)
     }
@@ -1487,7 +1569,7 @@ export function drawCellsCanvas(params: {
       mode === 'battle' &&
       battlePatrolCenterCellId != null &&
       cell.id === battlePatrolCenterCellId &&
-      battlePatrolVisibilityCellIds?.includes(cell.id) &&
+      battlePatrolVisibilityCellIdsSet?.has(cell.id) &&
       !(
         battleAirMissionPreview &&
         battleAirMissionPreview.orderKey === 'patrol' &&
@@ -1503,7 +1585,7 @@ export function drawCellsCanvas(params: {
       cell.id === battleAirMissionPreview.targetCellId &&
       !(
         battleAirMissionPreview.orderKey === 'bombardment' &&
-        battleBombardmentAreaCellIds?.includes(cell.id)
+        battleBombardmentAreaCellIdsSet?.has(cell.id)
       )
     ) {
       drawAirMissionOrderDecal(
@@ -1558,7 +1640,7 @@ export function drawCellsCanvas(params: {
     }
 
     if (
-      !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIds, cell.id, viewerBattleFaction)
+      !battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIdsSet, cell.id, viewerBattleFaction)
     ) {
       drawMapBuilding(ctx, {
         cell,
@@ -1569,7 +1651,7 @@ export function drawCellsCanvas(params: {
         glow:
           mode === 'battle' &&
           cellHasWarehouse(cell) &&
-          (Boolean(loadingSupGlowCellIds?.some((id) => Number(id) === Number(cell.id))) ||
+          (Boolean(loadingSupGlowCellIdsSet?.has(cell.id)) ||
             (hoverCell != null && Number(hoverCell.id) === Number(cell.id)) ||
             (battlePendingLogisticsPreview?.kind === 'loadingSup' &&
               Number(battlePendingLogisticsPreview.targetCellId) === Number(cell.id) &&
@@ -1602,7 +1684,7 @@ export function drawCellsCanvas(params: {
   for (let cellIndex = 0; cellIndex < cells.length; cellIndex++) {
     const cell = cells[cellIndex]
     if (
-      battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIds, cell.id, viewerBattleFaction)
+      battleBuildingHiddenByFog(mode, lobbyPreview, battleFogRevealedCellIdsSet, cell.id, viewerBattleFaction)
     ) {
       continue
     }
