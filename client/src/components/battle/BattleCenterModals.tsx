@@ -84,8 +84,8 @@ const BattleCenterModals: React.FC<BattleCenterModalsProps> = ({
           </header>
           <div className={styles.leftMenuBody}>
             <p className={styles.leftMenuText}>
-              После подтверждения кнопка станет неактивной до совместного перехода. Счётчик хода обновится, когда оба
-              игрока подтвердят завершение текущего хода.
+              Ход начнётся, когда все игроки подтвердят. До этого можно нажать «Отменить ход» и снова менять
+              приказы. Пока сервер считает бой, отменить уже нельзя.
             </p>
             {pendingOrdersCount > 0 ? null : null}
           </div>

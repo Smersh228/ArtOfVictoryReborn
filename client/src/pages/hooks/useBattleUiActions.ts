@@ -137,7 +137,6 @@ export function useBattleUiActions(params: {
         dismissOrderPicking();
         return;
       }
-      setPendingOrders([]);
       dismissOrderPicking();
     });
   }, [closeCenterModal, pendingOrders, cells, confirmNextTurn, setPendingOrders, dismissOrderPicking]);

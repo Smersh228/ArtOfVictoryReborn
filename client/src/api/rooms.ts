@@ -135,6 +135,16 @@ export type LobbyRoomChatMessage = {
   teamKey?: 'rkka' | 'wehrmacht' | null
 }
 
+export type BattleTurnMemberState = {
+  key: string
+  label: string
+  faction?: LobbyFaction
+  team?: number | null
+  isYou?: boolean
+  isBot?: boolean
+  ready?: boolean
+}
+
 export type RoomDetailResponse = {
   room: RoomPublic
   members: RoomMember[]
@@ -163,6 +173,9 @@ export type RoomDetailResponse = {
   battleFieldRevision?: number
   battleTurnAckCount?: number
   battleTurnAckNeed?: number
+  battleTurnYouReady?: boolean
+  battleTurnBusy?: boolean
+  battleTurnMembers?: BattleTurnMemberState[]
   battleHqRewrite?: BattleHqRewriteState | null
   battleDeploy?: BattleDeployState | null
   battleCells?: unknown[]
@@ -336,6 +349,9 @@ function normalizeRoomDetail(raw: RoomDetailResponse): RoomDetailResponse {
     battleFieldRevision: raw.battleFieldRevision ?? 0,
     battleTurnAckCount: raw.battleTurnAckCount ?? 0,
     battleTurnAckNeed: raw.battleTurnAckNeed ?? 0,
+    battleTurnYouReady: Boolean(raw.battleTurnYouReady),
+    battleTurnBusy: Boolean(raw.battleTurnBusy),
+    battleTurnMembers: Array.isArray(raw.battleTurnMembers) ? raw.battleTurnMembers : [],
     battleHqRewrite: raw.battleHqRewrite ?? null,
     battleDeploy: normalizeBattleDeploy(raw.battleDeploy),
     members: raw.members ?? [],
@@ -551,15 +567,22 @@ export type BattleTurnReadyResponse = {
   battleTurnIndex?: number
   battleFieldRevision?: number
   waitingForOthers?: boolean
+  battleTurnYouReady?: boolean
+  battleTurnBusy?: boolean
+  cancelled?: boolean
   battleHqRewrite?: BattleHqRewriteState | null
 }
 
-export async function postBattleTurnReady(roomId: number, turn: number): Promise<BattleTurnReadyResponse> {
+export async function postBattleTurnReady(
+  roomId: number,
+  turn: number,
+  opts?: { cancel?: boolean },
+): Promise<BattleTurnReadyResponse> {
   const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/turn-ready`), {
     method: 'POST',
     credentials: 'include',
     headers: roomHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ turn }),
+    body: JSON.stringify({ turn, cancel: opts?.cancel === true }),
   })
   const text = await res.text()
   if (!res.ok) throw new Error(parseRoomsError(res, text))
@@ -594,7 +617,14 @@ export async function postBattleDeployPlace(
   roomId: number,
   body:
     | { kind: 'unit'; catalogUnitId: number; cellId: number }
-    | { kind: 'structure'; structureId: string; cellId: number; mineKind?: 'infantry' | 'tank' },
+    | {
+        kind: 'structure'
+        structureId: string
+        cellId: number
+        mineKind?: 'infantry' | 'tank'
+        facingCellId?: number
+        orient?: boolean
+      },
 ): Promise<RoomDetailResponse> {
   const res = await fetch(roomsUrl(`/api/rooms/${roomId}/battle/deploy-place`), {
     method: 'POST',

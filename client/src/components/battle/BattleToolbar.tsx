@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Button from '../Button';
 import styles from '../../pages/styleModules/battle.module.css';
+import BattleHourglass from './BattleHourglass';
 
 interface BattleToolbarProps {
   readonlyBattle: boolean;
@@ -8,6 +9,9 @@ interface BattleToolbarProps {
   infoLocked?: boolean;
   battleControlsDisabled: boolean;
   waitingNextTurn: boolean;
+  canCancelTurn?: boolean;
+  onCancelTurn?: () => void;
+  showTurnHourglass?: boolean;
   turn: number;
   environmentLabels?: string[];
   showAirSupportButton: boolean;
@@ -30,6 +34,9 @@ const BattleToolbar: React.FC<BattleToolbarProps> = ({
   infoLocked = false,
   battleControlsDisabled,
   waitingNextTurn,
+  canCancelTurn = false,
+  onCancelTurn,
+  showTurnHourglass = false,
   turn,
   environmentLabels = [],
   showAirSupportButton,
@@ -136,11 +143,20 @@ const BattleToolbar: React.FC<BattleToolbarProps> = ({
           />
         </div>
         <div className={styles.toolbarTurnGroup}>
+          {showTurnHourglass || waitingNextTurn ? (
+            <BattleHourglass size={28} inverted />
+          ) : null}
           <div className={styles.toolbarBtnSlot}>
             <Button
-              name="Следующий ход"
-              disabled={battleControlsDisabled}
-              onClick={() => !waitingNextTurn && onNextTurn()}
+              name={canCancelTurn ? 'Отменить ход' : 'Следующий ход'}
+              disabled={canCancelTurn ? toolbarBusy : battleControlsDisabled}
+              onClick={() => {
+                if (canCancelTurn) {
+                  onCancelTurn?.();
+                  return;
+                }
+                if (!waitingNextTurn) onNextTurn();
+              }}
             />
           </div>
           <span className={styles.battleTurnCounter}>

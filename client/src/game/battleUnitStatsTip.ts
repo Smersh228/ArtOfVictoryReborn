@@ -6,6 +6,8 @@ import { terrainDefenseBonusFromCell } from './battleTerrain';
 export type UnitStatsTipOptions = {
   /** Приказ юнита в текущем ходе (для бонуса «бой +1 З»). */
   pendingOrderKey?: string | null;
+  /** Текущий боезапас скрыт от противника. */
+  hideCurrentAmmo?: boolean;
 };
 
 export function readUnitStatNumber(unit: Record<string, unknown>, ...keys: string[]): number | null {
@@ -199,7 +201,7 @@ export function unitStatsRowsForTip(
 
   const morDisplay = getEffectiveMorDisplay(unit, unitCell, cells);
   if (morDisplay != null) out.push({ key: 'Мораль', val: morDisplay });
-  out.push({ key: 'Боезапас', val: formatUnitAmmoLine(unit) });
+  out.push({ key: 'Боезапас', val: opts?.hideCurrentAmmo ? '?' : formatUnitAmmoLine(unit) });
   const mineStore = getUnitMinesStock(unit);
   if (mineStore > 0) {
     out.push({ key: 'Мины', val: String(mineStore) });

@@ -21,6 +21,7 @@ import LobbyRoomChat, { type LobbyChatView } from '../components/lobby/LobbyRoom
 import { useAuth } from '../context/AuthContext';
 import { useSiteChat } from './hooks/useSiteChat';
 import BattleUnitOrdersPanel from '../components/battle/BattleUnitOrdersPanel';
+import BattleHexCardMenu, { type BattleHexCardMenuState } from '../components/battle/BattleHexCardMenu';
 import BattleUnitTipCard from '../components/battle/BattleUnitTipCard';
 import BattleDotTipCard from '../components/battle/BattleDotTipCard';
 import { withPendingOrderTipRow, type BattleHoverTipView } from '../components/battle/battleHoverTip';
@@ -44,6 +45,7 @@ import {
   resolveBattleCellOnField,
   unitIsMineOnMap,
 } from './battlePageUtils';
+import { neighborCellIdsOf } from '../game/cellDot';
 import { Cell } from '../../../server/src/game/gameLogic/cells/cell';
 import { setLiveBattleEnvironment } from '../game/battleEnvironment';
 import { parseBattlePlayer, useBattleSync } from '../game/battleSync';
@@ -71,12 +73,20 @@ import {
   postBattleDeployRemove,
   postRoomChat,
   type BattleOrderPayload,
+  type BattleTurnMemberState,
   type LobbyFaction,
   type LobbyRoomChatChannel,
   type LobbyRoomChatMessage,
 } from '../api/rooms';
 import type { EditorMapPayloadLobby } from '../api/maps';
-import { fetchEditorCatalog } from '../api/editorCatalog';
+import { fetchEditorCatalog, type EditorCatalogResponse } from '../api/editorCatalog';
+import BattleEncyclopediaModal from '../components/battle/BattleEncyclopediaModal';
+import BattleTurnWaitModal from '../components/battle/BattleTurnWaitModal';
+import {
+  buildHexEncyclopediaCard,
+  buildUnitEncyclopediaCard,
+  type BattleEncyclopediaView,
+} from '../game/battleEncyclopedia';
 import { battleOrderLabelForKey, getBattleOrderIconUrl } from '../game/battleOrderIcons';
 import { resolveHoveredBattleOrder } from '../game/battlePendingOrderHover';
 import { resolveDotOccupantUnit } from '../game/cellDot';
@@ -175,6 +185,7 @@ const Battle: React.FC = () => {
     dismissScenarioOutcome,
     broadcastSurrender,
     confirmNextTurn,
+    cancelNextTurn,
     confirmHqRewrite,
     myBattleFaction,
     roomDetail,
@@ -191,16 +202,42 @@ const Battle: React.FC = () => {
       : null;
   const spectatorResolving =
     readonlyBattle &&
-    Number(roomDetail?.battleTurnAckNeed || 0) > 0 &&
-    Number(roomDetail?.battleTurnAckCount || 0) > 0;
+    (Boolean(roomDetail?.battleTurnBusy) ||
+      ((roomDetail?.battleTurnMembers?.length ?? 0) > 0 &&
+        (roomDetail?.battleTurnMembers ?? []).every((m) => m.ready)));
   const hqRewrite = roomDetail?.battleHqRewrite ?? null;
   const battleDeploy = roomDetail?.battleDeploy?.active ? roomDetail.battleDeploy : null;
   const deployActive = Boolean(battleDeploy);
   const waitingHqRewrite = Boolean(hqRewrite?.pending && !hqRewrite.youCanRewrite);
+  const turnWaitMembers = useMemo<BattleTurnMemberState[]>(() => {
+    const rows = roomDetail?.battleTurnMembers ?? [];
+    if (!waitingNextTurn && !rows.some((m) => m.ready) && !roomDetail?.battleTurnBusy) return [];
+    return rows.map((m) =>
+      m.isYou && waitingNextTurn && !roomDetail?.battleTurnBusy ? { ...m, ready: true } : m,
+    );
+  }, [roomDetail?.battleTurnMembers, roomDetail?.battleTurnBusy, waitingNextTurn]);
+  const allTurnReady =
+    turnWaitMembers.length > 0 && turnWaitMembers.every((m) => m.ready);
+  const humansStillPlaying = turnWaitMembers.filter((m) => !m.isBot && !m.ready);
   const showResolvingOverlay =
-    (waitingNextTurn || spectatorResolving || waitingHqRewrite) &&
+    (Boolean(roomDetail?.battleTurnBusy) ||
+      allTurnReady ||
+      (waitingNextTurn && turnWaitMembers.length > 0 && humansStillPlaying.length === 0) ||
+      spectatorResolving ||
+      waitingHqRewrite) &&
     !battleEndedOverlay &&
     !hqRewrite?.youCanRewrite;
+  const canCancelTurn =
+    waitingNextTurn &&
+    !showResolvingOverlay &&
+    !readonlyBattle &&
+    !deployActive &&
+    !hqRewrite?.pending;
+  const showTurnWait =
+    waitingNextTurn &&
+    !showResolvingOverlay &&
+    !deployActive &&
+    !battleEndedOverlay;
   const spectatorNames = useMemo(() => {
     const out: { rkka?: string; wehrmacht?: string } = {}
     for (const m of roomDetail?.members ?? []) {
@@ -346,15 +383,28 @@ const Battle: React.FC = () => {
   }, [turn]);
  
   const [battleHoverCellId, setBattleHoverCellId] = useState<number | null>(null);
+  const [lastHoverCellId, setLastHoverCellId] = useState<number | null>(null);
+  useEffect(() => {
+    if (battleHoverCellId != null) setLastHoverCellId(battleHoverCellId);
+  }, [battleHoverCellId]);
+  const hudCellId = battleHoverCellId ?? lastHoverCellId;
   const [battleUnitOrders, setBattleUnitOrders] = useState<BattleUnitOrdersState | null>(null);
   const [deployPick, setDeployPick] = useState<BattleDeployPick | null>(null);
   const [deployModalOpen, setDeployModalOpen] = useState(true);
+  const [deployOrient, setDeployOrient] = useState<{
+    structureId: string;
+    cellId: number;
+    kind: 'dot' | 'wire' | 'antiTank';
+  } | null>(null);
   const [deployBusy, setDeployBusy] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [deployCatalog, setDeployCatalog] = useState<{
     units: Array<{ id: number; name: string; imagePath: string }>;
     buildings: Array<{ dbId: number; name: string; imagePath: string }>;
   }>({ units: [], buildings: [] });
+  const [encyclopediaCatalog, setEncyclopediaCatalog] = useState<EditorCatalogResponse | null>(null);
+  const [encyclopediaView, setEncyclopediaView] = useState<BattleEncyclopediaView | null>(null);
+  const [hexCardMenu, setHexCardMenu] = useState<BattleHexCardMenuState | null>(null);
   const [battleMapPayload, setBattleMapPayload] = useState<EditorMapPayloadLobby | null>(null);
   const lastBattleFieldRevisionRef = useRef<number>(0);
   const [pendingOrders, setPendingOrders] = useState<BattleOrderPayload[]>([]);
@@ -392,6 +442,7 @@ const Battle: React.FC = () => {
       setDeployPick(null);
       setDeployError(null);
       setDeployModalOpen(true);
+      setDeployOrient(null);
       return;
     }
     setDeployModalOpen(true);
@@ -399,6 +450,7 @@ const Battle: React.FC = () => {
     fetchEditorCatalog()
       .then((c) => {
         if (cancelled) return;
+        setEncyclopediaCatalog(c);
         setDeployCatalog({
           units: (c.units || []).map((u) => ({ id: u.id, name: u.name, imagePath: u.imagePath })),
           buildings: (c.buildings || []).map((b) => ({
@@ -413,6 +465,19 @@ const Battle: React.FC = () => {
       cancelled = true;
     };
   }, [deployActive]);
+
+  useEffect(() => {
+    if (encyclopediaCatalog || !roomDetail?.battleStartedAt) return;
+    let cancelled = false;
+    fetchEditorCatalog()
+      .then((c) => {
+        if (!cancelled) setEncyclopediaCatalog(c);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [encyclopediaCatalog, roomDetail?.battleStartedAt]);
 
   useEffect(() => {
     if (!deployActive) return;
@@ -471,6 +536,61 @@ const Battle: React.FC = () => {
     setAccompanimentPickModal(null);
     setMiningPickModal(null);
   }, []);
+
+  const openUnitEncyclopedia = useCallback(() => {
+    const unit = (battleUnitOrders?.unit ?? orderPick?.unit) as Record<string, unknown> | undefined;
+    const cell = battleUnitOrders?.cell ?? orderPick?.cell;
+    const hideCurrentAmmo = Boolean(unit) && !unitIsMineOnMap(unit as Record<string, unknown>, viewerBattleFaction);
+    const view = buildUnitEncyclopediaCard(
+      unit,
+      encyclopediaCatalog,
+      cells,
+      cell,
+      orderPick?.orderKey,
+      hideCurrentAmmo,
+    );
+    if (view) setEncyclopediaView(view);
+  }, [battleUnitOrders, orderPick, encyclopediaCatalog, cells, viewerBattleFaction]);
+
+  const openHexEncyclopedia = useCallback(() => {
+    if (hexCardMenu?.unit) {
+      const hideCurrentAmmo = !unitIsMineOnMap(hexCardMenu.unit, viewerBattleFaction);
+      const view = buildUnitEncyclopediaCard(
+        hexCardMenu.unit,
+        encyclopediaCatalog,
+        cells,
+        hexCardMenu.cell,
+        null,
+        hideCurrentAmmo,
+      );
+      if (view) {
+        setEncyclopediaView(view);
+        setHexCardMenu(null);
+      }
+      return;
+    }
+    const cell = hexCardMenu?.cell ?? cells.find((c) => Number(c.id) === Number(hudCellId)) ?? null;
+    const view = buildHexEncyclopediaCard(cell, encyclopediaCatalog);
+    if (view) {
+      setEncyclopediaView(view);
+      setHexCardMenu(null);
+    }
+  }, [cells, hudCellId, encyclopediaCatalog, hexCardMenu, viewerBattleFaction]);
+
+  const openHexCardMenu = useCallback((info: BattleHexCardMenuState) => {
+    setBattleUnitOrders(null);
+    setHexCardMenu(info);
+  }, []);
+
+  useEffect(() => {
+    if (battleUnitOrders) setHexCardMenu(null);
+  }, [battleUnitOrders]);
+
+  useEffect(() => {
+    if (!canCancelTurn) return;
+    dismissOrderPicking();
+    setAirSupportOpen(false);
+  }, [canCancelTurn, dismissOrderPicking]);
 
   useEffect(() => {
     if (battleAmmoModal) {
@@ -713,10 +833,18 @@ const Battle: React.FC = () => {
   const onDeploySelect = useCallback(
     (pick: BattleDeployPick | null) => {
       setDeployPick(pick);
+      setDeployOrient(null);
       if (touchUi && pick) setDeployModalOpen(false);
     },
     [touchUi],
   );
+
+  const deployOrientCellIds = useMemo(() => {
+    if (!deployOrient) return null;
+    const host = cells.find((c) => Number(c.id) === Number(deployOrient.cellId));
+    if (!host) return null;
+    return neighborCellIdsOf(host, cells);
+  }, [deployOrient, cells]);
 
   const runDeployAction = useCallback(
     async (info: { cell: Cell; unit: { [key: string]: any } | null }) => {
@@ -764,13 +892,21 @@ const Battle: React.FC = () => {
             });
             return;
           }
+          const sid = deployPick.structureId;
           const data = await postBattleDeployPlace(apiRoomId, {
             kind: 'structure',
-            structureId: deployPick.structureId,
+            structureId: sid,
             cellId: Number(info.cell.id),
           });
           setRoomDetail(data);
-          reopenPhoneDeployModal();
+          const kind =
+            sid === 'fort_dot' ? 'dot' : sid === 'fort_wire' ? 'wire' : sid === 'fort_anti_tank' ? 'antiTank' : null;
+          if (kind) {
+            setDeployOrient({ structureId: sid, cellId: Number(info.cell.id), kind });
+            if (touchUi) setDeployModalOpen(false);
+          } else {
+            reopenPhoneDeployModal();
+          }
           return;
         }
         const rec = [...yourPlaced]
@@ -800,7 +936,33 @@ const Battle: React.FC = () => {
       deployPick,
       setRoomDetail,
       reopenPhoneDeployModal,
+      touchUi,
     ],
+  );
+
+  const runDeployOrient = useCallback(
+    async (facingCell: Cell) => {
+      if (!deployOrient || readonlyBattle || apiRoomId == null || !Number.isFinite(apiRoomId) || deployBusy) return;
+      setDeployError(null);
+      try {
+        setDeployBusy(true);
+        const data = await postBattleDeployPlace(apiRoomId, {
+          kind: 'structure',
+          structureId: deployOrient.structureId,
+          cellId: deployOrient.cellId,
+          facingCellId: Number(facingCell.id),
+          orient: true,
+        });
+        setRoomDetail(data);
+        setDeployOrient(null);
+        reopenPhoneDeployModal();
+      } catch (e) {
+        setDeployError(e instanceof Error ? e.message : 'Не удалось задать направление');
+      } finally {
+        setDeployBusy(false);
+      }
+    },
+    [deployOrient, readonlyBattle, apiRoomId, deployBusy, setRoomDetail, reopenPhoneDeployModal],
   );
 
   const onDeployReady = useCallback(
@@ -1089,6 +1251,7 @@ const Battle: React.FC = () => {
           onHoverAirSupportRow={setAirSupportPanelHover}
           readonlyBattle={readonlyBattle}
           viewerBattleFaction={viewerBattleFaction}
+          viewerBattleTeam={viewerBattleTeam}
           unitIsMineOnMap={unitIsMineOnMap}
           airSupportReadiness={airSupportReadiness}
           onRecallAir={recallAirUnit}
@@ -1150,7 +1313,7 @@ const Battle: React.FC = () => {
   const battleControlsDisabled = toolbarBusy || readonlyBattle || deployActive;
 
   const unitHudPortal =
-    (battleUnitTip || battleDotTip || battleUnitOrders) &&
+    (battleUnitTip || battleDotTip || battleUnitOrders || hexCardMenu) &&
     createPortal(
       <>
         {battleUnitTip && !battleUnitOrders && (
@@ -1172,6 +1335,7 @@ const Battle: React.FC = () => {
             )}
             cargoLine={formatBattleTechCargoLine(battleUnitTip.unit as unknown as Record<string, unknown>)}
             desantLine={formatBattleAirDesantLine(battleUnitTip.unit as unknown as Record<string, unknown>)}
+            hideCurrentAmmo={!unitIsMineOnMap(battleUnitTip.unit as Record<string, unknown>, viewerBattleFaction)}
           />
         )}
         {battleDotTip && battleDotTipView && !battleUnitTip && !battleUnitOrders && (
@@ -1210,8 +1374,16 @@ const Battle: React.FC = () => {
             pendingOrders={pendingOrders}
             setAccompanimentPickModal={setAccompanimentPickModal}
             setMiningPickModal={setMiningPickModal}
+            onShowUnitCard={openUnitEncyclopedia}
           />
         )}
+        {hexCardMenu ? (
+          <BattleHexCardMenu
+            menu={hexCardMenu}
+            onViewCard={openHexEncyclopedia}
+            onClose={() => setHexCardMenu(null)}
+          />
+        ) : null}
       </>,
       document.body,
     );
@@ -1278,10 +1450,13 @@ const Battle: React.FC = () => {
           infoLocked={battleEndedOverlay}
           battleControlsDisabled={battleControlsDisabled}
           waitingNextTurn={waitingNextTurn}
+          canCancelTurn={canCancelTurn}
+          onCancelTurn={cancelNextTurn}
+          showTurnHourglass={waitingNextTurn || showResolvingOverlay}
           turn={turn}
           environmentLabels={roomDetail?.battleEnvironment?.labels ?? []}
           showAirSupportButton={showAirSupportButton && !deployActive}
-          airSupportDisabled={airSupportDisabled || deployActive}
+          airSupportDisabled={airSupportDisabled || deployActive || canCancelTurn}
           onToggleAirSupport={toggleAirSupport}
           onLeaveOrSurrender={onLeaveOrSurrender}
           onShowReport={onShowReport}
@@ -1299,6 +1474,8 @@ const Battle: React.FC = () => {
           hasGrid={hasGrid}
           mapWrapRef={mapWrapRef}
           battleHoverCellId={battleHoverCellId}
+          inspectCellId={hudCellId}
+          hideCellId={Boolean(battleUnitOrders || battleUnitTip || battleDotTip || hexCardMenu)}
           orderPick={orderPick}
           battleAreaFireCellIds={battleAreaFireCellIds}
           battleDotSectorCellIds={battleDotSectorCellIds}
@@ -1337,7 +1514,7 @@ const Battle: React.FC = () => {
           dismissOrderPicking={dismissOrderPicking}
           setPendingOrders={setPendingOrders}
           factionsOpposedOnMap={factionsOpposedOnMap}
-          readonlyBattle={readonlyBattle}
+          readonlyBattle={readonlyBattle || canCancelTurn}
           myBattleFaction={myBattleFaction}
           unitIsMineOnMap={unitIsMineOnMap}
           readBattleUnitOrdersFromPayload={readBattleUnitOrdersFromPayload}
@@ -1348,7 +1525,7 @@ const Battle: React.FC = () => {
           setBattleAmmoModal={setBattleAmmoModal}
           showResolvingOverlay={showResolvingOverlay}
           resolvingTitle={
-            waitingHqRewrite ? 'Противник связывается со штабом' : undefined
+            waitingHqRewrite ? 'Противник связывается со штабом' : 'Идёт бой'
           }
           resolvingHint={waitingHqRewrite ? 'Дождитесь смены приказов' : undefined}
           battleAirDepartureHoverCellId={airSupportPanelHover?.cellId ?? null}
@@ -1372,8 +1549,20 @@ const Battle: React.FC = () => {
           battleDeployZones={battleDeployZones}
           battleDeployBrushTeam={viewerBattleTeam}
           onBattleDeployAction={runDeployAction}
+          battleDeployOrient={deployOrient}
+          battleDeployOrientCellIds={deployOrientCellIds}
+          onBattleDeployOrient={runDeployOrient}
+          onOpenHexCardMenu={openHexCardMenu}
         />
       </div>
+      <BattleEncyclopediaModal view={encyclopediaView} onClose={() => setEncyclopediaView(null)} />
+      <BattleTurnWaitModal
+        open={showTurnWait}
+        members={turnWaitMembers}
+        canCancel={canCancelTurn}
+        cancelDisabled={toolbarBusy}
+        onCancel={cancelNextTurn}
+      />
       <LobbyRoomChat
         isOpen={chatOpen}
         onClose={() => setChatOpen(false)}

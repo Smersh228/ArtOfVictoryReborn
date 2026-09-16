@@ -409,7 +409,7 @@ function applyFortification(cell, structureId, team, mineKind) {
     return { ok: true }
   }
   if (key === 'wire') {
-    cell.builds = { ...builds, wire: 1, wireEdges: Number(builds.wireEdges) | 1 }
+    cell.builds = { ...builds, wire: 1, wireEdges: Number(builds.wireEdges) || 0 }
     return { ok: true }
   }
   if (key === 'trench') {
@@ -417,7 +417,7 @@ function applyFortification(cell, structureId, team, mineKind) {
     return { ok: true }
   }
   if (key === 'antiTankBuild') {
-    cell.builds = { ...builds, antiTankBuild: 1, antiTankEdges: Number(builds.antiTankEdges) | 1 }
+    cell.builds = { ...builds, antiTankBuild: 1, antiTankEdges: Number(builds.antiTankEdges) || 0 }
     return { ok: true }
   }
   return { error: 'Сооружение нельзя поставить' }
@@ -503,6 +503,62 @@ function removeDeployStructure(room, mem, cellId, structureId) {
   return { ok: true }
 }
 
+function orientDeployStructure(room, mem, structureId, cellId, facingCellId) {
+  const blocked = assertCanAct(room, mem)
+  if (blocked) return { error: blocked }
+  const ph = room.battleDeployPhase
+  const sid = String(structureId || '').trim()
+  const hostId = Number(cellId)
+  const faceId = Number(facingCellId)
+  if (!Number.isFinite(hostId) || !Number.isFinite(faceId)) return { error: 'Нужны клетка сооружения и соседний гекс' }
+  const rec = (ph.placed || []).find(
+    (p) =>
+      p.kind === 'structure' &&
+      p.key === mem.key &&
+      Number(p.cellId) === hostId &&
+      String(p.structureId) === sid,
+  )
+  if (!rec) return { error: 'Можно задать направление только своему сооружению расстановки' }
+  const host = findCell(room.battleCells, hostId)
+  const face = findCell(room.battleCells, faceId)
+  if (!host || !face) return { error: 'Клетка не найдена' }
+  const wireEdges = require('./battleWireEdges')
+  let dir = wireEdges.findMoveDir(host, face)
+  if (dir < 0) {
+    const dx = Number(face.coor?.x) - Number(host.coor?.x)
+    const dz = Number(face.coor?.z) - Number(host.coor?.z)
+    const axial = [
+      { x: 1, z: 0 },
+      { x: 1, z: -1 },
+      { x: 0, z: -1 },
+      { x: -1, z: 0 },
+      { x: -1, z: 1 },
+      { x: 0, z: 1 },
+    ]
+    dir = axial.findIndex((d) => d.x === dx && d.z === dz)
+  }
+  if (dir < 0) return { error: 'Направление — только соседний гекс' }
+  const key = FORT_BUILD_KEY[sid]
+  const builds = ensureBuilds(host.builds)
+  if (key === 'dot') {
+    if (!(Number(builds.dot) > 0)) return { error: 'На гексе нет ДОТ' }
+    host.builds = { ...builds, dotFacing: dir, dotFacingCellId: faceId }
+  } else if (key === 'wire') {
+    const visual = typeof wireEdges.moveDirToVisualEdge === 'function' ? wireEdges.moveDirToVisualEdge(dir) : dir
+    const mask = (Number(builds.wireEdges) || 0) | (1 << visual)
+    host.builds = { ...builds, wire: 1, wireEdges: mask & 0x3f }
+  } else if (key === 'antiTankBuild') {
+    const anti = require('./battleAntiTankEdges')
+    const visual = typeof anti.moveDirToVisualEdge === 'function' ? anti.moveDirToVisualEdge(dir) : dir
+    const mask = (Number(builds.antiTankEdges) || 0) | (1 << visual)
+    host.builds = { ...builds, antiTankBuild: 1, antiTankEdges: mask & 0x3f }
+  } else {
+    return { error: 'У этого сооружения нет направления' }
+  }
+  room.battleFieldRevision = (room.battleFieldRevision || 0) + 1
+  return { ok: true }
+}
+
 function setDeployReady(room, mem, ready) {
   const ph = room.battleDeployPhase
   if (!ph || !ph.active) return { error: 'Фаза расстановки уже завершена' }
@@ -521,6 +577,7 @@ module.exports = {
   removeDeployUnit,
   placeDeployStructure,
   removeDeployStructure,
+  orientDeployStructure,
   setDeployReady,
   isEdgeCell,
   nextInstanceId,

@@ -19,9 +19,12 @@ type OrderPickLike = {
 
 interface BattleMapHudProps {
   battleHoverCellId: number | null;
+  inspectCellId?: number | null;
   orderPick: OrderPickLike | null;
   battleAreaFireCellIds: CellIdList;
   onApplyFireMode?: (reactive: boolean) => void;
+  deployOrientHint?: string | null;
+  hideCellId?: boolean;
 }
 
 function getOrderMetaText(
@@ -124,18 +127,31 @@ function getOrderMetaText(
 
 const BattleMapHud: React.FC<BattleMapHudProps> = ({
   battleHoverCellId,
+  inspectCellId = null,
   orderPick,
   battleAreaFireCellIds,
   onApplyFireMode,
+  deployOrientHint = null,
+  hideCellId = false,
 }) => {
+  const shownCellId = battleHoverCellId ?? inspectCellId;
   const fireModePick =
     (orderPick?.orderKey === 'fire' || orderPick?.orderKey === 'fireHard') &&
     orderPick.fireModeStep === 'mode';
+  const showCellId = !hideCellId;
+  if (!showCellId && !deployOrientHint && !orderPick) return null;
   return (
     <div className={styles.battleCellIdCorner} aria-live="polite">
+      {showCellId ? (
       <div className={styles.battleHudLine}>
-        Клетка: <strong>{battleHoverCellId != null ? battleHoverCellId : '—'}</strong>
+        Клетка: <strong>{shownCellId != null ? shownCellId : '—'}</strong>
       </div>
+      ) : null}
+      {deployOrientHint ? (
+        <div className={styles.battleHudOrderLine}>
+          Расстановка: <strong>{deployOrientHint}</strong>
+        </div>
+      ) : null}
       {orderPick && (
         <div className={styles.battleHudOrderLine}>
           Приказ: <strong>{orderPick.orderLabel}</strong>

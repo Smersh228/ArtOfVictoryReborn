@@ -172,6 +172,23 @@ function battleMembersNeedingTurnAck(room) {
   return room.members.filter((m) => m.faction === 'rkka' || m.faction === 'wehrmacht')
 }
 
+function battleTurnAckSet(room) {
+  if (room.battleTurnAck && typeof room.battleTurnAck.has === 'function') return room.battleTurnAck
+  return new Set()
+}
+
+function publicBattleTurnMembers(needAck, ackSet, labels, selfKey) {
+  return (needAck || []).map((m, i) => ({
+    key: m.key,
+    label: labels[i] || 'Игрок',
+    faction: m.faction,
+    team: Number.isFinite(Number(m.team)) && Number(m.team) > 0 ? Number(m.team) : null,
+    isYou: Boolean(selfKey && m.key === selfKey),
+    isBot: Boolean(m.isBot || String(m.key || '').startsWith('bot:')),
+    ready: ackSet.has(m.key),
+  }))
+}
+
 function publicHqRewritePayload(room, selfKey) {
   const s = room.battleHqRewriteSession
   if (!s || s.turn !== (room.battleTurnIndex ?? 0)) return null
@@ -656,7 +673,8 @@ async function roomDetailPayload(room, selfKey, opts) {
   const { withBattleEnv } = require('../../game/lib/scenario/battleEnvironment')
   return withBattleEnv(room, async () => {
   const needAck = battleMembersNeedingTurnAck(room)
-  const ackCount = room.battleTurnAck && typeof room.battleTurnAck.size === 'number' ? room.battleTurnAck.size : 0
+  const ackSet = battleTurnAckSet(room)
+  const ackCount = ackSet.size
   const labels = await resolveMemberLabels(room.members.map((m) => m.key))
   const hk = room.hostKey
   const members = room.members.map((m, i) => ({
@@ -669,6 +687,10 @@ async function roomDetailPayload(room, selfKey, opts) {
     isHost: m.key === hk,
     isBot: Boolean(m.isBot || String(m.key || '').startsWith('bot:')),
   }))
+  const battleTurnMembers = publicBattleTurnMembers(needAck, ackSet, needAck.map((m) => {
+    const i = room.members.findIndex((x) => x.key === m.key)
+    return i >= 0 ? labels[i] : 'Игрок'
+  }), selfKey)
   if (
     room.battleStartedAt != null &&
     Array.isArray(room.battleCells) &&
@@ -693,6 +715,8 @@ async function roomDetailPayload(room, selfKey, opts) {
     battleFieldRevision: room.battleFieldRevision ?? 0,
     battleTurnAckCount: ackCount,
     battleTurnAckNeed: needAck.length,
+    battleTurnYouReady: Boolean(selfKey && ackSet.has(selfKey)),
+    battleTurnMembers,
     battleCellsUnchanged: omitBattleCells || undefined,
     battleCells:
       omitBattleCells
@@ -758,6 +782,8 @@ module.exports = {
   battleLogMeta,
   formatSubmittedOrderLine,
   battleMembersNeedingTurnAck,
+  battleTurnAckSet,
+  publicBattleTurnMembers,
   publicHqRewritePayload,
   BATTLE_PRESENCE_TIMEOUT_MS,
   touchBattlePresenceFromPoll,

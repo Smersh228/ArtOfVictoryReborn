@@ -111,6 +111,21 @@ export function unitIsMineOnMap(unit: Record<string, unknown>, viewerFaction: Lo
   return (unitIsSoviet && mineIsSoviet) || (unitIsAxis && mineIsAxis);
 }
 
+/** Свои приказы: тот же командный слот, не союзник той же фракции. */
+export function unitIsCommandableOnMap(
+  unit: Record<string, unknown>,
+  viewerFaction: LobbyFaction,
+  viewerTeam?: number | null,
+): boolean {
+  if (viewerFaction === 'none') return false;
+  const unitTeam = Number(unit.team);
+  const myTeam = Number(viewerTeam);
+  if (Number.isFinite(myTeam) && myTeam > 0 && Number.isFinite(unitTeam) && unitTeam > 0) {
+    return unitTeam === myTeam;
+  }
+  return unitIsMineOnMap(unit, viewerFaction);
+}
+
 export function readBattleUnitOrdersFromPayload(unit: Record<string, unknown>): {
   id: number;
   name: string;

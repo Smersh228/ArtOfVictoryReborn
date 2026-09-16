@@ -218,14 +218,11 @@ function validateBattleOrders(cells, orders, context) {
       let fireCellId = o.targetCellId
       if (tid != null && Number.isFinite(Number(tid)) && (ok === 'fire' || ok === 'fireHard')) {
         const tgtDot = findUnitOnField(cells, tid)
-        const structureHpPre = require('../map/battleStructureHp')
         const dotModPre = require('../map/battleDot')
         if (
           tgtDot &&
           dotModPre.unitInDot(tgtDot.unit) &&
-          (structureHpPre.unitCanRangedBuildFire(found.unit, !!o.useReactiveFire) ||
-            dotModPre.unitInDot(found.unit)) &&
-          structureHpPre.isBuildFireTargetCell(tgtDot.cell)
+          dotModPre.hasDotOnCell(tgtDot.cell.builds)
         ) {
           o.targetCellId = Number(tgtDot.cell.id)
           delete o.targetUnitInstanceId

@@ -9,6 +9,8 @@ const {
 } = require('../../battleEngine')
 const { canEnterCell } = require('../map/battleHexMovement')
 const { getAmmo } = require('../unit/battleUnitResources')
+const { unitInDot, hasDotOnCell } = require('../map/battleDot')
+const structureHp = require('../map/battleStructureHp')
 const {
   unitUsesGunDeploy,
   isArtilleryDeployedForBattle,
@@ -518,16 +520,26 @@ function tryBotFireAtPack(room, mem, cells, validateSubmittedOrders, orders, iid
   if (!botCanTryFire(shooter, fromCell || (targetPack && targetPack.cell), targetPack, losFn)) return false
   const cellId = Number(targetPack.cell.id)
   const tid = Number(targetPack.unit.instanceId)
+  const fireAtDot =
+    unitInDot(targetPack.unit) &&
+    hasDotOnCell(targetPack.cell.builds) &&
+    (structureHp.unitCanRangedBuildFire(shooter) || unitInDot(shooter))
   const candidates = []
-  if (unitHasPropKey(shooter, 'areaFire')) {
+  if (fireAtDot) {
     candidates.push({ unitInstanceId: iid, orderKey: 'fire', targetCellId: cellId })
+  } else if (unitInDot(targetPack.unit) && hasDotOnCell(targetPack.cell.builds)) {
+    return false
+  } else {
+    if (unitHasPropKey(shooter, 'areaFire')) {
+      candidates.push({ unitInstanceId: iid, orderKey: 'fire', targetCellId: cellId })
+    }
+    candidates.push({
+      unitInstanceId: iid,
+      orderKey: 'fire',
+      targetUnitInstanceId: tid,
+      targetCellId: cellId,
+    })
   }
-  candidates.push({
-    unitInstanceId: iid,
-    orderKey: 'fire',
-    targetUnitInstanceId: tid,
-    targetCellId: cellId,
-  })
   for (const c of candidates) {
     if (tryAcceptOrder(room, mem, cells, validateSubmittedOrders, orders, c)) return true
   }

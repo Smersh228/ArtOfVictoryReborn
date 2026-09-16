@@ -1,5 +1,6 @@
 import React from 'react';
 import styles from '../../pages/styleModules/battle.module.css';
+import BattleHourglass from './BattleHourglass';
 
 interface BattleResolvingOverlayProps {
   active: boolean;
@@ -9,8 +10,8 @@ interface BattleResolvingOverlayProps {
 
 const BattleResolvingOverlay: React.FC<BattleResolvingOverlayProps> = ({
   active,
-  title = 'Ведётся расчёт боя',
-  hint = 'Подождите…',
+  title = 'Идёт бой',
+  hint,
 }) => {
   if (!active) return null;
   return (
@@ -22,10 +23,11 @@ const BattleResolvingOverlay: React.FC<BattleResolvingOverlayProps> = ({
       aria-live="polite"
     >
       <div className={styles.battleMapResolvingModal}>
+        <BattleHourglass size={72} />
         <p id="battle-resolving-title" className={styles.battleMapResolvingTitle}>
           {title}
         </p>
-        <p className={styles.battleMapResolvingHint}>{hint}</p>
+        {hint ? <p className={styles.battleMapResolvingHint}>{hint}</p> : null}
       </div>
     </div>
   );

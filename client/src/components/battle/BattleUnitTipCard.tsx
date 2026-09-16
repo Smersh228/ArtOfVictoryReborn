@@ -10,6 +10,7 @@ interface BattleUnitTipCardProps {
   unitCell?: import('../../../server/src/game/gameLogic/cells/cell').Cell | null;
   cells?: import('../../../server/src/game/gameLogic/cells/cell').Cell[] | null;
   pendingOrderKey?: string | null;
+  hideCurrentAmmo?: boolean;
   factionLabel: string;
   teamLabel: string;
   playerLabel: string;
@@ -25,6 +26,7 @@ const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
   unitCell = null,
   cells = null,
   pendingOrderKey = null,
+  hideCurrentAmmo = false,
   factionLabel,
   teamLabel,
   playerLabel,
@@ -63,7 +65,7 @@ const BattleUnitTipCard: React.FC<BattleUnitTipCardProps> = ({
           <span className={styles.battleUnitTipVal}>{desantLine}</span>
         </div>
       ) : null}
-      {unitStatsRowsForTip(unit, cells, unitCell, { pendingOrderKey }).map((row) => (
+      {unitStatsRowsForTip(unit, cells, unitCell, { pendingOrderKey, hideCurrentAmmo }).map((row) => (
         <div key={row.key} className={styles.battleUnitTipRow}>
           <span className={styles.battleUnitTipKey}>{row.key}</span>
           <span className={styles.battleUnitTipVal}>{row.val}</span>

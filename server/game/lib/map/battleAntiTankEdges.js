@@ -124,6 +124,7 @@ module.exports = {
   clearAllAntiTankOnBuilds,
   clearAntiTankEdgeOnBuilds,
   findMoveDir,
+  moveDirToVisualEdge,
   antiTankBlocksGroundMove,
   cutAntiTankAlongSharedEdge,
   cutAntiTankOnCellEdge,

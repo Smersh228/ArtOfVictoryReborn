@@ -447,6 +447,15 @@ export function findDotFacingDirFromNeighbor(dotCell: Cell, neighbor: Cell): num
   return null;
 }
 
+export function neighborCellIdsOf(center: Cell, cells: Cell[]): number[] {
+  const ids: number[] = [];
+  for (const c of cells) {
+    if (Number(c.id) === Number(center.id)) continue;
+    if (findDotFacingDirFromNeighbor(center, c) != null) ids.push(Number(c.id));
+  }
+  return ids;
+}
+
 export function resolveDotFacingDir(dotCell: Cell, allCells?: Cell[]): number {
   const facingCellId = Number(ensureCellBuilds(dotCell.builds).dotFacingCellId);
   if (allCells && Number.isFinite(facingCellId)) {

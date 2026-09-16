@@ -438,7 +438,9 @@ function processFirePhase(
       )
       return { hadTargets: hitStruct, smoked: true }
     }
-    let targetsAll = collectOpposingHostilesOnCell(tcImpact, atkUnitPack.unit)
+    let targetsAll = collectOpposingHostilesOnCell(tcImpact, atkUnitPack.unit).filter(
+      (t) => !dotMod.unitInDot(t),
+    )
     if (!targetsAll.length) {
       const hitStruct = accumulateAreaFireStructureHits(
         atkUnitPack,
@@ -511,13 +513,12 @@ function processFirePhase(
       if (defLive) areaAimCell = defLive.cell
     }
     let tidHas = tidHasRaw
-    if (tidHasRaw && !wantsReactive) {
+    if (tidHasRaw) {
       const defLive = findUnitOnField(cells, tidRaw)
       if (
         defLive &&
         dotMod.unitInDot(defLive.unit) &&
-        (structureHp.unitCanRangedBuildFire(atk.unit, wantsReactive) || dotMod.unitInDot(atk.unit)) &&
-        structureHp.isBuildFireTargetCell(defLive.cell)
+        dotMod.hasDotOnCell(defLive.cell.builds)
       ) {
         tidHas = false
         areaAimCell = defLive.cell
@@ -529,7 +530,8 @@ function processFirePhase(
       !wantsReactive &&
       !unitHasPropKey(atk.unit, 'areaFire') &&
       structureHp.isBuildFireTargetCell(areaAimCell) &&
-      (structureHp.unitCanRangedBuildFire(atk.unit, wantsReactive) || dotMod.unitInDot(atk.unit))
+      (structureHp.unitCanRangedBuildFire(atk.unit, wantsReactive) ||
+        dotMod.unitInDot(atk.unit))
     ) {
       const tcOnly = areaAimCell
       if (dotMod.unitInDot(atk.unit)) {
@@ -689,6 +691,7 @@ function processFirePhase(
     if (tid == null) continue
     const def = findUnitOnField(cells, tid)
     if (!def) continue
+    if (dotMod.unitInDot(def.unit) && dotMod.hasDotOnCell(def.cell.builds)) continue
     if (smoke.hasSmokeOnCell(def.cell.builds)) {
       le(ph, `Юнит ${atk.unit.instanceId}: цель в дымовой завесе`)
       continue
@@ -778,7 +781,9 @@ function processFirePhase(
     const isAreaArt = unitHasPropKey(atk.unit, 'areaFire')
 
     if (isAreaArt) {
-      let targetsAll = collectOpposingHostilesOnCell(def.cell, atk.unit)
+      let targetsAll = collectOpposingHostilesOnCell(def.cell, atk.unit).filter(
+        (t) => !dotMod.unitInDot(t),
+      )
       if (isInfantryUnit(atk.unit)) {
         const poolDir = infantryAreaFireTargetsOrSkip(atk, targetsAll, le, ph)
         if (!poolDir) continue

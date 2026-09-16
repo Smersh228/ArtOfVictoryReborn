@@ -219,7 +219,21 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
         battleTurnIndex: room.battleTurnIndex,
       })
     }
-    room.battleTurnBusy = true
+    if (req.body?.cancel) {
+      if (room.battleTurnAck && typeof room.battleTurnAck.delete === 'function') {
+        room.battleTurnAck.delete(key)
+      }
+      return res.json({
+        ok: true,
+        cancelled: true,
+        battleTurnIndex: room.battleTurnIndex,
+        battleFieldRevision: room.battleFieldRevision ?? 0,
+        waitingForOthers: true,
+        battleTurnYouReady: false,
+        battleTurnBusy: false,
+        battleHqRewrite: publicHqRewritePayload(room, key),
+      })
+    }
     const t0 = Date.now()
     try {
       room.battleTurnAck.add(key)
@@ -230,12 +244,17 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       let advanced = false
       let resolutionLog = []
       if (allIn) {
-        const result = await tryAdvanceAfterAllIn(room, needAck, validateSubmittedOrders)
-        advanced = result.advanced
-        resolutionLog = result.resolutionLog
-        if (advanced) {
-          const { enrichRoomBattleCellsIfNeeded } = require('../../game/lib/support/battleEnrich')
-          await enrichRoomBattleCellsIfNeeded(room)
+        room.battleTurnBusy = true
+        try {
+          const result = await tryAdvanceAfterAllIn(room, needAck, validateSubmittedOrders)
+          advanced = result.advanced
+          resolutionLog = result.resolutionLog
+          if (advanced) {
+            const { enrichRoomBattleCellsIfNeeded } = require('../../game/lib/support/battleEnrich')
+            await enrichRoomBattleCellsIfNeeded(room)
+          }
+        } finally {
+          room.battleTurnBusy = false
         }
       }
       if (!res.headersSent) {
@@ -244,6 +263,8 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
           battleTurnIndex: room.battleTurnIndex,
           battleFieldRevision: room.battleFieldRevision ?? 0,
           waitingForOthers: !advanced,
+          battleTurnYouReady: !advanced,
+          battleTurnBusy: false,
           resolutionLog: advanced ? resolutionLog : undefined,
           battleHqRewrite: publicHqRewritePayload(room, key),
         })
@@ -257,8 +278,6 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
       if (!res.headersSent) {
         res.status(500).json({ error: 'Не удалось обработать ход' })
       }
-    } finally {
-      room.battleTurnBusy = false
     }
   })
 
@@ -405,6 +424,11 @@ function registerBattleRoutes(router, { validateSubmittedOrders }) {
         }
       }
       const mineKind = req.body?.mineKind === 'tank' ? 'tank' : req.body?.mineKind === 'infantry' ? 'infantry' : undefined
+      if (req.body?.orient) {
+        const result = deploy.orientDeployStructure(room, mem, structureId, cellId, req.body?.facingCellId)
+        if (result.error) return res.status(400).json({ error: result.error })
+        return await sendRoomDetailOr500(res, room, key)
+      }
       const result = deploy.placeDeployStructure(room, mem, structureId, cellId, buildingInfo, mineKind)
       if (result.error) return res.status(400).json({ error: result.error })
       return await sendRoomDetailOr500(res, room, key)

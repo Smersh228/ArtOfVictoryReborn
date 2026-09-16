@@ -16,6 +16,7 @@ import {
   formatBattleTechCargoLine,
   formatBattleUnitFactionLabel,
   readBattleUnitOrdersFromPayload,
+  unitIsCommandableOnMap,
 } from '../../pages/battlePageUtils';
 import BattleUnitOrdersInner, {
   type BattleUnitOrdersDeps,
@@ -32,6 +33,7 @@ interface BattleAirSupportPanelProps {
   onHoverAirSupportRow?: (row: { cellId: number; instanceId: number } | null) => void;
   readonlyBattle: boolean;
   viewerBattleFaction: LobbyFaction;
+  viewerBattleTeam?: number | null;
   unitIsMineOnMap: (unit: Record<string, unknown>, viewerFaction: LobbyFaction) => boolean;
   airSupportReadiness: Partial<Record<number, AirSupportReadinessStatus>>;
   onRecallAir?: (instanceId: number) => void;
@@ -62,6 +64,7 @@ const BattleAirSupportPanel: React.FC<BattleAirSupportPanelProps> = ({
   onHoverAirSupportRow,
   readonlyBattle,
   viewerBattleFaction,
+  viewerBattleTeam = null,
   unitIsMineOnMap,
   airSupportReadiness,
   onRecallAir,
@@ -112,7 +115,11 @@ const BattleAirSupportPanel: React.FC<BattleAirSupportPanelProps> = ({
                 !readonlyBattle &&
                 Boolean(live) &&
                 Boolean(unit) &&
-                unitIsMineOnMap(unit as Record<string, unknown>, viewerBattleFaction) &&
+                unitIsCommandableOnMap(
+                  unit as Record<string, unknown>,
+                  viewerBattleFaction,
+                  viewerBattleTeam,
+                ) &&
                 readBattleUnitOrdersFromPayload(unit as Record<string, unknown>).length > 0;
 
               const hasOrders = canPickOrdersBase && readyForOrders;
@@ -166,7 +173,7 @@ const BattleAirSupportPanel: React.FC<BattleAirSupportPanelProps> = ({
                         : 'Приказы недоступны: дождитесь статуса «Готовность к вылету».'}
                     </div>
                   ) : null}
-                  {live && unit && isAirUnitOnRecallableMission(unit) && onRecallAir ? (
+                  {canPickOrdersBase && live && unit && isAirUnitOnRecallableMission(unit) && onRecallAir ? (
                     <div className={styles.airSupportRecallRow}>
                       <Button
                         name="Отменить задание"

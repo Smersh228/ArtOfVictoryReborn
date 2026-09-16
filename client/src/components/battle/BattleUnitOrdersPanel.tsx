@@ -77,6 +77,7 @@ interface BattleUnitOrdersPanelProps {
       orderLabel: string;
     } | null>
   >;
+  onShowUnitCard?: () => void;
 }
 
 const BattleUnitOrdersPanel: React.FC<BattleUnitOrdersPanelProps> = ({
@@ -106,6 +107,7 @@ const BattleUnitOrdersPanel: React.FC<BattleUnitOrdersPanelProps> = ({
   pendingOrders,
   setAccompanimentPickModal,
   setMiningPickModal,
+  onShowUnitCard,
 }) => {
   return (
     <div
@@ -118,6 +120,15 @@ const BattleUnitOrdersPanel: React.FC<BattleUnitOrdersPanelProps> = ({
       <header className={styles.battleUnitOrdersHeader}>
         <h3 className={styles.battleUnitOrdersTitle}>{battleUnitOrders.unit.name ?? 'Юнит'}</h3>
         <p className={styles.battleUnitOrdersSubtitle}>Приказы</p>
+        {onShowUnitCard ? (
+          <button
+            type="button"
+            className={`${styles.battleUnitOrderBtn} ${styles.battleUnitCardBtn}`}
+            onClick={onShowUnitCard}
+          >
+            Карточка юнита
+          </button>
+        ) : null}
       </header>
       <BattleUnitOrdersInner
         layout="dialog"

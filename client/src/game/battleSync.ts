@@ -26,7 +26,8 @@ export type ConfirmTurnResult = { ok: boolean; hqRewrite?: BattleHqRewriteState 
 
 type BattleChannelMessage =
   | { type: 'surrender'; from: BattlePlayerId; tabId: string }
-  | { type: 'turnReady'; tabId: string; turn: number };
+  | { type: 'turnReady'; tabId: string; turn: number }
+  | { type: 'turnCancel'; tabId: string; turn: number };
 
 export function parseBattlePlayer(param: string | null): BattlePlayerId {
   if (param === '2' || param === 'b' || param === 'B') return 'b';
@@ -71,6 +72,8 @@ export function useBattleSync(
   const lastSurrenderSeqRef = useRef<number | null>(null);
   const lastScenarioEndSeqRef = useRef<number | null>(null);
   const lastBattleFieldRevisionRef = useRef<number | null>(null);
+  const suppressTurnReadyRef = useRef(false);
+  const confirmInFlightRef = useRef(false);
 
   const lastDetailRef = useRef<RoomDetailResponse | null>(null);
 
@@ -129,12 +132,14 @@ export function useBattleSync(
         if (turnRef.current !== st) {
           turnRef.current = st;
           setTurn(st);
+          suppressTurnReadyRef.current = false;
           setWaitingNextTurn(false);
         }
 
         const rev = data.battleFieldRevision ?? 0;
         const prevRev = lastBattleFieldRevisionRef.current;
         if (prevRev !== null && rev > prevRev) {
+          suppressTurnReadyRef.current = false;
           setWaitingNextTurn(false);
         }
         lastBattleFieldRevisionRef.current = rev;
@@ -144,6 +149,11 @@ export function useBattleSync(
           setWaitingNextTurn(false)
         } else if (hq?.pending) {
           setWaitingNextTurn(true)
+        } else if (data.battleTurnYouReady || data.battleTurnBusy) {
+          if (!suppressTurnReadyRef.current) setWaitingNextTurn(true)
+        } else if (!confirmInFlightRef.current) {
+          suppressTurnReadyRef.current = false
+          setWaitingNextTurn(false)
         }
 
         const seq = data.battleSurrenderSeq ?? 0;
@@ -205,6 +215,10 @@ export function useBattleSync(
       }
       if (msg.type === 'turnReady') {
         tryAddReadyTab(msg.tabId, msg.turn);
+        return;
+      }
+      if (msg.type === 'turnCancel') {
+        if (msg.turn === turnRef.current) readyTabsRef.current.delete(msg.tabId);
       }
     };
 
@@ -268,6 +282,8 @@ export function useBattleSync(
       return { ok: true };
     }
     if (apiRoomId != null && Number.isFinite(apiRoomId)) {
+      suppressTurnReadyRef.current = false;
+      confirmInFlightRef.current = true;
       setWaitingNextTurn(true);
       try {
         await postBattleOrders(apiRoomId, turnRef.current, ordersPayload ?? []);
@@ -275,6 +291,10 @@ export function useBattleSync(
         if (ready.battleHqRewrite?.youCanRewrite) {
           setWaitingNextTurn(false);
           return { ok: true, hqRewrite: ready.battleHqRewrite };
+        }
+        if (ready.cancelled) {
+          setWaitingNextTurn(false);
+          return { ok: true };
         }
         if (ready.battleHqRewrite?.pending) {
           return { ok: true, hqRewrite: ready.battleHqRewrite };
@@ -294,6 +314,8 @@ export function useBattleSync(
         setWaitingNextTurn(false);
         window.alert(msg);
         return { ok: false };
+      } finally {
+        confirmInFlightRef.current = false;
       }
     }
     setWaitingNextTurn(true);
@@ -302,6 +324,41 @@ export function useBattleSync(
     tryAddReadyTab(tabIdRef.current, t);
     return { ok: true };
   }, [apiRoomId, solo, tryAddReadyTab]);
+
+  const cancelNextTurn = useCallback(async () => {
+    if (solo) return;
+    if (apiRoomId != null && Number.isFinite(apiRoomId)) {
+      try {
+        const ready = await postBattleTurnReady(apiRoomId, turnRef.current, { cancel: true });
+        if (ready.battleTurnBusy) return;
+        suppressTurnReadyRef.current = true;
+        setWaitingNextTurn(false);
+        setRoomDetail((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            battleTurnYouReady: false,
+            battleTurnMembers: (prev.battleTurnMembers ?? []).map((m) =>
+              m.isYou ? { ...m, ready: false } : m,
+            ),
+          };
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Не удалось отменить ход';
+        if (msg.includes('считает ход')) return;
+        window.alert(msg);
+      }
+      return;
+    }
+    const t = turnRef.current;
+    readyTabsRef.current.delete(tabIdRef.current);
+    chRef.current?.postMessage({
+      type: 'turnCancel',
+      tabId: tabIdRef.current,
+      turn: t,
+    } satisfies BattleChannelMessage);
+    setWaitingNextTurn(false);
+  }, [apiRoomId, solo]);
 
   const confirmHqRewrite = useCallback(
     async (opts: { skip?: boolean; orders?: BattleOrderPayload[] }): Promise<ConfirmTurnResult> => {
@@ -336,6 +393,7 @@ export function useBattleSync(
     dismissScenarioOutcome,
     broadcastSurrender,
     confirmNextTurn,
+    cancelNextTurn,
     confirmHqRewrite,
     myBattleFaction,
     roomDetail,

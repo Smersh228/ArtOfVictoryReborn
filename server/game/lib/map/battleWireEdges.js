@@ -171,6 +171,7 @@ module.exports = {
   clearAllWireOnBuilds,
   clearWireEdgeOnBuilds,
   findMoveDir,
+  moveDirToVisualEdge,
   hasWireOnMoveDir,
   wireBlocksGroundMove,
   applyWireBreakthroughOnStep,

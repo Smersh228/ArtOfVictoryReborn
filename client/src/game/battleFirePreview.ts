@@ -17,14 +17,13 @@ import {
   computeOccupiedDotFireSectorCellIds,
   dotIntensityForTarget,
   dotRangeArrayForUnit,
-  hasDotOnCell,
   isDotFireShooter,
   unitFiresFromDot,
   unitInDot,
 } from './cellDot';
 import { applyAccuracyRangeShift, applyIntensityPenalty } from './battleEnvironment';
 import { canSpotHiddenTargetClient, isHiddenConcealedClient } from './battleHiddenState';
-import { isBuildFireTargetCell, unitHasBuildFire, unitCanRangedBuildFire } from './cellStructureHp';
+import { isBuildFireTargetCell, unitCanRangedBuildFire } from './cellStructureHp';
 
 export { isArmoredVehicleTarget } from './battleDesantCombat';
 
@@ -117,7 +116,7 @@ export function canRangedFireAtTarget(
   useReactiveFire?: boolean,
 ): boolean {
   if (orderKey !== 'fire' && orderKey !== 'fireHard') return true;
-  if (unitInDot(target) && unitCanRangedBuildFire(attacker, useReactiveFire)) return false;
+  if (unitInDot(target)) return false;
   if (isInfantryUnitType(attacker) && isArmoredVehicleTarget(target)) {
     const dotInt = dotIntensityForTarget(attacker, target.type);
     if (dotInt != null) {

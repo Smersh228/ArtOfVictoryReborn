@@ -8,47 +8,15 @@ const {
   isBattleAirUnit,
   ensureAirSortie,
   beginAirCooldown,
-  PATROL_MAX_TURNS,
   readFlightPathCellIds,
   readEffectivePathIndex,
   readAirFlightPositionCellId,
+  readAirFlightDurationMax,
+  ensureFlightTracking,
+  incrementFlightTurn,
+  isFlightLimitReached,
 } = require('./battleAirSortie')
 const airPatrol = require('./battleAirPatrol')
-
-function readAirFlightDurationMax(unit) {
-  const raw = unit?.airFlightTurns ?? unit?.airFlightDuration ?? unit?.flightDuration
-  const n = Number(raw)
-  if (Number.isFinite(n) && n > 0) return Math.floor(n)
-  return PATROL_MAX_TURNS
-}
-
-function ensureFlightTracking(unit) {
-  const sortie = ensureAirSortie(unit)
-  if (!Number.isFinite(Number(sortie.flightTurnsMax)) || Number(sortie.flightTurnsMax) <= 0) {
-    sortie.flightTurnsMax = readAirFlightDurationMax(unit)
-  }
-  if (!Number.isFinite(Number(sortie.flightTurnsUsed))) sortie.flightTurnsUsed = 0
-  return sortie
-}
-
-function incrementFlightTurn(unit, amount = 1) {
-  const sortie = ensureFlightTracking(unit)
-  sortie.flightTurnsUsed = (Number(sortie.flightTurnsUsed) || 0) + Math.max(0, Number(amount) || 0)
-  return sortie
-}
-
-function isFlightLimitReached(unit) {
-  const sortie = unit?.tactical?.airSortie
-  if (!sortie) return false
-  const phase = String(sortie.phase || '')
-  const orderKey = String(sortie.activeOrderKey || '')
-  if (phase === 'patrol' && (orderKey === 'patrol' || orderKey === 'intelligenceAir')) {
-    return false
-  }
-  const used = Number(sortie.flightTurnsUsed) || 0
-  const max = Number(sortie.flightTurnsMax) || readAirFlightDurationMax(unit)
-  return used >= max
-}
 
 function ensureTactical(unit) {
   if (!unit.tactical || typeof unit.tactical !== 'object') unit.tactical = {}
